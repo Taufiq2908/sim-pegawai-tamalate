@@ -1,0 +1,502 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RoleCode {
+  SUPER_ADMIN
+  VERIFIER
+  LEADER
+  EMPLOYEE
+}
+
+model OrganizationalUnit {
+  id           String               @id @default(uuid()) @db.Uuid
+  code         String               @unique @db.VarChar(20)
+  name         String               @db.VarChar(150)
+  type         String               @db.VarChar(30)
+  parentId     String?              @map("parent_id") @db.Uuid
+  parent       OrganizationalUnit?  @relation("OrgChildren", fields: [parentId], references: [id])
+  children     OrganizationalUnit[] @relation("OrgChildren")
+  leaderUserId String?              @map("leader_user_id") @db.Uuid
+  isActive     Boolean              @default(true) @map("is_active")
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime             @updatedAt @map("updated_at") @db.Timestamptz
+  employees    Employee[]
+  users        User[]               @relation("UserOrg")
+
+  @@map("organizational_units")
+}
+
+model Role {
+  id          String           @id @default(uuid()) @db.Uuid
+  code        RoleCode         @unique
+  name        String           @db.VarChar(100)
+  description String?
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String                   @id @default(uuid()) @db.Uuid
+  code        String                   @unique @db.VarChar(60)
+  resource    String                   @db.VarChar(30)
+  action      String                   @db.VarChar(30)
+  description String?
+  roles       RolePermission[]
+  overrides   UserPermissionOverride[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id") @db.Uuid
+  permissionId String     @map("permission_id") @db.Uuid
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Employee {
+  id               String             @id @default(uuid()) @db.Uuid
+  nip              String?            @unique @db.VarChar(30)
+  employeeNumber   String             @unique @map("employee_number") @db.VarChar(30)
+  name             String             @db.VarChar(150)
+  gender           String             @db.Char(1)
+  birthPlace       String?            @map("birth_place") @db.VarChar(100)
+  birthDate        DateTime?          @map("birth_date") @db.Date
+  employmentStatus String             @map("employment_status") @db.VarChar(20)
+  position         String             @db.VarChar(50)
+  rank             String?            @db.VarChar(20)
+  orgUnitId        String             @map("org_unit_id") @db.Uuid
+  orgUnit          OrganizationalUnit @relation(fields: [orgUnitId], references: [id])
+  phone            String?            @db.VarChar(20)
+  address          String?
+  joinDate         DateTime?          @map("join_date") @db.Date
+  isActive         Boolean            @default(true) @map("is_active")
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+  user             User?
+  leaveRequests    LeaveRequest[]
+  attendances      Attendance[]
+  kgbRequests      KgbRequest[]
+  warningLetters   WarningLetter[]
+
+  @@map("employees")
+}
+
+model User {
+  id            String                   @id @default(uuid()) @db.Uuid
+  username      String                   @unique @db.VarChar(50)
+  passwordHash  String                   @map("password_hash") @db.VarChar(255)
+  employeeId    String?                  @unique @map("employee_id") @db.Uuid
+  employee      Employee?                @relation(fields: [employeeId], references: [id])
+  role          RoleCode
+  position      String?                  @db.VarChar(50)
+  orgUnitId     String?                  @map("org_unit_id") @db.Uuid
+  orgUnit       OrganizationalUnit?      @relation("UserOrg", fields: [orgUnitId], references: [id])
+  isActive      Boolean                  @default(true) @map("is_active")
+  lastLoginAt   DateTime?                @map("last_login_at") @db.Timestamptz
+  createdAt     DateTime                 @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime                 @updatedAt @map("updated_at") @db.Timestamptz
+  overrides     UserPermissionOverride[]
+  uploadedDocs  LeaveDocument[]
+  actions       LeaveApproval[]          @relation("ActorActions")
+  createdLeaves LeaveRequest[]           @relation("CreatedLeaves")
+  recordedAttendances Attendance[]       @relation("RecordedAttendances")
+  createdLetters IncomingLetter[]        @relation("CreatedLetters")
+  sentDispositions LetterDisposition[]   @relation("SentDispositions")
+  receivedDispositions LetterDisposition[] @relation("ReceivedDispositions")
+  uploadedLetterDocs LetterDocument[]
+  createdKgb     KgbRequest[]           @relation("CreatedKgb")
+  kgbActions     KgbApproval[]          @relation("KgbActorActions")
+  uploadedKgbDocs KgbDocument[]
+  createdWarnings WarningLetter[]       @relation("CreatedWarnings")
+  createdOutgoing OutgoingLetter[]      @relation("CreatedOutgoing")
+  reservedOutgoing OutgoingLetter[]     @relation("ReservedOutgoing")
+  uploadedOutgoingDocs OutgoingDocument[]
+  createdExpeditions ExpeditionReceipt[] @relation("CreatedExpeditions")
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model UserPermissionOverride {
+  id           String     @id @default(uuid()) @db.Uuid
+  userId       String     @map("user_id") @db.Uuid
+  permissionId String     @map("permission_id") @db.Uuid
+  effect       String     @db.VarChar(10)
+  reason       String?    @db.VarChar(255)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+  @@map("user_permission_overrides")
+}
+
+model LeaveType {
+  id               String         @id @default(uuid()) @db.Uuid
+  code             String         @unique @db.VarChar(30)
+  name             String         @db.VarChar(100)
+  maxDays          Int?           @map("max_days")
+  requiresDocument Boolean        @default(false) @map("requires_document")
+  isActive         Boolean        @default(true) @map("is_active")
+  requests         LeaveRequest[]
+
+  @@map("leave_types")
+}
+
+model LeaveRequest {
+  id                 String          @id @default(uuid()) @db.Uuid
+  requestNumber      String          @unique @map("request_number") @db.VarChar(40)
+  employeeId         String          @map("employee_id") @db.Uuid
+  employee           Employee        @relation(fields: [employeeId], references: [id])
+  leaveTypeId        String          @map("leave_type_id") @db.Uuid
+  leaveType          LeaveType       @relation(fields: [leaveTypeId], references: [id])
+  startDate          DateTime        @map("start_date") @db.Date
+  endDate            DateTime        @map("end_date") @db.Date
+  totalDays          Int             @map("total_days")
+  reason             String
+  addressDuringLeave String?         @map("address_during_leave") @db.VarChar(255)
+  contactDuringLeave String?         @map("contact_during_leave") @db.VarChar(30)
+  status             String          @default("DRAFT") @db.VarChar(20)
+  submittedAt        DateTime?       @map("submitted_at") @db.Timestamptz
+  currentHolderRole  String?         @map("current_holder_role") @db.VarChar(20)
+  rejectionReason    String?         @map("rejection_reason")
+  revisionNote       String?         @map("revision_note")
+  createdBy          String          @map("created_by") @db.Uuid
+  creator            User            @relation("CreatedLeaves", fields: [createdBy], references: [id])
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+  documents          LeaveDocument[]
+  approvals          LeaveApproval[]
+
+  @@index([employeeId, status])
+  @@map("leave_requests")
+}
+
+model LeaveDocument {
+  id             String       @id @default(uuid()) @db.Uuid
+  leaveRequestId String       @map("leave_request_id") @db.Uuid
+  leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  docType        String       @map("doc_type") @db.VarChar(50)
+  originalName   String       @map("original_name") @db.VarChar(255)
+  storedPath     String       @map("stored_path") @db.VarChar(500)
+  mimeType       String       @map("mime_type") @db.VarChar(100)
+  sizeBytes      Int          @map("size_bytes")
+  uploadedBy     String       @map("uploaded_by") @db.Uuid
+  uploader       User         @relation(fields: [uploadedBy], references: [id])
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("leave_documents")
+}
+
+model LeaveApproval {
+  id             String       @id @default(uuid()) @db.Uuid
+  leaveRequestId String       @map("leave_request_id") @db.Uuid
+  leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  actorUserId    String       @map("actor_user_id") @db.Uuid
+  actor          User         @relation("ActorActions", fields: [actorUserId], references: [id])
+  actorRole      String       @map("actor_role") @db.VarChar(20)
+  actorPosition  String?      @map("actor_position") @db.VarChar(50)
+  fromStatus     String       @map("from_status") @db.VarChar(20)
+  toStatus       String       @map("to_status") @db.VarChar(20)
+  action         String       @db.VarChar(20)
+  note           String?
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([leaveRequestId])
+  @@map("leave_approvals")
+}
+
+model Attendance {
+  id         String   @id @default(uuid()) @db.Uuid
+  employeeId String   @map("employee_id") @db.Uuid
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  date       DateTime @db.Date
+  checkInAt  DateTime? @map("check_in_at") @db.Timestamptz
+  checkOutAt DateTime? @map("check_out_at") @db.Timestamptz
+  status     String   @db.VarChar(20)
+  method     String   @db.VarChar(20)
+  note       String?
+  recordedBy String   @map("recorded_by") @db.Uuid
+  recorder   User     @relation("RecordedAttendances", fields: [recordedBy], references: [id])
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@map("attendances")
+}
+
+model WarningLetter {
+  id           String   @id @default(uuid()) @db.Uuid
+  letterNumber String   @unique @map("letter_number") @db.VarChar(40)
+  employeeId   String   @map("employee_id") @db.Uuid
+  employee     Employee @relation(fields: [employeeId], references: [id])
+  weekStart    DateTime @map("week_start") @db.Date
+  weekEnd      DateTime @map("week_end") @db.Date
+  absenceCount Int      @map("absence_count")
+  content      String
+  createdBy    String   @map("created_by") @db.Uuid
+  creator      User     @relation("CreatedWarnings", fields: [createdBy], references: [id])
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([employeeId, weekStart])
+  @@map("warning_letters")
+}
+
+model KgbRequest {
+  id               String   @id @default(uuid()) @db.Uuid
+  requestNumber    String   @unique @map("request_number") @db.VarChar(40)
+  employeeId       String   @map("employee_id") @db.Uuid
+  employee         Employee @relation(fields: [employeeId], references: [id])
+  oldRank          String   @map("old_rank") @db.VarChar(20)
+  newRank          String   @map("new_rank") @db.VarChar(20)
+  oldSalary        Int      @map("old_salary")
+  newSalary        Int      @map("new_salary")
+  effectiveDate    DateTime @map("effective_date") @db.Date
+  note             String?
+  status           String   @default("DRAFT") @db.VarChar(20)
+  submittedAt      DateTime? @map("submitted_at") @db.Timestamptz
+  currentHolderRole String?  @map("current_holder_role") @db.VarChar(20)
+  rejectionReason  String?  @map("rejection_reason")
+  revisionNote     String?  @map("revision_note")
+  createdBy        String   @map("created_by") @db.Uuid
+  creator          User     @relation("CreatedKgb", fields: [createdBy], references: [id])
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  documents        KgbDocument[]
+  approvals        KgbApproval[]
+
+  @@index([employeeId, status])
+  @@map("kgb_requests")
+}
+
+model KgbDocument {
+  id           String     @id @default(uuid()) @db.Uuid
+  kgbRequestId String     @map("kgb_request_id") @db.Uuid
+  kgbRequest   KgbRequest @relation(fields: [kgbRequestId], references: [id], onDelete: Cascade)
+  docType      String     @map("doc_type") @db.VarChar(50)
+  originalName String     @map("original_name") @db.VarChar(255)
+  storedPath   String     @map("stored_path") @db.VarChar(500)
+  mimeType     String     @map("mime_type") @db.VarChar(100)
+  sizeBytes    Int        @map("size_bytes")
+  uploadedBy   String     @map("uploaded_by") @db.Uuid
+  uploader     User       @relation(fields: [uploadedBy], references: [id])
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("kgb_documents")
+}
+
+model KgbApproval {
+  id            String     @id @default(uuid()) @db.Uuid
+  kgbRequestId  String     @map("kgb_request_id") @db.Uuid
+  kgbRequest    KgbRequest @relation(fields: [kgbRequestId], references: [id], onDelete: Cascade)
+  actorUserId   String     @map("actor_user_id") @db.Uuid
+  actor         User       @relation("KgbActorActions", fields: [actorUserId], references: [id])
+  actorRole     String     @map("actor_role") @db.VarChar(20)
+  actorPosition String?    @map("actor_position") @db.VarChar(50)
+  fromStatus    String     @map("from_status") @db.VarChar(20)
+  toStatus      String     @map("to_status") @db.VarChar(20)
+  action        String     @db.VarChar(20)
+  note          String?
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([kgbRequestId])
+  @@map("kgb_approvals")
+}
+
+model IncomingLetter {
+  id             String   @id @default(uuid()) @db.Uuid
+  agendaNumber   String   @unique @map("agenda_number") @db.VarChar(40)
+  letterNumber   String   @map("letter_number") @db.VarChar(100)
+  sender         String   @db.VarChar(200)
+  subject        String
+  summary        String?  // ringkasan isi (lembar disposisi)
+  letterDate     DateTime @map("letter_date") @db.Date
+  receivedDate   DateTime @map("received_date") @db.Date
+  resolutionDate DateTime? @map("resolution_date") @db.Date // tanggal penyelesaian
+  priority       String   @default("BIASA") @db.VarChar(20)
+  secrecy        String   @default("B") @db.VarChar(5) // SR/R/B (sifat surat)
+  addressedTo    String?  @map("addressed_to") @db.VarChar(200) // instansi yang ditujukan
+  pic            String?  @db.VarChar(150) // penanggung jawab
+  remarks        String?  // ket (buku agenda)
+  classificationId String? @map("classification_id") @db.Uuid
+  classification ArchiveClassification? @relation(fields: [classificationId], references: [id])
+  status         String   @default("RECEIVED") @db.VarChar(20)
+  completionNote String?  @map("completion_note")
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz
+  archivedAt     DateTime? @map("archived_at") @db.Timestamptz
+  createdBy      String   @map("created_by") @db.Uuid
+  creator        User     @relation("CreatedLetters", fields: [createdBy], references: [id])
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  documents      LetterDocument[]
+  dispositions   LetterDisposition[]
+  expeditions    ExpeditionReceipt[]
+
+  @@index([status])
+  @@map("incoming_letters")
+}
+
+model LetterDisposition {
+  id           String   @id @default(uuid()) @db.Uuid
+  letterId     String   @map("letter_id") @db.Uuid
+  letter       IncomingLetter @relation(fields: [letterId], references: [id], onDelete: Cascade)
+  fromUserId   String   @map("from_user_id") @db.Uuid
+  fromUser     User     @relation("SentDispositions", fields: [fromUserId], references: [id])
+  toUserId     String   @map("to_user_id") @db.Uuid
+  toUser       User     @relation("ReceivedDispositions", fields: [toUserId], references: [id])
+  instruction  String
+  deadline     DateTime? @db.Date
+  status       String   @default("PENDING") @db.VarChar(20)
+  responseNote String?  @map("response_note")
+  respondedAt  DateTime? @map("responded_at") @db.Timestamptz
+  targetCode   String?  @map("target_code") @db.VarChar(30) // 1 dari 9 tujuan disposisi
+  targetName   String?  @map("target_name") @db.VarChar(150) // snapshot nama tujuan
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([letterId])
+  @@map("letter_dispositions")
+}
+
+model LetterDocument {
+  id           String   @id @default(uuid()) @db.Uuid
+  letterId     String   @map("letter_id") @db.Uuid
+  letter       IncomingLetter @relation(fields: [letterId], references: [id], onDelete: Cascade)
+  originalName String   @map("original_name") @db.VarChar(255)
+  storedPath   String   @map("stored_path") @db.VarChar(500)
+  mimeType     String   @map("mime_type") @db.VarChar(100)
+  sizeBytes    Int      @map("size_bytes")
+  uploadedBy   String   @map("uploaded_by") @db.Uuid
+  uploader     User     @relation(fields: [uploadedBy], references: [id])
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("letter_documents")
+}
+
+// Kode klasifikasi arsip (Permendagri 83/2022 + SE Sekda Makassar).
+model ArchiveClassification {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique @db.VarChar(30)
+  name      String   @db.VarChar(255)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  incoming  IncomingLetter[]
+  outgoing  OutgoingLetter[]
+
+  @@map("archive_classifications")
+}
+
+// 9 tujuan disposisi tetap Kecamatan Tamalate.
+model DispositionTarget {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique @db.VarChar(30)
+  name      String   @db.VarChar(150)
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+
+  @@map("disposition_targets")
+}
+
+model OutgoingLetter {
+  id               String   @id @default(uuid()) @db.Uuid
+  letterNumber     String   @unique @map("letter_number") @db.VarChar(150) // format lengkap SE
+  sequenceNumber   Int      @map("sequence_number")
+  year             Int
+  classificationId String   @map("classification_id") @db.Uuid
+  classification   ArchiveClassification @relation(fields: [classificationId], references: [id])
+  subject          String
+  recipient        String?  @db.VarChar(200) // tujuan (wajib saat ISSUED)
+  letterDate       DateTime @map("letter_date") @db.Date // tanggal surat (boleh < tanggal catat)
+  priority         String   @default("BIASA") @db.VarChar(20)
+  secrecy          String   @default("B") @db.VarChar(5)
+  signerName       String?  @map("signer_name") @db.VarChar(150) // pejabat penandatangan
+  status           String   @default("ISSUED") @db.VarChar(20) // RESERVED|ISSUED|CANCELLED
+  reservationReason String? @map("reservation_reason")
+  cancelReason     String?  @map("cancel_reason")
+  reservedBy       String?  @map("reserved_by") @db.Uuid
+  reserver         User?    @relation("ReservedOutgoing", fields: [reservedBy], references: [id])
+  reservedAt       DateTime? @map("reserved_at") @db.Timestamptz
+  issuedAt         DateTime? @map("issued_at") @db.Timestamptz
+  cancelledAt      DateTime? @map("cancelled_at") @db.Timestamptz
+  createdBy        String   @map("created_by") @db.Uuid
+  creator          User     @relation("CreatedOutgoing", fields: [createdBy], references: [id])
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz // tanggal pencatatan
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  documents        OutgoingDocument[]
+
+  @@unique([year, sequenceNumber])
+  @@index([status])
+  @@map("outgoing_letters")
+}
+
+model OutgoingDocument {
+  id           String         @id @default(uuid()) @db.Uuid
+  letterId     String         @map("letter_id") @db.Uuid
+  letter       OutgoingLetter @relation(fields: [letterId], references: [id], onDelete: Cascade)
+  originalName String         @map("original_name") @db.VarChar(255)
+  storedPath   String         @map("stored_path") @db.VarChar(500)
+  mimeType     String         @map("mime_type") @db.VarChar(100)
+  sizeBytes    Int            @map("size_bytes")
+  uploadedBy   String         @map("uploaded_by") @db.Uuid
+  uploader     User           @relation(fields: [uploadedBy], references: [id])
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("outgoing_documents")
+}
+
+// Sequence nomor surat keluar per tahun (sumber nomor urut).
+model NumberingSequence {
+  year       Int      @id
+  lastNumber Int      @default(0) @map("last_number")
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("numbering_sequences")
+}
+
+// Buku ekspedisi: tanda terima penyerahan surat masuk.
+model ExpeditionReceipt {
+  id             String   @id @default(uuid()) @db.Uuid
+  regNumber      String   @unique @map("reg_number") @db.VarChar(40)
+  letterId       String   @map("letter_id") @db.Uuid
+  letter         IncomingLetter @relation(fields: [letterId], references: [id], onDelete: Cascade)
+  receiptDate    DateTime @map("receipt_date") @db.Date // tanggal hari ini
+  receiverName   String   @map("receiver_name") @db.VarChar(150) // penerima surat
+  signatureName  String?  @map("signature_name") @db.VarChar(150) // paraf
+  note           String?
+  createdBy      String   @map("created_by") @db.Uuid
+  creator        User     @relation("CreatedExpeditions", fields: [createdBy], references: [id])
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("expedition_receipts")
+}
+
+// Notifikasi dalam aplikasi (mis. disposisi baru untuk penerima).
+model Notification {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type          String   @db.VarChar(30) // DISPOSITION
+  title         String   @db.VarChar(255)
+  body          String?
+  referenceType String?  @map("reference_type") @db.VarChar(50)
+  referenceId   String?  @map("reference_id") @db.Uuid
+  isRead        Boolean  @default(false) @map("is_read")
+  readAt        DateTime? @map("read_at") @db.Timestamptz
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}

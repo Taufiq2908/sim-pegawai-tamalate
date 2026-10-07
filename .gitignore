@@ -1,0 +1,24 @@
+# root
+node_modules/
+dist/
+build/
+.next/
+out/
+
+# env (jangan commit kredensial)
+.env
+.env*.local
+
+# uploads & logs
+uploads/
+*.log
+npm-debug.log
+
+# prisma generated client (regenerate via `prisma generate`)
+backend/src/generated/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
