@@ -10,6 +10,7 @@ function Post-Json($uri, $headers, $obj) {
 function CodeOf($e) { try { [int]$e.Exception.Response.StatusCode.value__ } catch { -1 } }
 $tPeg = Get-Tok 'pegawai1' 'Pegawai123!'
 $tVer = Get-Tok 'verifier1' 'Verifier123!'
+$tKas = Get-Tok 'kasubag1' 'Kasubag123!'
 $mePeg = Invoke-RestMethod -Uri ($base + '/auth/me') -Headers (Get-H $tPeg)
 'PERMS pegawai: ' + ($mePeg.data.permissions -join ',')
 $empId = $mePeg.data.employee.id
@@ -45,8 +46,8 @@ try {
 'MANUAL: ' + $m.data.status
 $p = Invoke-RestMethod -Method Patch -Uri ($base + '/attendances/' + $m.data.id) -Headers (Get-H $tVer) -ContentType 'application/json' -Body (@{ status = 'IZIN'; note = 'izin tertulis' } | ConvertTo-Json)
 'KOREKSI: ' + $p.data.status + ' note=' + $p.data.note
-# 5. rekap bulan berjalan
-$s = Invoke-RestMethod -Uri ($base + '/attendances/summary') -Headers (Get-H $tVer)
+# 5. rekap bulan berjalan (oleh Kasubag/pemeriksa)
+$s = Invoke-RestMethod -Uri ($base + '/attendances/summary') -Headers (Get-H $tKas)
 'SUMMARY: ' + $s.meta.totalEmployees + ' pegawai, ' + $s.data.Count + ' baris'
 # 6. negatif: pegawai input manual (403), pegawai summary (403), masa depan (422)
 try { Post-Json ($base + '/attendances') (Get-H $tPeg) @{ employeeId = $empId; date = $yesterday; status = 'IZIN' } | Out-Null; 'NEG1 FAIL' } catch { 'NEG1 pegawai-manual: ' + (CodeOf $_) }

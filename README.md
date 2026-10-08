@@ -35,8 +35,9 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e-cuti.ps1
 Catatan jaringan: bila port 5432/6543 diblokir (WiFi kantor), gunakan tethering,
 atau apply `backend/db/migration.sql` + `backend/db/seed.sql` via Supabase SQL Editor.
 
-Akun demo: `superadmin/Admin123!`, `verifier1/Verifier123!`, `sekcam1/Sekcam123!`,
-`camat1/Camat123!`, `pegawai1/Pegawai123!`.
+Akun demo: `superadmin/Admin123!`, `verifier1/Verifier123!` (Staf Kepegawaian/operator),
+`kasubag1/Kasubag123!` (Kasubag/pemeriksa), `sekcam1/Sekcam123!`,
+`camat1/Camat123!`, `pegawai1/Pegawai123!` (kecamatan), `pegawai2/Pegawai123!` (kelurahan).
 
 ## Frontend — quickstart
 

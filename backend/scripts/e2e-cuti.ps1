@@ -9,6 +9,7 @@ function Post-Json($uri, $headers, $obj) {
 }
 $tPeg = Get-Tok 'pegawai1' 'Pegawai123!'
 $tVer = Get-Tok 'verifier1' 'Verifier123!'
+$tKas = Get-Tok 'kasubag1' 'Kasubag123!'
 $tSek = Get-Tok 'sekcam1' 'Sekcam123!'
 $tCam = Get-Tok 'camat1' 'Camat123!'
 $c = Post-Json ($base + '/leave-requests') (Get-H $tPeg) @{ leaveTypeCode = 'TAHUNAN'; startDate = '2026-10-20'; endDate = '2026-10-22'; reason = 'Acara keluarga penting' }
@@ -23,11 +24,14 @@ Remove-Item tmp-sk.pdf, tmp-form.pdf
 'DOCS: 2 berkas diupload'
 $steps = @(
   @{ t = $tPeg; act = 'submit' },
-  @{ t = $tVer; act = 'verify' },
+  @{ t = $tKas; act = 'verify' },
   @{ t = $tSek; act = 'paraf' },
   @{ t = $tCam; act = 'approve' },
   @{ t = $tCam; act = 'sign' },
-  @{ t = $tCam; act = 'complete' }
+  @{ t = $tVer; act = 'register' },
+  @{ t = $tVer; act = 'tobkpsdm' },
+  @{ t = $tVer; act = 'receiveresult' },
+  @{ t = $tVer; act = 'archive' }
 )
 foreach ($s in $steps) {
   $r = Post-Json ($base + '/leave-requests/' + $id + '/' + $s.act) (Get-H $s.t) @{ note = 'ok' }

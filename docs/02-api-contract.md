@@ -26,7 +26,7 @@
     "role": "EMPLOYEE",
     "position": "STAF",
     "orgUnit": { "id": "uuid", "code": "KEC-TAMALATE", "name": "Kecamatan Tamalate" },
-    "employee": { "id": "uuid", "nip": "198...", "name": "Ahmad", "employmentStatus": "PNS" },
+    "employee": { "id": "uuid", "nip": "198...", "name": "Ahmad", "position": "STAF", "rank": "III/a", "joinDate": "2022-03-01", "employmentStatus": "PNS", "orgUnit": { "code": "KEC-TAMALATE", "name": "Kecamatan Tamalate" } },
     "permissions": ["auth.me","leave.view","leave.create","leave.submit","leave.document.upload"]
   }
 }
@@ -45,6 +45,10 @@ Header Bearer wajib. Body: `{ "refreshToken": "..." }` (opsional, untuk revoke).
 Header Bearer wajib. Response = objek `user` sama seperti di login (tanpa token).
 
 Frontend: simpan `permissions` di memory, gunakan untuk show/hide tombol. Tapi tetap handle 403 dari backend.
+DATA PEGAWAI form cuti langsung dari `user.employee` di atas
+(nama, NIP, jabatan=`position`, masa kerja=hitung dari `joinDate`, unit kerja=`orgUnit`)
+— frontend tidak perlu fetch tambahan. Daftar 6 jenis cuti dari `GET /leave-types`:
+TAHUNAN, BESAR, SAKIT, MELAHIRKAN, ALASAN_PENTING, LUAR_TANGGUNGAN.
 
 ## 2. Cuti — Daftar & Detail
 
@@ -123,14 +127,23 @@ Setiap sukses → 200 dengan objek detail baru (status berubah) + timeline berta
 
 | endpoint | perm | dari status | ke status |
 |---|---|---|---|
-| POST /leave-requests/:id/submit | leave.submit | DRAFT,REVISION | SUBMITTED |
-| POST /leave-requests/:id/verify | leave.verify | SUBMITTED | VERIFIED |
+| POST /leave-requests/:id/submit | leave.submit | DRAFT,REVISION | SUBMITTED (pemilik) |
+| POST /leave-requests/:id/verify | leave.verify | SUBMITTED | VERIFIED (Kasubag — `kasubag1`) |
 | POST /leave-requests/:id/revise | leave.verify | SUBMITTED | REVISION |
 | POST /leave-requests/:id/paraf | leave.paraf | VERIFIED | PARAF |
-| POST /leave-requests/:id/approve | leave.approve | PARAF | APPROVED |
+| POST /leave-requests/:id/approve | leave.approve | PARAF (atau VERIFIED khusus pemohon SEKCAM) | APPROVED |
 | POST /leave-requests/:id/sign | leave.sign | APPROVED | SIGNED |
-| POST /leave-requests/:id/complete | leave.sign | SIGNED | COMPLETED |
+| POST /leave-requests/:id/register | leave.register | SIGNED | REGISTERED (staf kecamatan saja) |
+| POST /leave-requests/:id/tobkpsdm | leave.register | REGISTERED | SUBMITTED_BKPSDMD (staf kecamatan saja) |
+| POST /leave-requests/:id/receiveresult | leave.register | SUBMITTED_BKPSDMD | COMPLETED (hasil BKPSDMD diterima + diserahkan) |
+| POST /leave-requests/:id/complete | leave.sign | FORWARDED (jalur Camat→Sekda) | COMPLETED |
+| POST /leave-requests/:id/archive | leave.register | COMPLETED | ARCHIVED (staf kecamatan saja) |
+| POST /leave-requests/:id/forward | leave.forward | VERIFIED (khusus pemohon CAMAT) | FORWARDED |
 | POST /leave-requests/:id/reject | leave.reject | SUBMITTED,VERIFIED,PARAF | REJECTED |
+
+Pengecualian jabatan: pemohon SEKCAM lompat-paraf (`approve` langsung dari VERIFIED,
+`paraf` ditolak 422); pemohon CAMAT diteruskan ke Sekda via `forward` (bukan `approve`);
+penerusan BKPSDMD/arsip hanya staf kecamatan (403 bila operator kelurahan).
 
 Contoh:
 ```http

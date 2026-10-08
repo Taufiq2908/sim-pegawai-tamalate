@@ -47,7 +47,7 @@ function toDetail(r: any, perms: string[]) {
 }
 
 const includeDetail = {
-  employee: true,
+  employee: { include: { orgUnit: true } },
   leaveType: true,
   documents: true,
   approvals: { include: { actor: { omit: { passwordHash: true } } }, orderBy: { createdAt: 'asc' as const } },
@@ -69,7 +69,7 @@ router.get('/', requirePermission('leave.view'), async (req, res) => {
     prisma.leaveRequest.count({ where }),
     prisma.leaveRequest.findMany({
       where,
-      include: { employee: true, leaveType: true },
+      include: { employee: { include: { orgUnit: true } }, leaveType: true },
       orderBy: { createdAt: 'desc' },
       skip: (p - 1) * l,
       take: l,
@@ -218,7 +218,7 @@ router.get('/:id/documents/:docId/download', requirePermission('leave.view'), as
   return res.download(doc.storedPath, doc.originalName);
 });
 
-// POST /leave-requests/:id/:action (submit/verify/revise/paraf/approve/sign/complete/reject)
+// POST /leave-requests/:id/:action (submit/verify/revise/paraf/approve/sign/register/tobkpsdm/receiveresult/complete/archive/forward/reject)
 router.post('/:id/:action', async (req, res) => {
   const { action } = req.params;
   const t = TRANSITIONS[action];
@@ -241,6 +241,29 @@ router.post('/:id/:action', async (req, res) => {
   }
   if (!t.from.includes(r.status)) {
     return fail(res, 409, `Status harus ${t.from.join('/')} , saat ini ${r.status}`);
+  }
+  // Data pemohon (dibutuhkan untuk exception jabatan + asal unit).
+  const applicant = await prisma.employee.findUnique({
+    where: { id: r.employeeId },
+    include: { orgUnit: true },
+  });
+  // Lompat-paraf: approve langsung dari VERIFIED hanya untuk pemohon SEKCAM.
+  // Pemohon lain wajib lewat PARAF. Paraf untuk pemohon SEKCAM ditolak.
+  if (action === 'approve' && r.status === 'VERIFIED' && applicant?.position !== 'SEKCAM') {
+    return fail(res, 422, 'Persetujuan harus dari PARAF (kecuali pemohon Sekcam)');
+  }
+  if (action === 'paraf' && applicant?.position === 'SEKCAM') {
+    return fail(res, 422, 'Pengajuan Sekcam langsung ke Camat tanpa paraf Sekcam');
+  }
+  // Ekor BKPSDMD + arsip hanya boleh dijalankan staf kecamatan
+  // (pemohon kelurahan tetap boleh mengajukan, tapi penerusan ke BKPSDMD oleh kecamatan).
+  if (['register', 'tobkpsdm', 'receiveresult', 'archive'].includes(action) && req.user!.role !== 'SUPER_ADMIN') {
+    const operatorOrg = req.user!.orgUnitId
+      ? await prisma.organizationalUnit.findUnique({ where: { id: req.user!.orgUnitId } })
+      : null;
+    if (!operatorOrg || operatorOrg.code !== 'KEC-TAMALATE') {
+      return fail(res, 403, 'Registrasi/penerusan BKPSDMD/arsip hanya oleh staf kecamatan');
+    }
   }
   // Forward ke Sekda hanya untuk pengajuan Camat.
   if (action === 'forward') {

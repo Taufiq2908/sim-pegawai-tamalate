@@ -10,6 +10,7 @@ function Post-Json($uri, $headers, $obj) {
 function CodeOf($e) { try { [int]$e.Exception.Response.StatusCode.value__ } catch { -1 } }
 $tPeg = Get-Tok 'pegawai1' 'Pegawai123!'
 $tVer = Get-Tok 'verifier1' 'Verifier123!'
+$tKas = Get-Tok 'kasubag1' 'Kasubag123!'
 $tSek = Get-Tok 'sekcam1' 'Sekcam123!'
 $tCam = Get-Tok 'camat1' 'Camat123!'
 
@@ -24,7 +25,7 @@ $id = $c.data.id
 'CREATE: ' + $c.data.status + ' ' + $c.data.requestNumber
 $steps = @(
   @{ t = $tPeg; act = 'submit' },
-  @{ t = $tVer; act = 'verify' },
+  @{ t = $tKas; act = 'verify' },
   @{ t = $tSek; act = 'paraf' },
   @{ t = $tCam; act = 'approve' },
   @{ t = $tCam; act = 'complete' }

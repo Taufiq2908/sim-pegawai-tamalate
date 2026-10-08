@@ -9,6 +9,7 @@ function Post-Json($uri, $headers, $obj) {
 }
 function CodeOf($e) { try { [int]$e.Exception.Response.StatusCode.value__ } catch { -1 } }
 $ver = Get-Login 'verifier1' 'Verifier123!'
+$kas = Get-Login 'kasubag1' 'Kasubag123!'
 $cam = Get-Login 'camat1' 'Camat123!'
 $sek = Get-Login 'sekcam1' 'Sekcam123!'
 $peg = Get-Login 'pegawai1' 'Pegawai123!'
@@ -24,8 +25,8 @@ if ($blob -match 'passwordHash') { 'LEAK FAIL: passwordHash ditemukan' } else { 
 'EMPLOYEES: ' + $em.meta.total + ' | USERS: ' + $us.meta.total
 try { Invoke-RestMethod -Uri ($base + '/users') -Headers (Get-H $peg.accessToken) | Out-Null; 'U1 FAIL' } catch { 'U1 pegawai-users: ' + (CodeOf $_) }
 
-# 2. problematic per sesi (pekan kosong -> 10 sesi)
-$p = Invoke-RestMethod -Uri ($base + '/attendances/problematic?weekStart=2026-09-28') -Headers (Get-H $ver.accessToken)
+# 2. problematic per sesi (pekan kosong -> 10 sesi), dibaca Kasubag
+$p = Invoke-RestMethod -Uri ($base + '/attendances/problematic?weekStart=2026-09-28') -Headers (Get-H $kas.accessToken)
 'SESI: ' + $p.data.Count + ' bermasalah, cth absence=' + $p.data[0].absenceCount + ' hari=' + $p.data[0].days.Count + ' d1=' + ($p.data[0].days[0] | ConvertTo-Json -Compress)
 
 # 3. foto sesi
@@ -38,15 +39,15 @@ try { curl.exe -s -X POST -H ('Authorization: Bearer ' + $ver.accessToken) -F ('
 $phl = Invoke-RestMethod -Uri ($base + '/attendances/session-photos') -Headers (Get-H $ver.accessToken)
 'FOTO LIST: ' + $phl.data.Count + ' foto'
 
-# 4. summon + coaching
-$wl = Invoke-RestMethod -Uri ($base + '/attendances/warning-letters?limit=5') -Headers (Get-H $ver.accessToken)
+# 4. summon + coaching (daftar dibaca Kasubag, aksi oleh staf)
+$wl = Invoke-RestMethod -Uri ($base + '/attendances/warning-letters?limit=5') -Headers (Get-H $kas.accessToken)
 $wid = $wl.data[0].id
 try { Invoke-RestMethod -Method Patch -Uri ($base + '/attendances/warning-letters/' + $wid + '/coaching') -Headers (Get-H $ver.accessToken) -ContentType 'application/json' -Body (@{ result = 'x'*10; followUp = 'BKPSDM' } | ConvertTo-Json) | Out-Null; 'C0 FAIL' } catch { 'C0 coaching-tanpa-summon: ' + (CodeOf $_) }
 $sm = Post-Json ($base + '/attendances/warning-letters/' + $wid + '/summon') (Get-H $ver.accessToken) @{ scheduledAt = '2026-10-09T02:00:00Z'; note = 'Ruang sekcam' }
 'SUMMON: ' + $sm.data.summonScheduledAt
 $co = Invoke-RestMethod -Method Patch -Uri ($base + '/attendances/warning-letters/' + $wid + '/coaching') -Headers (Get-H $ver.accessToken) -ContentType 'application/json' -Body (@{ result = 'Tidak ada perbaikan, diteruskan'; followUp = 'BKPSDM' } | ConvertTo-Json)
 'COACHING: followUp=' + $co.data.coachingFollowUp
-$bk = Invoke-RestMethod -Uri ($base + '/attendances/warning-letters?followUp=BKPSDM') -Headers (Get-H $ver.accessToken)
+$bk = Invoke-RestMethod -Uri ($base + '/attendances/warning-letters?followUp=BKPSDM') -Headers (Get-H $kas.accessToken)
 'BKPSDM filter: ' + $bk.meta.total
 
 # 5. paraf sekcam -> disposisi (distributedAt terisi)

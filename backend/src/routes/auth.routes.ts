@@ -13,7 +13,7 @@ async function userPayload(userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: {
-      employee: true,
+      employee: { include: { orgUnit: true } },
       orgUnit: true,
     },
   });
@@ -25,8 +25,15 @@ async function userPayload(userId: string) {
     role: user.role,
     position: user.position,
     orgUnit: user.orgUnit ? { id: user.orgUnit.id, code: user.orgUnit.code, name: user.orgUnit.name } : null,
+    // DATA PEGAWAI untuk form (nama, NIP, jabatan=position, masa kerja dihitung frontend dari joinDate, unit kerja).
     employee: user.employee
-      ? { id: user.employee.id, nip: user.employee.nip, name: user.employee.name, employmentStatus: user.employee.employmentStatus }
+      ? {
+          id: user.employee.id, nip: user.employee.nip, name: user.employee.name,
+          position: user.employee.position, rank: user.employee.rank,
+          joinDate: user.employee.joinDate ? user.employee.joinDate.toISOString().slice(0, 10) : null,
+          employmentStatus: user.employee.employmentStatus,
+          orgUnit: user.employee.orgUnit ? { id: user.employee.orgUnit.id, code: user.employee.orgUnit.code, name: user.employee.orgUnit.name } : null,
+        }
       : null,
     permissions,
   };
