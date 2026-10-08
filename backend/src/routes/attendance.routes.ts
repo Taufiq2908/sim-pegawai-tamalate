@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
@@ -18,6 +21,15 @@ import {
 
 const router = Router();
 router.use(authRequired);
+
+fs.mkdirSync(env.uploadDir, { recursive: true });
+const photoUpload = multer({
+  dest: env.uploadDir,
+  limits: { fileSize: env.maxFileBytes },
+  fileFilter: (_req, file, cb) => {
+    cb(null, ['image/jpeg', 'image/jpg', 'image/png'].includes(file.mimetype));
+  },
+});
 
 const STATUS = ['HADIR', 'TERLAMBAT', 'IZIN', 'SAKIT', 'ALPA'] as const;
 const PRESENCE = ['HADIR', 'TERLAMBAT'];
@@ -225,8 +237,9 @@ router.get('/report', requirePermission('attendance.view'), async (req, res) => 
   return ok(res, rows, 'ok', { date: dateStr });
 });
 
-// Absen = hari kerja Senin–Jumat tanpa HADIR/TERLAMBAT.
-// IZIN/SAKIT resmi tidak dihitung absen. >= 5 hari dalam sepekan = bermasalah.
+// 1 hari kerja = 2 sesi (PAGI apel masuk, SORE apel pulang). 1 sesi tak hadir = 1 ketidakhadiran.
+// IZIN/SAKIT sehari penuh memaafkan kedua sesi. >= 5 sesi dalam sepekan = bermasalah.
+type SessionVal = 'HADIR' | 'TERLAMBAT' | 'IZIN' | 'SAKIT' | 'ABSEN';
 async function problematicOfWeek(weekStart: string) {
   const days = workdaysOfWeek(weekStart);
   const from = parseYMD(days[0])!;
@@ -235,22 +248,30 @@ async function problematicOfWeek(weekStart: string) {
   const records = await prisma.attendance.findMany({
     where: { date: { gte: from, lte: to } },
   });
-  const present: Record<string, Set<string>> = {};
-  const excused: Record<string, Set<string>> = {};
+  const byEmpDay: Record<string, any> = {};
   for (const r of records) {
-    const ymd = r.date.toISOString().slice(0, 10);
-    if (['HADIR', 'TERLAMBAT'].includes(r.status)) {
-      (present[r.employeeId] ??= new Set()).add(ymd);
-    } else if (['IZIN', 'SAKIT'].includes(r.status)) {
-      (excused[r.employeeId] ??= new Set()).add(ymd);
-    }
+    byEmpDay[`${r.employeeId}|${r.date.toISOString().slice(0, 10)}`] = r;
   }
   return employees
     .map((e) => {
-      const absentDates = days.filter(
-        (d) => !present[e.id]?.has(d) && !excused[e.id]?.has(d),
-      );
-      return { employee: e, absenceCount: absentDates.length, absentDates };
+      const dayRows = days.map((d) => {
+        const r = byEmpDay[`${e.id}|${d}`];
+        let pagi: SessionVal = 'ABSEN';
+        let sore: SessionVal = 'ABSEN';
+        if (r) {
+          if (r.status === 'HADIR' || r.status === 'TERLAMBAT') {
+            pagi = r.status;
+            sore = r.checkOutAt ? 'HADIR' : 'ABSEN';
+          } else if (r.status === 'IZIN' || r.status === 'SAKIT') {
+            pagi = r.status;
+            sore = r.status;
+          }
+        }
+        return { date: d, pagi, sore };
+      });
+      const absenceCount = dayRows.filter((x) => x.pagi === 'ABSEN').length
+        + dayRows.filter((x) => x.sore === 'ABSEN').length;
+      return { employee: e, absenceCount, dayRows };
     })
     .filter((x) => x.absenceCount >= 5)
     .map((x) => ({
@@ -258,7 +279,7 @@ async function problematicOfWeek(weekStart: string) {
       weekStart: days[0],
       weekEnd: days[4],
       absenceCount: x.absenceCount,
-      absentDates: x.absentDates,
+      days: x.dayRows,
     }));
 }
 
@@ -299,8 +320,8 @@ router.post('/warning-letters/generate', requirePermission('attendance.manage'),
       `SURAT TEGURAN (DUMMY) Nomor: ${letterNumber}\n` +
       `Kepada Yth. Sdr/i ${it.employee.name} (${it.employee.position})\n` +
       `Berdasarkan data presensi apel periode ${it.weekStart} s.d. ${it.weekEnd}, ` +
-      `Saudara tercatat tidak hadir sebanyak ${it.absenceCount} hari kerja ` +
-      `(${it.absentDates.join(', ')}) tanpa keterangan resmi, sehingga masuk kategori pegawai bermasalah. ` +
+      `Saudara tercatat tidak hadir sebanyak ${it.absenceCount} sesi apel ` +
+      `tanpa keterangan resmi, sehingga masuk kategori pegawai bermasalah. ` +
       `Diminta memperbaiki kedisiplinan kehadiran. [Dokumen dummy untuk demo.]`;
     const created = await prisma.warningLetter.create({
       data: {
@@ -320,12 +341,18 @@ router.post('/warning-letters/generate', requirePermission('attendance.manage'),
 
 // ---------- GET /attendances/warning-letters ----------
 router.get('/warning-letters', requirePermission('attendance.summary'), async (req, res) => {
-  const { page = '1', limit = '10' } = req.query as any;
+  const { page = '1', limit = '10', followUp } = req.query as any;
+  const where: any = {};
+  if (followUp) {
+    if (!['NONE', 'BKPSDM'].includes(followUp)) return fail(res, 422, 'followUp tidak valid (NONE|BKPSDM)');
+    where.coachingFollowUp = followUp;
+  }
   const p = Math.max(1, Number(page) || 1);
   const l = Math.min(100, Number(limit) || 10);
   const [total, items] = await Promise.all([
-    prisma.warningLetter.count(),
+    prisma.warningLetter.count({ where }),
     prisma.warningLetter.findMany({
+      where,
       include: { employee: true },
       orderBy: { createdAt: 'desc' },
       skip: (p - 1) * l,
@@ -343,6 +370,127 @@ router.get('/warning-letters/:id', requirePermission('attendance.summary'), asyn
   });
   if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
   return ok(res, w);
+});
+
+// ---------- POST /attendances/warning-letters/:id/summon (surat panggilan) ----------
+router.post('/warning-letters/:id/summon', requirePermission('attendance.manage'), async (req, res) => {
+  const schema = z.object({
+    scheduledAt: z.string().datetime({ offset: true }),
+    note: z.string().max(500).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+  const w = await prisma.warningLetter.findUnique({ where: { id: req.params.id } });
+  if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
+  const updated = await prisma.warningLetter.update({
+    where: { id: w.id },
+    data: { summonScheduledAt: new Date(parsed.data.scheduledAt), summonNote: parsed.data.note ?? null },
+  });
+  return ok(res, updated, 'Panggilan pembinaan dijadwalkan');
+});
+
+// ---------- PATCH /attendances/warning-letters/:id/coaching (hasil pembinaan) ----------
+router.patch('/warning-letters/:id/coaching', requirePermission('attendance.manage'), async (req, res) => {
+  const schema = z.object({
+    result: z.string().min(5, 'Hasil pembinaan wajib diisi'),
+    followUp: z.enum(['NONE', 'BKPSDM']),
+    note: z.string().max(500).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+  const w = await prisma.warningLetter.findUnique({ where: { id: req.params.id } });
+  if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
+  if (!w.summonScheduledAt) return fail(res, 422, 'Buat surat panggilan dulu (summon)');
+  const updated = await prisma.warningLetter.update({
+    where: { id: w.id },
+    data: {
+      coachingResult: parsed.data.result,
+      coachingFollowUp: parsed.data.followUp,
+      summonNote: parsed.data.note ?? w.summonNote,
+      coachedAt: new Date(),
+    },
+  });
+  return ok(res, updated, 'Hasil pembinaan dicatat');
+});
+
+// ---------- POST /attendances/session-photos (foto dokumentasi apel per sesi) ----------
+router.post('/session-photos', requirePermission('attendance.manage'), (req, res) => {
+  photoUpload.single('file')(req as any, res as any, async (err: any) => {
+    if (err) return fail(res, 400, err.message);
+    const schema = z.object({
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      session: z.enum(['PAGI', 'SORE']),
+    });
+    const parsed = schema.safeParse(req.body);
+    const file = (req as any).file;
+    if (!parsed.success) {
+      if (file) fs.rmSync(file.path, { force: true });
+      return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+    }
+    if (!file) return fail(res, 422, 'file wajib (jpg/png, max 5MB)');
+    if (!parseYMD(parsed.data.date)) return fail(res, 422, 'date tidak valid');
+    const exists = await prisma.attendanceSessionPhoto.findUnique({
+      where: { date_session: { date: parseYMD(parsed.data.date)!, session: parsed.data.session } },
+    });
+    if (exists) {
+      fs.rmSync(file.path, { force: true });
+      return fail(res, 409, 'Foto sesi ini sudah ada');
+    }
+    const ext = path.extname(file.originalname);
+    const storedPath = file.path + ext;
+    fs.renameSync(file.path, storedPath);
+    const photo = await prisma.attendanceSessionPhoto.create({
+      data: {
+        date: parseYMD(parsed.data.date)!,
+        session: parsed.data.session,
+        originalName: file.originalname,
+        storedPath,
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+        uploadedBy: req.user!.id,
+      },
+    });
+    return res.status(201).json({
+      success: true,
+      message: 'Foto sesi diupload',
+      data: { ...photo, photoUrl: `/api/v1/attendances/session-photos/${photo.id}/file` },
+      meta: null,
+      errors: null,
+    });
+  });
+});
+
+// ---------- GET /attendances/session-photos ----------
+router.get('/session-photos', requirePermission('attendance.view'), async (req, res) => {
+  const { from, to } = req.query as any;
+  const where: any = {};
+  if (from || to) {
+    where.date = {};
+    if (from) {
+      if (!parseYMD(from)) return fail(res, 422, 'from tidak valid');
+      where.date.gte = parseYMD(from);
+    }
+    if (to) {
+      if (!parseYMD(to)) return fail(res, 422, 'to tidak valid');
+      where.date.lte = parseYMD(to);
+    }
+  }
+  const items = await prisma.attendanceSessionPhoto.findMany({
+    where,
+    orderBy: [{ date: 'desc' }, { session: 'asc' }],
+    take: 200,
+  });
+  return ok(res, items.map((p) => ({
+    ...p,
+    photoUrl: `/api/v1/attendances/session-photos/${p.id}/file`,
+  })));
+});
+
+// ---------- GET /attendances/session-photos/:id/file ----------
+router.get('/session-photos/:id/file', requirePermission('attendance.view'), async (req, res) => {
+  const p = await prisma.attendanceSessionPhoto.findUnique({ where: { id: req.params.id } });
+  if (!p || !fs.existsSync(p.storedPath)) return fail(res, 404, 'Foto tidak ditemukan');
+  return res.download(p.storedPath, p.originalName);
 });
 // ---------- GET /attendances/summary (rekap per pegawai) ----------
 router.get('/summary', requirePermission('attendance.summary'), async (req, res) => {

@@ -50,7 +50,7 @@ const includeDetail = {
   employee: true,
   leaveType: true,
   documents: true,
-  approvals: { include: { actor: true }, orderBy: { createdAt: 'asc' as const } },
+  approvals: { include: { actor: { omit: { passwordHash: true } } }, orderBy: { createdAt: 'asc' as const } },
 };
 
 // GET /leave-requests
@@ -235,12 +235,31 @@ router.post('/:id/:action', async (req, res) => {
 
   const r = await prisma.leaveRequest.findUnique({ where: { id: req.params.id } });
   if (!r) return fail(res, 404, 'Tidak ditemukan');
+  // Siapa pun (termasuk Camat/Super Admin) tidak boleh memproses pengajuan sendiri.
+  if (action !== 'submit' && r.createdBy === req.user!.id) {
+    return fail(res, 403, 'Tidak boleh memproses pengajuan sendiri');
+  }
   if (!t.from.includes(r.status)) {
     return fail(res, 409, `Status harus ${t.from.join('/')} , saat ini ${r.status}`);
+  }
+  // Forward ke Sekda hanya untuk pengajuan Camat.
+  if (action === 'forward') {
+    const emp = await prisma.employee.findUnique({ where: { id: r.employeeId } });
+    if (emp?.position !== 'CAMAT') {
+      return fail(res, 422, 'Forward ke Sekda hanya untuk pengajuan Camat');
+    }
+    if (!note) return fail(res, 422, 'note wajib untuk forward (catat nomor/tanggal penerusan ke Sekda)');
   }
   // ownership untuk submit
   if (action === 'submit' && req.user!.role === 'EMPLOYEE' && r.employeeId !== req.user!.employeeId) {
     return fail(res, 403, 'Bukan milikmu');
+  }
+  // Submit wajib melampirkan minimal 2 berkas, salah satunya SK terakhir.
+  if (action === 'submit') {
+    const docs = await prisma.leaveDocument.findMany({ where: { leaveRequestId: r.id }, select: { docType: true } });
+    if (docs.length < 2 || !docs.some((d) => d.docType === 'SK_TERAKHIR')) {
+      return fail(res, 422, 'Berkas belum lengkap: wajib ≥2 dokumen termasuk SK_TERAKHIR (mis. + SURAT_CUTI_SEBELUMNYA/FORM_CUTI)');
+    }
   }
 
   const updated = await prisma.$transaction(async (tx) => {

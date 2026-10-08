@@ -38,7 +38,9 @@ const PERMS = [
   ['kgb.approve', 'kgb', 'approve'],
   ['kgb.reject', 'kgb', 'reject'],
   ['kgb.document.upload', 'kgb', 'document.upload'],
+  ['leave.forward', 'leave', 'forward'],
   ['letter.expedition', 'letter', 'expedition'],
+  ['letter.paraf', 'letter', 'paraf'],
   ['outgoing.view', 'outgoing', 'view'],
   ['outgoing.create', 'outgoing', 'create'],
   ['outgoing.reserve', 'outgoing', 'reserve'],
@@ -47,8 +49,8 @@ const PERMS = [
 ] as const;
 
 const ROLE_MAP: Record<string, string[]> = {
-  VERIFIER: ['auth.me', 'employee.view', 'leave.view', 'leave.verify', 'leave.revise', 'leave.document.upload', 'leave.reject', 'attendance.view', 'attendance.manage', 'attendance.summary', 'letter.view', 'letter.create', 'letter.document.upload', 'letter.archive', 'letter.expedition', 'kgb.view', 'kgb.verify', 'kgb.revise', 'kgb.document.upload', 'kgb.reject', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel'],
-  LEADER: ['auth.me', 'employee.view', 'leave.view', 'leave.paraf', 'leave.approve', 'leave.reject', 'leave.sign', 'attendance.view', 'attendance.summary', 'letter.view', 'letter.dispose', 'letter.followup', 'letter.complete', 'kgb.view', 'kgb.paraf', 'kgb.approve', 'kgb.reject', 'outgoing.view'],
+  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.verify', 'leave.revise', 'leave.forward', 'leave.document.upload', 'leave.reject', 'attendance.view', 'attendance.manage', 'attendance.summary', 'letter.view', 'letter.create', 'letter.document.upload', 'letter.archive', 'letter.expedition', 'kgb.view', 'kgb.verify', 'kgb.revise', 'kgb.document.upload', 'kgb.reject', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel'],
+  LEADER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'leave.paraf', 'leave.approve', 'leave.reject', 'leave.sign', 'leave.forward', 'attendance.view', 'attendance.summary', 'letter.view', 'letter.dispose', 'letter.followup', 'letter.complete', 'letter.paraf', 'kgb.view', 'kgb.paraf', 'kgb.approve', 'kgb.reject', 'outgoing.view'],
   EMPLOYEE: ['auth.me', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.create', 'kgb.submit', 'kgb.document.upload'],
 };
 

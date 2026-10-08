@@ -1,4 +1,5 @@
 // Aturan transisi cuti: action -> {from, to, permission}
+// Khusus: FORWARDED hanya untuk pengajuan CAMAT (diteruskan ke Sekda, luar sistem).
 export const TRANSITIONS: Record<string, { from: string[]; to: string; permission: string; holderAfter: string }> = {
   submit:   { from: ['DRAFT', 'REVISION'], to: 'SUBMITTED', permission: 'leave.submit', holderAfter: 'VERIFIER' },
   verify:   { from: ['SUBMITTED'], to: 'VERIFIED', permission: 'leave.verify', holderAfter: 'LEADER' },
@@ -6,7 +7,8 @@ export const TRANSITIONS: Record<string, { from: string[]; to: string; permissio
   paraf:    { from: ['VERIFIED'], to: 'PARAF', permission: 'leave.paraf', holderAfter: 'LEADER' },
   approve:  { from: ['PARAF'], to: 'APPROVED', permission: 'leave.approve', holderAfter: 'LEADER' },
   sign:     { from: ['APPROVED'], to: 'SIGNED', permission: 'leave.sign', holderAfter: 'DONE' },
-  complete: { from: ['SIGNED'], to: 'COMPLETED', permission: 'leave.sign', holderAfter: 'DONE' },
+  complete: { from: ['SIGNED', 'FORWARDED'], to: 'COMPLETED', permission: 'leave.sign', holderAfter: 'DONE' },
+  forward:  { from: ['VERIFIED'], to: 'FORWARDED', permission: 'leave.forward', holderAfter: 'SEKDA' },
   reject:   { from: ['SUBMITTED', 'VERIFIED', 'PARAF'], to: 'REJECTED', permission: 'leave.reject', holderAfter: 'DONE' },
 };
 
@@ -14,12 +16,13 @@ export const TRANSITIONS: Record<string, { from: string[]; to: string; permissio
 const ACTION_PERM: Record<string, string> = {
   submit: 'leave.submit', verify: 'leave.verify', revise: 'leave.verify',
   paraf: 'leave.paraf', approve: 'leave.approve', sign: 'leave.sign',
-  complete: 'leave.sign', reject: 'leave.reject',
+  complete: 'leave.sign', forward: 'leave.forward', reject: 'leave.reject',
 };
 const ACTION_FROM: Record<string, string[]> = {
   submit: ['DRAFT', 'REVISION'], verify: ['SUBMITTED'], revise: ['SUBMITTED'],
   paraf: ['VERIFIED'], approve: ['PARAF'], sign: ['APPROVED'],
-  complete: ['SIGNED'], reject: ['SUBMITTED', 'VERIFIED', 'PARAF'],
+  complete: ['SIGNED', 'FORWARDED'], forward: ['VERIFIED'],
+  reject: ['SUBMITTED', 'VERIFIED', 'PARAF'],
 };
 
 export function availableActions(status: string, perms: string[]): string[] {

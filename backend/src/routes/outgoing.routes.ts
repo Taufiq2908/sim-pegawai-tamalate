@@ -25,7 +25,7 @@ const upload = multer({
   },
 });
 
-const includeDetail = { creator: true, classification: true, documents: true };
+const includeDetail = { creator: { omit: { passwordHash: true } }, classification: true, documents: true };
 
 function notFuture(letterDate: string): boolean {
   return letterDate <= todayYMD();
@@ -267,7 +267,7 @@ router.get('/', requirePermission('outgoing.view'), async (req, res) => {
     prisma.outgoingLetter.count({ where }),
     prisma.outgoingLetter.findMany({
       where,
-      include: { classification: true, creator: true },
+      include: { classification: true, creator: { omit: { passwordHash: true } } },
       orderBy: [{ year: 'desc' }, { sequenceNumber: 'desc' }],
       skip: (p - 1) * l,
       take: l,

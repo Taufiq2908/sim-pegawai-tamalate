@@ -9,6 +9,8 @@ import letterRoutes from './routes/letter.routes';
 import kgbRoutes from './routes/kgb.routes';
 import outgoingRoutes from './routes/outgoing.routes';
 import notificationRoutes from './routes/notification.routes';
+import employeeRoutes from './routes/employee.routes';
+import userRoutes from './routes/user.routes';
 import { prisma } from './lib/prisma';
 import { ok } from './utils/response';
 
@@ -32,6 +34,8 @@ export function createApp() {
   app.use('/api/v1/kgb-requests', kgbRoutes);
   app.use('/api/v1/outgoing-letters', outgoingRoutes);
   app.use('/api/v1/notifications', notificationRoutes);
+  app.use('/api/v1/employees', employeeRoutes);
+  app.use('/api/v1/users', userRoutes);
 
   // 404 & error handler
   app.use((req, res) => res.status(404).json({ success: false, message: `Not found: ${req.path}`, data: null, meta: null, errors: null }));

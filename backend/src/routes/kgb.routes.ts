@@ -50,7 +50,7 @@ function toDetail(r: any, perms: string[]) {
 const includeDetail = {
   employee: true,
   documents: true,
-  approvals: { include: { actor: true }, orderBy: { createdAt: 'asc' as const } },
+  approvals: { include: { actor: { omit: { passwordHash: true } } }, orderBy: { createdAt: 'asc' as const } },
 };
 
 // GET /kgb-requests

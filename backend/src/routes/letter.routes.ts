@@ -28,18 +28,19 @@ const upload = multer({
 });
 
 const includeDetail = {
-  creator: true,
+  creator: { omit: { passwordHash: true } },
   classification: true,
   documents: { orderBy: { createdAt: 'asc' as const } },
   dispositions: {
-    include: { fromUser: true, toUser: true },
+    include: { fromUser: { omit: { passwordHash: true } }, toUser: { omit: { passwordHash: true } } },
     orderBy: { createdAt: 'asc' as const },
   },
 };
 
 function availableActions(status: string, perms: string[]): string[] {
   const rules: Record<string, { on: string[]; perm: string }> = {
-    dispose: { on: ['RECEIVED', 'DISPOSED'], perm: 'letter.dispose' },
+    paraf: { on: ['RECEIVED'], perm: 'letter.paraf' },
+    dispose: { on: ['RECEIVED', 'PARAF', 'DISPOSED'], perm: 'letter.dispose' },
     complete: { on: ['DISPOSED'], perm: 'letter.complete' },
     archive: { on: ['COMPLETED'], perm: 'letter.archive' },
     upload: { on: ['RECEIVED', 'DISPOSED'], perm: 'letter.document.upload' },
@@ -179,7 +180,7 @@ router.get('/', requirePermission('letter.view'), async (req, res) => {
     prisma.incomingLetter.count({ where }),
     prisma.incomingLetter.findMany({
       where,
-      include: { creator: true, dispositions: { include: { fromUser: true, toUser: true } }, _count: { select: { documents: true } } },
+      include: { creator: { omit: { passwordHash: true } }, dispositions: { include: { fromUser: { omit: { passwordHash: true } }, toUser: { omit: { passwordHash: true } } } }, _count: { select: { documents: true } } },
       orderBy: { createdAt: 'desc' },
       skip: (p - 1) * l,
       take: l,
@@ -224,7 +225,7 @@ router.get('/register-book', requirePermission('letter.view'), async (req, res) 
   }
   const items = await prisma.incomingLetter.findMany({
     where,
-    include: { creator: true },
+    include: { creator: { omit: { passwordHash: true } } },
     orderBy: [{ receivedDate: 'asc' }, { createdAt: 'asc' }],
     take: 1000,
   });
@@ -256,6 +257,7 @@ router.get('/:id/disposition-sheet', requirePermission('letter.view'), async (re
     tanggalPenerimaan: l.receivedDate.toISOString().slice(0, 10),
     tanggalSurat: l.letterDate.toISOString().slice(0, 10),
     tanggalPenyelesaian: l.resolutionDate ? l.resolutionDate.toISOString().slice(0, 10) : null,
+    tanggalDistribusi: l.distributedAt ? l.distributedAt.toISOString() : null,
     nomorSurat: l.letterNumber,
     asalSurat: l.sender,
     ringkasanIsi: l.summary,
@@ -317,6 +319,35 @@ router.get('/expedition-book', requirePermission('letter.view'), async (req, res
   }));
   return ok(res, rows, 'ok', { total: rows.length });
 });
+// ---------- POST /letters/:id/paraf (Sekcam memeriksa) ----------
+router.post('/:id/paraf', requirePermission('letter.paraf'), async (req, res) => {
+  const schema = z.object({ note: z.string().max(500).optional() });
+  const note = schema.safeParse(req.body ?? {}).data?.note ?? null;
+  const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id } });
+  if (!l) return fail(res, 404, 'Surat tidak ditemukan');
+  if (l.status !== 'RECEIVED') return fail(res, 409, `Paraf hanya dari RECEIVED (saat ini ${l.status})`);
+  const updated = await prisma.incomingLetter.update({
+    where: { id: l.id },
+    data: { status: 'PARAF' },
+    include: includeDetail,
+  });
+  if (note) {
+    await prisma.letterDisposition.create({
+      data: {
+        letterId: l.id,
+        fromUserId: req.user!.id,
+        toUserId: req.user!.id,
+        instruction: `Paraf pemeriksaan: ${note}`,
+        status: 'DONE',
+        responseNote: note,
+        respondedAt: new Date(),
+      },
+    });
+  }
+  const full = await prisma.incomingLetter.findUnique({ where: { id: l.id }, include: includeDetail });
+  return ok(res, toDetail(full ?? updated, req.user!.permissions, req.user!.id), 'Paraf pemeriksaan dicatat');
+});
+
 // ---------- GET /letters/:id ----------
 router.get('/:id', requirePermission('letter.view'), async (req, res) => {
   const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id }, include: includeDetail });
@@ -363,7 +394,7 @@ router.post('/:id/dispose', requirePermission('letter.dispose'), async (req, res
 
   const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id }, include: { dispositions: true } });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-  if (!['RECEIVED', 'DISPOSED'].includes(l.status)) return fail(res, 409, `Disposisi hanya saat RECEIVED/DISPOSED (saat ini ${l.status})`);
+  if (!['RECEIVED', 'PARAF', 'DISPOSED'].includes(l.status)) return fail(res, 409, `Disposisi hanya saat RECEIVED/PARAF/DISPOSED (saat ini ${l.status})`);
   if (b.toUserId === req.user!.id) return fail(res, 422, 'Tidak boleh disposisi ke diri sendiri');
   const target = await prisma.user.findUnique({ where: { id: b.toUserId } });
   if (!target || !target.isActive) return fail(res, 422, 'Penerima tidak valid/aktif');
@@ -399,8 +430,11 @@ router.post('/:id/dispose', requirePermission('letter.dispose'), async (req, res
         referenceId: d.id,
       },
     });
-    if (l.status === 'RECEIVED') {
-      await tx.incomingLetter.update({ where: { id: l.id }, data: { status: 'DISPOSED' } });
+    if (l.status === 'RECEIVED' || l.status === 'PARAF') {
+      await tx.incomingLetter.update({
+        where: { id: l.id },
+        data: { status: 'DISPOSED', distributedAt: l.distributedAt ?? new Date() },
+      });
     }
     return d;
   });

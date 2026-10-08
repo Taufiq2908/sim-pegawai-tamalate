@@ -121,6 +121,7 @@ model User {
   kgbActions     KgbApproval[]          @relation("KgbActorActions")
   uploadedKgbDocs KgbDocument[]
   createdWarnings WarningLetter[]       @relation("CreatedWarnings")
+  uploadedSessionPhotos AttendanceSessionPhoto[]
   createdOutgoing OutgoingLetter[]      @relation("CreatedOutgoing")
   reservedOutgoing OutgoingLetter[]     @relation("ReservedOutgoing")
   uploadedOutgoingDocs OutgoingDocument[]
@@ -248,12 +249,34 @@ model WarningLetter {
   weekEnd      DateTime @map("week_end") @db.Date
   absenceCount Int      @map("absence_count")
   content      String
+  summonScheduledAt DateTime? @map("summon_scheduled_at") @db.Timestamptz
+  summonNote   String?  @map("summon_note")
+  coachingResult String? @map("coaching_result")
+  coachingFollowUp String @default("NONE") @map("coaching_follow_up") @db.VarChar(20)
+  coachedAt    DateTime? @map("coached_at") @db.Timestamptz
   createdBy    String   @map("created_by") @db.Uuid
   creator      User     @relation("CreatedWarnings", fields: [createdBy], references: [id])
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   @@unique([employeeId, weekStart])
   @@map("warning_letters")
+}
+
+// Foto dokumentasi apel per sesi (bukti operator).
+model AttendanceSessionPhoto {
+  id           String   @id @default(uuid()) @db.Uuid
+  date         DateTime @db.Date
+  session      String   @db.VarChar(10) // PAGI|SORE
+  originalName String   @map("original_name") @db.VarChar(255)
+  storedPath   String   @map("stored_path") @db.VarChar(500)
+  mimeType     String   @map("mime_type") @db.VarChar(100)
+  sizeBytes    Int      @map("size_bytes")
+  uploadedBy   String   @map("uploaded_by") @db.Uuid
+  uploader     User     @relation(fields: [uploadedBy], references: [id])
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([date, session])
+  @@map("attendance_session_photos")
 }
 
 model KgbRequest {
@@ -327,6 +350,7 @@ model IncomingLetter {
   letterDate     DateTime @map("letter_date") @db.Date
   receivedDate   DateTime @map("received_date") @db.Date
   resolutionDate DateTime? @map("resolution_date") @db.Date // tanggal penyelesaian
+  distributedAt  DateTime? @map("distributed_at") @db.Timestamptz // distribusi pertama (disposisi)
   priority       String   @default("BIASA") @db.VarChar(20)
   secrecy        String   @default("B") @db.VarChar(5) // SR/R/B (sifat surat)
   addressedTo    String?  @map("addressed_to") @db.VarChar(200) // instansi yang ditujukan

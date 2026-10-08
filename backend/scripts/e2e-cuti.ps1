@@ -14,6 +14,13 @@ $tCam = Get-Tok 'camat1' 'Camat123!'
 $c = Post-Json ($base + '/leave-requests') (Get-H $tPeg) @{ leaveTypeCode = 'TAHUNAN'; startDate = '2026-10-20'; endDate = '2026-10-22'; reason = 'Acara keluarga penting' }
 $id = $c.data.id
 'CREATE: ' + $c.data.status + ' ' + $c.data.requestNumber
+# berkas wajib: SK_TERAKHIR + 1 pendamping sebelum submit
+'SK dummy' | Out-File -Encoding ascii tmp-sk.pdf
+'Form cuti' | Out-File -Encoding ascii tmp-form.pdf
+curl.exe -s -X POST -H ('Authorization: Bearer ' + $tPeg) -F 'file=@tmp-sk.pdf;type=application/pdf' -F 'docType=SK_TERAKHIR' ($base + '/leave-requests/' + $id + '/documents') | Out-Null
+curl.exe -s -X POST -H ('Authorization: Bearer ' + $tPeg) -F 'file=@tmp-form.pdf;type=application/pdf' -F 'docType=FORM_CUTI' ($base + '/leave-requests/' + $id + '/documents') | Out-Null
+Remove-Item tmp-sk.pdf, tmp-form.pdf
+'DOCS: 2 berkas diupload'
 $steps = @(
   @{ t = $tPeg; act = 'submit' },
   @{ t = $tVer; act = 'verify' },
