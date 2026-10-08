@@ -26,9 +26,9 @@ export const toast = {
 };
 
 const KIND_STYLE: Record<Kind, string> = {
-  success: "border-green-300 bg-green-50 text-green-900",
-  error: "border-red-300 bg-red-50 text-red-900",
-  info: "border-slate-300 bg-white text-slate-900",
+  success: "border-ok-700/25 bg-ok-100 text-ok-700",
+  error: "border-bad-700/25 bg-bad-100 text-bad-700",
+  info: "border-line bg-surface text-ink",
 };
 
 export function Toaster() {
@@ -50,7 +50,7 @@ export function Toaster() {
   return (
     <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
       {items.map((it) => (
-        <div key={it.id} role="status" className={`pointer-events-auto rounded-xl border px-4 py-3 text-sm font-medium shadow-lg ${KIND_STYLE[it.kind]}`}>
+        <div key={it.id} role="status" className={`pointer-events-auto rounded-lg border px-4 py-3 text-sm font-medium ${KIND_STYLE[it.kind]}`}>
           {it.msg}
         </div>
       ))}

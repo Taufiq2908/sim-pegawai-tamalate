@@ -41,11 +41,12 @@ kelurahan (KB, KBB, KBR, …) = pekerjaan master data backend berikutnya,
 bukan penghalang frontend.
 
 ## 7. Yang masih butuh backend (di luar scope frontend)
-- Tahap "Sekcam memeriksa/paraf" pada surat masuk (belum dimodelkan).
-- Field tanggal distribusi.
-- `GET /employees` dan `GET /users` (dropdown penerima disposisi & operator).
 - Rantai status distribusi ekspedisi (baru usulan desain).
-- Hapus `passwordHash` dari response cuti (keamanan).
+- Hierarki klasifikasi penuh 000–900 + kode unit kelurahan (seed masih 14 kode flat).
+- Tanda tangan digital (saat ini tombol aksi).
+- ✅ SELESAI di backend v2 (`bf60109`): tahap paraf Sekcam (`POST /letters/:id/paraf`),
+  tanggal distribusi (`distributedAt`), `GET /employees` + `GET /users`,
+  hapus `passwordHash` dari response.
 
 ## 8. Status implementasi frontend v1 (terkunci)
 - `/surat-masuk` (list + filter + cari), `/surat-masuk/baru` (remarks = kolom Keterangan),

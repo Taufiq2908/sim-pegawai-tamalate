@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { apiFetch } from "@/lib/api";
 import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
 
@@ -20,6 +20,7 @@ interface WarningLetter {
 
 export default function TeguranListPage() {
   const [items, setItems] = useState<WarningLetter[]>([]);
+  const [followUp, setFollowUp] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -27,23 +28,34 @@ export default function TeguranListPage() {
     setLoading(true);
     setError("");
     try {
-      const { data } = await apiFetch<WarningLetter[]>("/attendances/warning-letters?page=1&limit=20");
+      const params = new URLSearchParams({ page: "1", limit: "20" });
+      if (followUp) params.set("followUp", followUp);
+      const { data } = await apiFetch<WarningLetter[]>(`/attendances/warning-letters?${params.toString()}`);
       setItems(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat surat teguran");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [followUp]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   return (
-    <AppShell>
-      <h1 className="text-xl font-bold">Surat Teguran</h1>
-      <p className="mt-0.5 text-sm text-slate-500">Diterbitkan otomatis dari pegawai bermasalah mingguan.</p>
+    <RequirePerm perm="attendance.summary" label="Surat Teguran">
+      <div className="flex flex-wrap items-center gap-2">
+        <div>
+          <h1 className="text-xl font-bold">Surat Teguran</h1>
+          <p className="mt-0.5 text-sm text-muted">Diterbitkan otomatis dari pegawai bermasalah mingguan.</p>
+        </div>
+        <select value={followUp} onChange={(e) => setFollowUp(e.target.value)} className="ml-auto rounded-lg border border-line bg-white px-3 py-1.5 text-sm">
+          <option value="">Semua tindak lanjut</option>
+          <option value="NONE">Selesai internal</option>
+          <option value="BKPSDM">Diteruskan ke BKPSDM</option>
+        </select>
+      </div>
 
       <div className="mt-4">
         {loading ? (
@@ -58,10 +70,10 @@ export default function TeguranListPage() {
               <li key={w.id}>
                 <Link
                   href={`/presensi/teguran/${w.id}`}
-                  className="block rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-slate-900"
+                  className="block rounded-lg border border-line bg-surface px-4 py-3 transition hover:border-brand-700"
                 >
                   <p className="text-sm font-semibold">{w.letterNumber} — {w.employee?.name ?? w.employeeId}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">
+                  <p className="mt-0.5 text-xs text-muted">
                     Pekan {w.weekStart} s.d. {w.weekEnd} • {w.absenceCount} hari tanpa hadir
                   </p>
                 </Link>
@@ -70,6 +82,6 @@ export default function TeguranListPage() {
           </ul>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }

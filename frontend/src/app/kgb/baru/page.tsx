@@ -67,32 +67,32 @@ export default function KgbBaruPage() {
   return (
     <AppShell>
       <h1 className="text-xl font-bold">Ajukan KGB</h1>
-      <p className="mt-1 text-sm text-slate-500">Dibuat sebagai DRAFT lalu langsung diajukan.</p>
-      <form onSubmit={onSubmit} className="mt-4 max-w-2xl space-y-4 rounded-xl border border-slate-200 bg-white p-5">
+      <p className="mt-1 text-sm text-muted">Dibuat sebagai DRAFT lalu langsung diajukan.</p>
+      <form onSubmit={onSubmit} className="mt-4 max-w-2xl space-y-4 rounded-lg border border-line bg-surface p-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Golongan lama*">
-            <input required value={form.oldRank} onChange={set("oldRank")} placeholder="cth: III/a" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+            <input required value={form.oldRank} onChange={set("oldRank")} placeholder="cth: III/a" className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
           </Field>
           <Field label="Golongan baru*">
-            <input required value={form.newRank} onChange={set("newRank")} placeholder="cth: III/b" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+            <input required value={form.newRank} onChange={set("newRank")} placeholder="cth: III/b" className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
           </Field>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Gaji lama (rupiah)*">
-            <input required inputMode="numeric" value={form.oldSalary} onChange={set("oldSalary")} placeholder="cth: 3000000" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+            <input required inputMode="numeric" value={form.oldSalary} onChange={set("oldSalary")} placeholder="cth: 3000000" className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
           </Field>
           <Field label="Gaji baru (rupiah, harus lebih besar)*">
-            <input required inputMode="numeric" value={form.newSalary} onChange={set("newSalary")} placeholder="cth: 3200000" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+            <input required inputMode="numeric" value={form.newSalary} onChange={set("newSalary")} placeholder="cth: 3200000" className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
           </Field>
         </div>
         <Field label="TMT (effective date)*">
-          <input type="date" required value={form.effectiveDate} onChange={set("effectiveDate")} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+          <input type="date" required value={form.effectiveDate} onChange={set("effectiveDate")} className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
         </Field>
         <Field label="Catatan (opsional)">
-          <textarea value={form.note} onChange={set("note")} rows={2} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+          <textarea value={form.note} onChange={set("note")} rows={2} className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
         </Field>
         <Field label="Dokumen SK terakhir (opsional, pdf/jpg/png ≤5MB)">
-          <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
         </Field>
         {error ? <ErrorBox message={error} /> : null}
         <SubmitButton loading={loading}>Ajukan KGB</SubmitButton>

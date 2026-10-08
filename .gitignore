@@ -17,6 +17,9 @@ npm-debug.log
 # prisma generated client (regenerate via `prisma generate`)
 backend/src/generated/
 
+# build artifacts
+*.tsbuildinfo
+
 # OS / editor
 .DS_Store
 Thumbs.db

@@ -41,9 +41,9 @@ export default function EkspedisiPage() {
       <div className="flex flex-wrap items-center gap-2">
         <div>
           <h1 className="text-xl font-bold">Buku Ekspedisi</h1>
-          <p className="mt-0.5 text-sm text-slate-500">Bukti surat telah diterima pihak yang dituju.</p>
+          <p className="mt-0.5 text-sm text-muted">Bukti surat telah diterima pihak yang dituju.</p>
         </div>
-        <button onClick={() => window.print()} className="ml-auto rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">
+        <button onClick={() => window.print()} className="ml-auto rounded-lg border border-line bg-white px-3 py-1.5 text-sm font-semibold hover:bg-paper">
           Cetak
         </button>
       </div>
@@ -56,10 +56,10 @@ export default function EkspedisiPage() {
         ) : rows.length === 0 ? (
           <EmptyState title="Belum ada catatan ekspedisi" hint="Catat dari halaman detail surat." />
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <div className="overflow-x-auto rounded-lg border border-line bg-surface">
             <table className="w-full min-w-180 text-left text-sm">
               <thead>
-                <tr className="border-b bg-slate-50 text-xs text-slate-500">
+                <tr className="border-b bg-paper text-xs text-muted">
                   <th className="px-3 py-2">Tanggal</th>
                   <th className="px-3 py-2">No. registrasi</th>
                   <th className="px-3 py-2">Tgl. surat</th>

@@ -3,7 +3,7 @@ import { toast } from "@/components/toast";
 
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { apiFetch, apiUpload } from "@/lib/api";
 import type { OutgoingLetter } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
@@ -95,8 +95,8 @@ export default function SuratKeluarDetailPage() {
   }
 
   return (
-    <AppShell>
-      <button onClick={() => router.back()} className="text-sm font-semibold text-slate-600 hover:text-slate-900">
+    <RequirePerm perm="outgoing.view" label="Surat Keluar">
+      <button onClick={() => router.back()} className="text-sm font-semibold text-muted hover:text-slate-900">
         ← Kembali
       </button>
       <div className="mt-2">
@@ -108,35 +108,35 @@ export default function SuratKeluarDetailPage() {
           <EmptyState title="Data tidak ditemukan" />
         ) : (
           <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="rounded-lg border border-line bg-surface p-5">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-bold">{detail.letterNumber}</h1>
                 <StatusBadge status={detail.status} />
               </div>
               <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                <div><dt className="text-slate-500">Perihal</dt><dd className="font-medium">{detail.subject}</dd></div>
-                <div><dt className="text-slate-500">Tujuan</dt><dd className="font-medium">{detail.recipient ?? "-"}</dd></div>
-                <div><dt className="text-slate-500">Tanggal surat</dt><dd className="font-medium">{detail.letterDate?.slice(0, 10)}</dd></div>
-                <div><dt className="text-slate-500">Penandatangan</dt><dd className="font-medium">{detail.signerName ?? "-"}</dd></div>
-                {detail.reservationReason ? <div><dt className="text-slate-500">Alasan reservasi</dt><dd className="font-medium">{detail.reservationReason}</dd></div> : null}
-                {detail.cancelReason ? <div><dt className="text-slate-500">Alasan batal</dt><dd className="font-medium text-red-700">{detail.cancelReason}</dd></div> : null}
+                <div><dt className="text-muted">Perihal</dt><dd className="font-medium">{detail.subject}</dd></div>
+                <div><dt className="text-muted">Tujuan</dt><dd className="font-medium">{detail.recipient ?? "-"}</dd></div>
+                <div><dt className="text-muted">Tanggal surat</dt><dd className="font-medium">{detail.letterDate?.slice(0, 10)}</dd></div>
+                <div><dt className="text-muted">Penandatangan</dt><dd className="font-medium">{detail.signerName ?? "-"}</dd></div>
+                {detail.reservationReason ? <div><dt className="text-muted">Alasan reservasi</dt><dd className="font-medium">{detail.reservationReason}</dd></div> : null}
+                {detail.cancelReason ? <div><dt className="text-muted">Alasan batal</dt><dd className="font-medium text-bad-700">{detail.cancelReason}</dd></div> : null}
               </dl>
             </div>
 
             {detail.status === "RESERVED" ? (
-              <div className="rounded-xl border border-slate-200 bg-white p-5">
+              <div className="rounded-lg border border-line bg-surface p-5">
                 <h2 className="font-semibold">Terbitkan reservasi (nomor tetap)</h2>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="Tujuan surat*" className="min-w-48 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
-                  <button disabled={acting !== null} onClick={() => void issue()} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                  <input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="Tujuan surat*" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                  <button disabled={acting !== null} onClick={() => void issue()} className="rounded-lg bg-ok-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
                     {acting === "issue" ? "…" : "Terbitkan"}
                   </button>
                 </div>
                 <div className="mt-3 border-t pt-3">
                   <h3 className="text-sm font-semibold">atau batalkan reservasi</h3>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Alasan pembatalan (min 5)*" className="min-w-48 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
-                    <button disabled={acting !== null} onClick={() => void cancel()} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                    <input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Alasan pembatalan (min 5)*" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                    <button disabled={acting !== null} onClick={() => void cancel()} className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
                       {acting === "cancel" ? "…" : "Batalkan"}
                     </button>
                   </div>
@@ -144,7 +144,7 @@ export default function SuratKeluarDetailPage() {
               </div>
             ) : null}
 
-            <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Dokumen ({detail.documents?.length ?? 0})</h2>
               <ul className="mt-2 space-y-1 text-sm">
                 {(detail.documents ?? []).map((d) => (
@@ -154,7 +154,7 @@ export default function SuratKeluarDetailPage() {
               {detail.status !== "CANCELLED" ? (
                 <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
                   <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
-                  <button disabled={acting !== null} onClick={() => void upload()} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50">
+                  <button disabled={acting !== null} onClick={() => void upload()} className="rounded-lg border border-line px-3 py-1.5 text-sm font-semibold hover:bg-paper disabled:opacity-50">
                     {acting === "upload" ? "…" : "Unggah dokumen"}
                   </button>
                 </div>
@@ -163,6 +163,6 @@ export default function SuratKeluarDetailPage() {
           </div>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }

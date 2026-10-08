@@ -53,7 +53,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const hasPermission = useCallback(
-    (perm: string) => user?.permissions.includes(perm) ?? false,
+    (perm: string) =>
+      user?.permissions.includes("*") || user?.permissions.includes(perm) || false,
     [user],
   );
 

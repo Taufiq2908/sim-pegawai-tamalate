@@ -46,7 +46,7 @@ export default function NotifikasiPage() {
     <AppShell>
       <div className="flex items-center gap-3">
         <h1 className="text-xl font-bold">Notifikasi</h1>
-        <label className="ml-auto flex items-center gap-2 text-sm text-slate-600">
+        <label className="ml-auto flex items-center gap-2 text-sm text-muted">
           <input type="checkbox" checked={onlyUnread} onChange={(e) => setOnlyUnread(e.target.checked)} />
           Belum dibaca saja
         </label>
@@ -64,26 +64,26 @@ export default function NotifikasiPage() {
             {items.map((n) => (
               <li
                 key={n.id}
-                className={`rounded-xl border px-4 py-3 ${n.isRead ? "border-slate-200 bg-white" : "border-slate-900 bg-white shadow-sm"}`}
+                className={`rounded-xl border px-4 py-3 ${n.isRead ? "border-line bg-white" : "border-brand-700 bg-surface"}`}
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm font-semibold">{n.title}</p>
                   {!n.isRead ? (
-                    <span className="rounded-full bg-slate-900 px-2 py-0.5 text-xs font-semibold text-white">Baru</span>
+                    <span className="rounded-full bg-brand-900 px-2 py-0.5 text-xs font-semibold text-white">Baru</span>
                   ) : null}
                   <span className="ml-auto text-xs text-slate-400">
                     {new Date(n.createdAt).toLocaleString("id-ID")}
                   </span>
                 </div>
-                <p className="mt-1 text-sm text-slate-600">{n.body}</p>
-                <div className="mt-2 flex gap-3">
+                <p className="mt-1 text-sm text-muted">{n.body}</p>
+                <div className="mt-2 flex gap-2">
                   {n.referenceType === "letter_disposition" ? (
-                    <Link href="/surat-masuk" className="text-sm font-semibold text-blue-700 underline hover:no-underline">
+                    <Link href="/surat-masuk" className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
                       Buka surat masuk
                     </Link>
                   ) : null}
                   {!n.isRead ? (
-                    <button onClick={() => void markRead(n.id)} className="text-sm font-semibold text-blue-700 underline hover:no-underline">
+                    <button onClick={() => void markRead(n.id)} className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm font-semibold text-ink hover:bg-paper">
                       Tandai dibaca
                     </button>
                   ) : null}

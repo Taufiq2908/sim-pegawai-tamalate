@@ -2,52 +2,39 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { apiFetch } from "@/lib/api";
-import type { OutgoingLetter } from "@/lib/types";
+import type { OutgoingLetter, PageMeta } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
 const FILTERS = [
   { value: "", label: "Semua" },
-  { value: "RESERVED", label: "Direservasi" },
+  { value: "RESERVED", label: "Dipesan" },
   { value: "ISSUED", label: "Terbit" },
-  { value: "CANCELLED", label: "Batal" },
+  { value: "CANCELLED", label: "Dibatalkan" },
 ];
+
+const LIMIT = 10;
 
 export default function SuratKeluarListPage() {
   const [items, setItems] = useState<OutgoingLetter[]>([]);
+  const [meta, setMeta] = useState<PageMeta | null>(null);
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [counts, setCounts] = useState<Record<string, number>>({});
 
-  useEffect(() => {
-    (async () => {
-      const out: Record<string, number> = {};
-      await Promise.all(
-        ["RESERVED", "ISSUED", "CANCELLED"].map(async (s) => {
-          try {
-            const { meta } = await apiFetch<unknown>(`/outgoing-letters?status=${s}&limit=1`);
-            out[s] = (meta as { total?: number } | null)?.total ?? 0;
-          } catch {
-            /* abaikan */
-          }
-        }),
-      );
-      setCounts(out);
-    })();
-  }, []);
-
-  async function load() {
+  async function load(p: number, st: string, query: string) {
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ page: "1", limit: "20" });
-      if (status) params.set("status", status);
-      if (q.trim()) params.set("q", q.trim());
-      const { data } = await apiFetch<OutgoingLetter[]>(`/outgoing-letters?${params.toString()}`);
+      const params = new URLSearchParams({ page: String(p), limit: String(LIMIT) });
+      if (st) params.set("status", st);
+      if (query.trim()) params.set("q", query.trim());
+      const { data, meta: m } = await apiFetch<OutgoingLetter[]>(`/outgoing-letters?${params.toString()}`);
       setItems(Array.isArray(data) ? data : []);
+      setMeta(m as PageMeta | null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat surat keluar");
     } finally {
@@ -56,55 +43,43 @@ export default function SuratKeluarListPage() {
   }
 
   useEffect(() => {
-    void load();
+    setPage(1);
+    void load(1, status, q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
+  const totalPages = meta ? Math.max(1, Math.ceil(meta.total / meta.limit)) : 1;
+
   return (
-    <AppShell>
-      <div className="flex flex-wrap items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold">Surat Keluar</h1>
-          <p className="mt-0.5 text-sm text-slate-500">Nomor format klasifikasi / seq / KT / romawi / tahun.</p>
-        </div>
+    <RequirePerm perm="outgoing.view" label="Surat Keluar">
+      <div className="flex flex-wrap items-center gap-2">
         <Link
           href="/surat-keluar/baru"
-          className="ml-auto rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+          className="rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
         >
           + Buat surat
         </Link>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2 text-sm">
-        <Link href="/surat-keluar/agenda" className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-semibold hover:bg-slate-50">
+        <Link href="/surat-keluar/agenda" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:bg-paper">
           Buku agenda keluar
         </Link>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {FILTERS.filter((f) => f.value).map((f) => (
-          <div key={f.value} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-            <p className="text-2xl font-bold">{counts[f.value] ?? "—"}</p>
-            <p className="text-xs text-slate-500">{f.label}</p>
-          </div>
-        ))}
       </div>
 
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void load();
+          setPage(1);
+          void load(1, status, q);
         }}
-        className="mt-4 flex flex-wrap gap-2"
+        className="mt-3 flex flex-wrap gap-2"
       >
-        <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1">
+        <div className="flex flex-wrap gap-1.5">
           {FILTERS.map((f) => (
             <button
               key={f.label}
               type="button"
               onClick={() => setStatus(f.value)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                status === f.value ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+              className={`rounded-md border px-2.5 py-1.5 text-sm ${
+                status === f.value ? "border-brand-800 bg-brand-900 font-medium text-white" : "border-line bg-surface text-muted hover:text-ink"
               }`}
             >
               {f.label}
@@ -115,41 +90,78 @@ export default function SuratKeluarListPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Cari nomor / perihal / tujuan…"
-          className="min-w-48 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900"
+          className="min-w-44 flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-brand-700"
         />
-        <button type="submit" className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50">
-          Cari
-        </button>
       </form>
 
-      <div className="mt-4">
+      <div className="mt-3">
         {loading ? (
-          <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-20 w-full" />)}</div>
+          <Skeleton className="h-64 w-full" />
         ) : error ? (
-          <ErrorBox message={error} onRetry={load} />
+          <ErrorBox message={error} onRetry={() => void load(page, status, q)} />
         ) : items.length === 0 ? (
           <EmptyState title="Belum ada surat keluar" />
         ) : (
-          <ul className="space-y-2">
-            {items.map((it) => (
-              <li key={it.id}>
-                <Link
-                  href={`/surat-keluar/${it.id}`}
-                  className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-slate-900"
+          <>
+            <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-line text-xs text-muted">
+                    <th className="px-3 py-2 font-medium">Nomor Surat</th>
+                    <th className="px-3 py-2 font-medium">Perihal</th>
+                    <th className="px-3 py-2 font-medium">Tujuan</th>
+                    <th className="px-3 py-2 font-medium">Tgl. Surat</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((it) => (
+                    <tr key={it.id} className="border-b border-line last:border-0 hover:bg-paper">
+                      <td className="px-3 py-2.5">
+                        <Link href={`/surat-keluar/${it.id}`} className="font-medium text-brand-800 hover:underline">
+                          {it.letterNumber}
+                        </Link>
+                      </td>
+                      <td className="max-w-72 truncate px-3 py-2.5">{it.subject}</td>
+                      <td className="px-3 py-2.5 text-muted">{it.recipient ?? "—"}</td>
+                      <td className="px-3 py-2.5 tabular-nums text-muted">{it.letterDate?.slice(0, 10)}</td>
+                      <td className="px-3 py-2.5"><StatusBadge status={it.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-sm text-muted">
+              <p>{meta ? `Total ${meta.total} surat` : ""}</p>
+              <div className="flex items-center gap-1">
+                <button
+                  disabled={page <= 1}
+                  onClick={() => {
+                    const p = page - 1;
+                    setPage(p);
+                    void load(p, status, q);
+                  }}
+                  className="rounded-md border border-line bg-surface px-2.5 py-1 disabled:opacity-40"
                 >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{it.letterNumber}</p>
-                    <p className="mt-0.5 truncate text-xs text-slate-500">
-                      {it.subject} • {it.recipient ?? "-"}
-                    </p>
-                  </div>
-                  <StatusBadge status={it.status} />
-                </Link>
-              </li>
-            ))}
-          </ul>
+                  ‹
+                </button>
+                <span className="px-2 tabular-nums">Hal {page} / {totalPages}</span>
+                <button
+                  disabled={page >= totalPages}
+                  onClick={() => {
+                    const p = page + 1;
+                    setPage(p);
+                    void load(p, status, q);
+                  }}
+                  className="rounded-md border border-line bg-surface px-2.5 py-1 disabled:opacity-40"
+                >
+                  ›
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }

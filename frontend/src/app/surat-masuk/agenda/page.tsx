@@ -47,18 +47,18 @@ export default function AgendaSuratMasukPage() {
       <div className="flex flex-wrap items-center gap-2">
         <div>
           <h1 className="text-xl font-bold">Buku Agenda Surat Masuk</h1>
-          <p className="mt-0.5 text-sm text-slate-500">Digitalisasi buku agenda fisik. Kolom Keterangan = remarks surat.</p>
+          <p className="mt-0.5 text-sm text-muted">Digitalisasi buku agenda fisik. Kolom Keterangan = remarks surat.</p>
         </div>
-        <button onClick={() => window.print()} className="ml-auto rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">
+        <button onClick={() => window.print()} className="ml-auto rounded-lg border border-line bg-white px-3 py-1.5 text-sm font-semibold hover:bg-paper">
           Cetak
         </button>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-1.5 outline-none focus:border-slate-900" />
-        <span className="text-slate-500">s.d.</span>
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-1.5 outline-none focus:border-slate-900" />
-        <button onClick={() => void load()} className="rounded-lg bg-slate-900 px-3 py-1.5 font-semibold text-white">Tampilkan</button>
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-line px-3 py-1.5 outline-none focus:border-brand-700" />
+        <span className="text-muted">s.d.</span>
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-lg border border-line px-3 py-1.5 outline-none focus:border-brand-700" />
+        <button onClick={() => void load()} className="rounded-lg bg-brand-900 px-3 py-1.5 font-semibold text-white">Tampilkan</button>
       </div>
 
       <div className="mt-4">
@@ -69,10 +69,10 @@ export default function AgendaSuratMasukPage() {
         ) : rows.length === 0 ? (
           <EmptyState title="Tidak ada baris agenda" hint="Ubah rentang tanggal." />
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <div className="overflow-x-auto rounded-lg border border-line bg-surface">
             <table className="w-full min-w-200 text-left text-sm">
               <thead>
-                <tr className="border-b bg-slate-50 text-xs text-slate-500">
+                <tr className="border-b bg-paper text-xs text-muted">
                   <th className="px-3 py-2">No</th>
                   <th className="px-3 py-2">Instansi ditujukan</th>
                   <th className="px-3 py-2">No. surat</th>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { apiFetch } from "@/lib/api";
 import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
 
@@ -41,19 +41,19 @@ export default function RegisterSuratKeluarPage() {
   }, [load]);
 
   return (
-    <AppShell>
+    <RequirePerm perm="outgoing.view" label="Surat Keluar">
       <div className="flex flex-wrap items-center gap-2">
         <div>
           <h1 className="text-xl font-bold">Buku Agenda Surat Keluar</h1>
-          <p className="mt-0.5 text-sm text-slate-500">Per nomor urut. Nomor yang dibatalkan tidak dipakai ulang.</p>
+          <p className="mt-0.5 text-sm text-muted">Per nomor urut. Nomor yang dibatalkan tidak dipakai ulang.</p>
         </div>
         <input
           value={year}
           onChange={(e) => setYear(e.target.value)}
           inputMode="numeric"
-          className="ml-auto w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-slate-900"
+          className="ml-auto w-24 rounded-lg border border-line px-3 py-1.5 text-sm outline-none focus:border-brand-700"
         />
-        <button onClick={() => window.print()} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">
+        <button onClick={() => window.print()} className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm font-semibold hover:bg-paper">
           Cetak
         </button>
       </div>
@@ -66,10 +66,10 @@ export default function RegisterSuratKeluarPage() {
         ) : rows.length === 0 ? (
           <EmptyState title="Tidak ada baris agenda" hint="Ubah tahun." />
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <div className="overflow-x-auto rounded-lg border border-line bg-surface">
             <table className="w-full min-w-220 text-left text-sm">
               <thead>
-                <tr className="border-b bg-slate-50 text-xs text-slate-500">
+                <tr className="border-b bg-paper text-xs text-muted">
                   <th className="px-3 py-2">No</th>
                   <th className="px-3 py-2">Nomor surat</th>
                   <th className="px-3 py-2">Tgl. surat</th>
@@ -100,6 +100,6 @@ export default function RegisterSuratKeluarPage() {
           </div>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }
