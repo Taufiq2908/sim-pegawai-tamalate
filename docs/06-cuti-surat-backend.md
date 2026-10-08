@@ -62,8 +62,12 @@ Setiap transisi cuti harus notifikasi ke pemegang tahap berikut
 ## B9. Aset & tanda tangan
 - Logo kop: file dari kecamatan, disimpan `frontend/public/logo-tamalate.png`
   (frontend, karena surat di-render frontend). Belum diterima.
-- Tanda tangan: **fase 1 = cetak + tanda tangan basah** (lihat catatan e-signature
-  di bawah). Blok tanda tangan di kode dibuat terpisah agar bisa diganti TTE nanti.
+- Tanda tangan: **diputuskan TTD elektronik buatan sendiri, dummy dulu.**
+  Implementasi frontend (sudah jalan): papan gambar di halaman surat →
+  PNG tersimpan di localStorage per username → tampil di blok VII/VIII
+  penandatangan yang aksinya dilakukan akun tersebut + caption waktu.
+  Keterbatasan jujur: hanya di browser itu, tidak terbukti, bukan TTE —
+  untuk demo/simulasi. Produksi tetap butuh B11 (aset server + verifikasi).
 
 ## Catatan e-signature (untuk keputusan)
 - Teknis bisa: gambar tangan (canvas) atau TTE tersertifikasi (BSrE/Kominfo).

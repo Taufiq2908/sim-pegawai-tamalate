@@ -32,12 +32,24 @@ export default function CutiBaruPage() {
   const [fileSk, setFileSk] = useState<File | null>(null);
   const [fileSecond, setFileSecond] = useState<File | null>(null);
   const [secondType, setSecondType] = useState("FORM_CUTI");
+  const [fileDoctor, setFileDoctor] = useState<File | null>(null);
+  const [balance, setBalance] = useState<{ entitlement: number; used: number; remaining: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [draftMode, setDraftMode] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
   const durasi = useMemo(() => inclusiveDays(form.startDate, form.endDate), [form.startDate, form.endDate]);
+  const selectedType = types.find((t) => t.code === form.leaveTypeCode);
+  const masaKerja = useMemo(() => {
+    const jd = user?.employee?.joinDate;
+    if (!jd) return "—";
+    const start = new Date(jd + "T00:00:00");
+    const now = new Date();
+    let months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+    if (isNaN(months) || months < 0) return "—";
+    return `${Math.floor(months / 12)} tahun ${months % 12} bulan`;
+  }, [user?.employee?.joinDate]);
 
   useEffect(() => {
     apiFetch<LeaveType[]>("/leave-types")
@@ -49,13 +61,26 @@ export default function CutiBaruPage() {
         }
       })
       .catch(() => {});
+    if (user?.employee?.id) {
+      apiFetch<{ entitlement: number; used: number; remaining: number }>(
+        `/employees/${user.employee.id}/leave-balance`,
+      )
+        .then(({ data }) => setBalance(data))
+        .catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.employee?.id]);
 
   async function save(draftOnly: boolean) {
     setError("");
     if (!fileSk || !fileSecond) {
       const msg = "Wajib unggah minimal 2 berkas: SK terakhir + 1 dokumen pendukung.";
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
+    if (selectedType?.requiresDocument && !fileDoctor) {
+      const msg = `Jenis ${selectedType.name} wajib melampirkan surat dokter.`;
       setError(msg);
       toast.error(msg);
       return;
@@ -82,6 +107,12 @@ export default function CutiBaruPage() {
       fd2.append("docType", secondType);
       fd2.append("file", fileSecond);
       await apiUpload(`/leave-requests/${id}/documents`, fd2);
+      if (fileDoctor) {
+        const fd3 = new FormData();
+        fd3.append("docType", "SURAT_DOKTER");
+        fd3.append("file", fileDoctor);
+        await apiUpload(`/leave-requests/${id}/documents`, fd3);
+      }
       if (!draftOnly) {
         await apiFetch(`/leave-requests/${id}/submit`, {
           method: "POST",
@@ -123,6 +154,10 @@ export default function CutiBaruPage() {
             <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">NIP</dt><dd className="font-medium">{user?.employee?.nip ?? "—"}</dd></div>
             <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Jabatan</dt><dd className="font-medium">{user?.position ?? "—"}</dd></div>
             <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Unit kerja</dt><dd className="font-medium">{user?.orgUnit?.name ?? "—"}</dd></div>
+            <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Masa kerja</dt><dd className="font-medium">{masaKerja}</dd></div>
+            {balance ? (
+              <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Sisa cuti tahunan</dt><dd className="font-medium">{balance.remaining} hari <span className="font-normal text-muted">(hak {balance.entitlement}, terpakai {balance.used})</span></dd></div>
+            ) : null}
           </dl>
         </section>
 
@@ -179,6 +214,11 @@ export default function CutiBaruPage() {
               <input type="file" required accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFileSecond(e.target.files?.[0] ?? null)} className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
             </Field>
           </div>
+          {selectedType?.requiresDocument ? (
+            <Field label={`Surat dokter* (wajib untuk ${selectedType.name})`}>
+              <input type="file" required accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFileDoctor(e.target.files?.[0] ?? null)} className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
+            </Field>
+          ) : null}
         </section>
 
         {error ? <ErrorBox message={error} /> : null}

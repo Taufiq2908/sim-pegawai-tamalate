@@ -6,8 +6,11 @@ import { useAuth } from "@/lib/auth";
 import { Field, PasswordInput, SubmitButton } from "@/components/form";
 
 const DEMO = [
-  { u: "verifier1", p: "Verifier123!", role: "Verifikator" },
   { u: "pegawai1", p: "Pegawai123!", role: "Pegawai" },
+  { u: "pegawai2", p: "Pegawai123!", role: "Pegawai Kelurahan" },
+  { u: "verifier1", p: "Verifier123!", role: "Verifikator" },
+  { u: "kasi1", p: "Kasi123!", role: "Kasi" },
+  { u: "kasubag1", p: "Kasubag123!", role: "Kasubag" },
   { u: "sekcam1", p: "Sekcam123!", role: "Sekcam" },
   { u: "camat1", p: "Camat123!", role: "Camat" },
   { u: "superadmin", p: "Admin123!", role: "Super Admin" },

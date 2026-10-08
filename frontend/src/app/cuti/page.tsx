@@ -4,18 +4,25 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/shell";
 import { apiFetch } from "@/lib/api";
-import type { LeaveItem, LeaveStatus, PageMeta } from "@/lib/types";
+import type { LeaveItem, LeaveStatus, LeaveType, PageMeta } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
 const FILTERS: Array<{ value: "" | LeaveStatus; label: string }> = [
   { value: "", label: "Semua" },
   { value: "DRAFT", label: "Draft" },
   { value: "SUBMITTED", label: "Diajukan" },
+  { value: "REVIEWED", label: "Pertimbangan" },
+  { value: "REVISION", label: "Perbaikan" },
+  { value: "POSTPONED", label: "Ditangguhkan" },
   { value: "VERIFIED", label: "Terverifikasi" },
   { value: "PARAF", label: "Paraf" },
   { value: "APPROVED", label: "Disetujui" },
   { value: "FORWARDED", label: "Ke Sekda" },
+  { value: "SIGNED", label: "Ditandatangani" },
+  { value: "REGISTERED", label: "Registrasi" },
+  { value: "SUBMITTED_BKPSDMD", label: "Ke BKPSDM" },
   { value: "COMPLETED", label: "Selesai" },
+  { value: "ARCHIVED", label: "Arsip" },
   { value: "REJECTED", label: "Ditolak" },
 ];
 
@@ -24,7 +31,11 @@ const LIMIT = 10;
 export default function CutiListPage() {
   const [items, setItems] = useState<LeaveItem[]>([]);
   const [meta, setMeta] = useState<PageMeta | null>(null);
+  const [types, setTypes] = useState<LeaveType[]>([]);
   const [status, setStatus] = useState("");
+  const [leaveType, setLeaveType] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -33,14 +44,20 @@ export default function CutiListPage() {
   useEffect(() => {
     const st = new URLSearchParams(window.location.search).get("status") ?? "";
     if (st) setStatus(st);
+    apiFetch<LeaveType[]>("/leave-types")
+      .then(({ data }) => setTypes(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, []);
 
-  async function load(p: number, st: string, query: string) {
+  async function load(p: number, st: string, lt: string, f: string, t: string, query: string) {
     setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams({ page: String(p), limit: String(LIMIT) });
       if (st) params.set("status", st);
+      if (lt) params.set("leaveType", lt);
+      if (f) params.set("startFrom", f);
+      if (t) params.set("startTo", t);
       if (query.trim()) params.set("q", query.trim());
       const { data, meta: m } = await apiFetch<LeaveItem[] | { items: LeaveItem[] }>(
         `/leave-requests?${params.toString()}`,
@@ -58,7 +75,7 @@ export default function CutiListPage() {
 
   useEffect(() => {
     setPage(1);
-    void load(1, status, q);
+    void load(1, status, leaveType, from, to, q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
@@ -79,9 +96,9 @@ export default function CutiListPage() {
         onSubmit={(e) => {
           e.preventDefault();
           setPage(1);
-          void load(1, status, q);
+          void load(1, status, leaveType, from, to, q);
         }}
-        className="mt-3 flex flex-wrap gap-2"
+        className="mt-3 space-y-2"
       >
         <div className="flex flex-wrap gap-1.5">
           {FILTERS.map((f) => (
@@ -97,19 +114,32 @@ export default function CutiListPage() {
             </button>
           ))}
         </div>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Cari nama pegawai…"
-          className="min-w-44 flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-brand-700"
-        />
+        <div className="flex flex-wrap gap-2">
+          <select value={leaveType} onChange={(e) => setLeaveType(e.target.value)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand-700">
+            <option value="">Semua jenis</option>
+            {types.map((t) => (
+              <option key={t.code} value={t.code}>{t.name}</option>
+            ))}
+          </select>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="Mulai dari" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand-700" />
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label="Sampai" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand-700" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Cari nama / NIP / nomor…"
+            className="min-w-44 flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-brand-700"
+          />
+          <button type="submit" className="rounded-lg bg-brand-900 px-4 py-2 text-sm font-medium text-white hover:bg-brand-800">
+            Tampilkan
+          </button>
+        </div>
       </form>
 
       <div className="mt-3">
         {loading ? (
           <Skeleton className="h-64 w-full" />
         ) : error ? (
-          <ErrorBox message={error} onRetry={() => void load(page, status, q)} />
+          <ErrorBox message={error} onRetry={() => void load(page, status, leaveType, from, to, q)} />
         ) : items.length === 0 ? (
           <EmptyState title="Belum ada pengajuan" hint="Klik “Ajukan cuti” untuk membuat pengajuan baru." />
         ) : (
@@ -134,7 +164,7 @@ export default function CutiListPage() {
                           {it.requestNumber}
                         </Link>
                       </td>
-                      <td className="px-3 py-2.5">{it.employee?.name}</td>
+                      <td className="px-3 py-2.5">{it.employee?.name}<span className="block text-xs text-muted">{it.employee?.orgUnit?.name ?? ""}</span></td>
                       <td className="px-3 py-2.5 text-muted">{it.leaveType?.name}</td>
                       <td className="px-3 py-2.5 tabular-nums">
                         {it.startDate?.slice(0, 10)} – {it.endDate?.slice(0, 10)}
@@ -155,7 +185,7 @@ export default function CutiListPage() {
                   onClick={() => {
                     const p = page - 1;
                     setPage(p);
-                    void load(p, status, q);
+                    void load(p, status, leaveType, from, to, q);
                   }}
                   className="rounded-md border border-line bg-surface px-2.5 py-1 disabled:opacity-40"
                 >
@@ -167,7 +197,7 @@ export default function CutiListPage() {
                   onClick={() => {
                     const p = page + 1;
                     setPage(p);
-                    void load(p, status, q);
+                    void load(p, status, leaveType, from, to, q);
                   }}
                   className="rounded-md border border-line bg-surface px-2.5 py-1 disabled:opacity-40"
                 >
