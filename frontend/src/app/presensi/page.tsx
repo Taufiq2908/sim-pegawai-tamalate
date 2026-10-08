@@ -206,8 +206,8 @@ export default function PresensiPage() {
   const loadPhotos = useCallback(async () => {
     try {
       const to = addDays(weekStart, 4);
-      const { data } = await apiFetch<SessionPhoto[]>(`/attendances/session-photos?from=${weekStart}&to=${to}`);
-      setPhotos(Array.isArray(data) ? data : []);
+      const { data } = await apiFetch<SessionPhoto[] | SessionPhoto>(`/attendances/session-photos?from=${weekStart}&to=${to}`);
+      setPhotos(Array.isArray(data) ? data : data ? [data] : []);
     } catch {
       setPhotos([]);
     }
