@@ -111,3 +111,22 @@ persetujuan ke blok surat (VII atasan, VIII camat). Syarat backend:
 - Istilah UI: pakai **"persetujuan digital"**, bukan "TTE" — TTE tersertifikasi
   (BSrE) adalah hal berbeda dan belum tersedia. Surat fase 1 tetap dicetak
   lalu ditandatangani basah; blok digital bersifat catatan persetujuan.
+
+## Status implementasi (backend, 2026-10-08 — semua lolos e2e)
+
+- B1: `POST /leave-requests/:id/answer-letter` (docType `SURAT_JAWABAN_BKPSDM`,
+  APPROVED/SIGNED, oleh pelaksana); `sign` 422 bila belum ada jawaban.
+- B2: `joinDate` (+position/rank/orgUnit) di `/auth/me.employee`; nama+NIP+
+  pangkat pejabat via resolver B3 (Camat/Sekcam/Kasubag/Kasi aktif).
+- B3: `GET /employees/:id/supervisor` + field `supervisor` di detail cuti.
+- B4: dipilih opsi (a) atasan-dulu — `SUBMITTED→REVIEWED (leave.review)` wajib
+  sebelum `VERIFIED`, kecuali pemohon Camat/Sekcam/Lurah/kelurahan (tercatat).
+- B5: `postpone` → POSTPONED (note wajib), ajukan ulang via `submit`.
+- B6: `GET /employees/:id/leave-history` + `/leave-balance` (aturan saldo v1
+  di kontrak `02` §3a).
+- B7: `BESAR` + `DILUAR_TANGGUNGAN` di-seed (kode lama `LUAR_TANGGUNGAN` dikoreksi).
+- B8: notifikasi tipe `LEAVE` tiap transisi (pemegang tahap berikut + pemohon).
+- B10: role `SUPERVISOR` baru; Kasubag = `SUPERVISOR` + GRANT; akun `kasi1`
+  (atasan murni) + `kasubag1` (pemeriksa); `verifier1` operator murni.
+- B11: kolom `actor_name/actor_nip` di `leave_approvals`; timeline menyertakan
+  keduanya. Aset paraf + QR ditunda (fase 1 basah).

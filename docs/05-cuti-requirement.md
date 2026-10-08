@@ -35,27 +35,34 @@ saldo) • F alamat+telepon • G pernyataan (fase 1: cetak + basah) •
 H/I keputusan 4 opsi. TTE tersertifikasi BUKAN kewajiban fase 1; UI memakai
 istilah "persetujuan digital" (nama+NIP+jabatan+waktu per aksi).
 
-## 3. Yang SUDAH didukung backend (terverifikasi di kode, pasca-v2)
-- 4 jenis cuti. Rantai DRAFT→SUBMITTED→VERIFIED→PARAF→APPROVED→SIGNED→
-  COMPLETED (+REVISION/REJECTED/FORWARDED). revise≈PERUBAHAN,
-  reject≈TIDAK DISETUJUI. **Tahap atasan (REVIEWED) dan DITANGGUHKAN belum ada.**
+## 3. Yang SUDAH didukung backend (terverifikasi di kode, pasca-v2 + revisi 05/06)
+- 6 jenis cuti (TAHUNAN, BESAR, SAKIT, MELAHIRKAN, ALASAN_PENTING, DILUAR_TANGGUNGAN).
+  Rantai DRAFT→SUBMITTED→REVIEWED(atasan)→VERIFIED(Kasubag)→PARAF→APPROVED→SIGNED→
+  REGISTERED→SUBMITTED_BKPSDMD→COMPLETED→ARCHIVED (+REVISION/REJECTED/POSTPONED/FORWARDED).
+  revise≈PERUBAHAN, reject≈TIDAK DISETUJUI, postpone≈DITANGGUHKAN.
+- Role SUPERVISOR (atasan langsung, `leave.review`) + Kasubag = SUPERVISOR + GRANT
+  verify; akun `kasi1` (atasan murni) dan `kasubag1` (pemeriksa).
+- Upload jawaban BKPSDM (`answer-letter`) saat APPROVED/SIGNED; `sign` mensyaratkannya.
+- Resolver atasan (`GET /employees/:id/supervisor` + field `supervisor` di detail cuti).
+- Riwayat + saldo cuti tahunan; notifikasi tiap transisi cuti (tipe `LEAVE`);
+  snapshot persetujuan digital (nama+NIP+jabatan+waktu) di timeline.
 - `availableActions` per status+permission (frontend render tombol dari sini).
-- Submit wajib ≥2 dokumen termasuk SK_TERAKHIR; tidak boleh memproses
-  pengajuan sendiri; passwordHash sudah dihapus dari response.
+- Submit wajib ≥2 dokumen termasuk SK_TERAKHIR (+SURAT_DOKTER untuk SAKIT);
+  tidak boleh memproses pengajuan sendiri; passwordHash sudah dihapus dari response.
 - Upload 5MB pdf/jpg/png; timeline audit; PATCH milik sendiri saat
-  DRAFT/REVISION. **Tidak ada DELETE, tidak ada notifikasi cuti.**
+  DRAFT/REVISION; DELETE draft milik sendiri; filter jenis/unit/periode + cari NIP/nomor.
 - List: filter `status` + cari `q` (**nama saja**) + pagination.
 - `GET /employees` + `GET /users` tersedia (dropdown, bukan UUID mentah).
 
-## 4. Yang masih butuh backend (detail: `06` B1–B11)
-- B4: transisi + perm tahap atasan; B10: role SUPERVISOR + GRANT Kasubag + akun pejabat.
-- B1: upload surat jawaban BKPSDM saat APPROVED/SIGNED (**penghambat alur**).
-- B2: master pegawai (joinDate/masa kerja, rantai atasan, pejabat aktif) + sertakan di `/auth/me`.
-- B3: API resolver atasan langsung. B6: riwayat + saldo cuti per pegawai.
-- B7: seed BESAR + DILUAR_TANGGUNGAN. B8: notifikasi tiap transisi cuti.
-- B5: DITANGGUHKAN (transisi `postpone`) bila 4 opsi wajib; alasan wajib tolak/ubah.
-- Cari by NIP/nomor; filter jenis/unit/periode; DELETE draft; dokumen wajib per jenis.
-- B11: snapshot signer per aksi + aset paraf/TTE + endpoint verifikasi QR (bila QR dipakai).
+## 4. Status backend per item `06` (per 2026-10-08, teruji e2e)
+
+B1, B2 (joinDate di `/auth/me` + resolver atasan + data pejabat via resolver),
+B3, B4 (dipilih opsi atasan-dulu), B5, B6, B7, B8, B10, B11 (snapshot signer;
+aset paraf fisik + QR ditunda) = SUDAH diimplementasi. Sisa yang belum:
+- Rantai kelurahan lengkap (mapping final + akun Kasi/Seklur/Lurah) — sementara
+  Kasubag memverifikasi langsung (lihat B3).
+- Aturan dokumen wajib per jenis selain SAKIT→SURAT_DOKTER.
+- TTE tersertifikasi / integrasi BSrE (fase 1: cetak + basah).
 
 ## 5. Status implementasi frontend (terkunci)
 - `/cuti`: tabel + filter status + cari nama + pagination.
@@ -68,5 +75,6 @@ istilah "persetujuan digital" (nama+NIP+jabatan+waktu per aksi).
 - `/cuti/[id]/surat`: cetak surat pengantar sesuai formulir (kop + tabel I–VIII,
   centang otomatis, logo dari `/logo-tamalate.png` bila ada, lampiran riwayat
   sistem, nama Camat hardcode sementara dari formulir).
-- Belum ada (menunggu backend): saldo cuti, tahap atasan/BKPSDM, postpone,
-  hapus draft, notifikasi cuti, upload jawaban BKPSDM.
+- Belum ada di frontend (backend-nya SUDAH siap, lihat kontrak `02` §3a):
+  saldo cuti, tahap atasan/BKPSDM, postpone, hapus draft, notifikasi cuti,
+  upload jawaban BKPSDM.

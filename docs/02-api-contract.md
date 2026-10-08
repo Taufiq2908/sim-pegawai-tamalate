@@ -127,12 +127,14 @@ Setiap sukses → 200 dengan objek detail baru (status berubah) + timeline berta
 
 | endpoint | perm | dari status | ke status |
 |---|---|---|---|
-| POST /leave-requests/:id/submit | leave.submit | DRAFT,REVISION | SUBMITTED (pemilik) |
-| POST /leave-requests/:id/verify | leave.verify | SUBMITTED | VERIFIED (Kasubag — `kasubag1`) |
-| POST /leave-requests/:id/revise | leave.verify | SUBMITTED | REVISION |
+| POST /leave-requests/:id/submit | leave.submit | DRAFT,REVISION,POSTPONED | SUBMITTED (pemilik; ≥2 dokumen + SK_TERAKHIR; SAKIT wajib SURAT_DOKTER) |
+| POST /leave-requests/:id/review | leave.review | SUBMITTED | REVIEWED (hanya atasan langsung; Camat/Sekcam/Lurah/kelurahan lewat) |
+| POST /leave-requests/:id/verify | leave.verify | REVIEWED (atau SUBMITTED khusus pemohon Camat/Sekcam/Lurah/kelurahan) | VERIFIED (Kasubag — `kasubag1`) |
+| POST /leave-requests/:id/revise | leave.verify/review | SUBMITTED (atasan langsung), REVIEWED (Kasubag) | REVISION |
+| POST /leave-requests/:id/postpone | mengikuti wewenang tahap berjalan | SUBMITTED,REVIEWED,VERIFIED,PARAF | POSTPONED (DITANGGUHKAN; ajukan ulang via submit) |
 | POST /leave-requests/:id/paraf | leave.paraf | VERIFIED | PARAF |
 | POST /leave-requests/:id/approve | leave.approve | PARAF (atau VERIFIED khusus pemohon SEKCAM) | APPROVED |
-| POST /leave-requests/:id/sign | leave.sign | APPROVED | SIGNED |
+| POST /leave-requests/:id/sign | leave.sign | APPROVED (wajib sudah ada SURAT_JAWABAN_BKPSDM) | SIGNED |
 | POST /leave-requests/:id/register | leave.register | SIGNED | REGISTERED (staf kecamatan saja) |
 | POST /leave-requests/:id/tobkpsdm | leave.register | REGISTERED | SUBMITTED_BKPSDMD (staf kecamatan saja) |
 | POST /leave-requests/:id/receiveresult | leave.register | SUBMITTED_BKPSDMD | COMPLETED (hasil BKPSDMD diterima + diserahkan) |
@@ -156,6 +158,26 @@ Error tipikal:
 * 422 `{"message":"note wajib untuk revise"}`
 
 Frontend wajib: disable tombol setelah klik, tampilkan `availableActions` ulang dari response, tampilkan 409 sebagai "data sudah berubah, refresh".
+
+### 3a. Cuti — endpoint pendukung (05/06)
+
+```text
+POST /leave-requests/:id/answer-letter (multipart file) → catat SURAT_JAWABAN_BKPSDM (B1)
+  perm leave.document.upload; hanya APPROVED/SIGNED; pengunggah = pelaksana (bukan pemohon);
+  status tidak berubah; sign mensyaratkan dokumen ini ada.
+DELETE /leave-requests/:id → hapus DRAFT milik sendiri (409 bila bukan DRAFT).
+GET /leave-requests?leaveType=&unit=&startFrom=&to=&q= → q mencari nama/NIP/nomor.
+GET /employees/:id/supervisor → { direct, chain[], note } (B3; chain = nama+NIP+jabatan).
+GET /employees/:id/leave-history?year=&status= → [{requestNumber, year, leaveType, days, status}] (B6).
+GET /employees/:id/leave-balance?year= → {entitlement, used, remaining} cuti tahunan (B6).
+  Aturan v1: hak = maxDays TAHUNAN aktif; terpakai = hari TAHUNAN berstatus
+  APPROVED/SIGNED/REGISTERED/SUBMITTED_BKPSDMD/COMPLETED pada tahun tsb.
+```
+
+Notifikasi cuti (B8): setiap transisi menulis `notifications` tipe `LEAVE` untuk
+pemegang tahap berikut (di-resolve dari permission tahap) + pemohon. Baca via
+`GET /notifications` yang sudah ada. Timeline detail menyertakan snapshot
+persetujuan digital (B11): `actorName/actorNip/actorPosition/createdAt`.
 
 ## 4. Presensi Apel
 

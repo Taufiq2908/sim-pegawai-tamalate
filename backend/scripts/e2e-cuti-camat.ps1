@@ -11,6 +11,7 @@ function CodeOf($e) { try { [int]$e.Exception.Response.StatusCode.value__ } catc
 $tCam = Get-Tok 'camat1' 'Camat123!'
 $tVer = Get-Tok 'verifier1' 'Verifier123!'
 $tKas = Get-Tok 'kasubag1' 'Kasubag123!'
+$tKasi = Get-Tok 'kasi1' 'Kasi123!'
 $tAdm = Get-Tok 'superadmin' 'Admin123!'
 $tPeg = Get-Tok 'pegawai1' 'Pegawai123!'
 
@@ -44,5 +45,6 @@ curl.exe -s -X POST -H ('Authorization: Bearer ' + $tPeg) -F 'file=@tmp-skg.pdf;
 curl.exe -s -X POST -H ('Authorization: Bearer ' + $tPeg) -F 'file=@tmp-fmg.pdf;type=application/pdf' -F 'docType=FORM_CUTI' ($base + '/leave-requests/' + $c0.data.id + '/documents') | Out-Null
 Remove-Item tmp-skg.pdf, tmp-fmg.pdf
 Post-Json ($base + '/leave-requests/' + $c0.data.id + '/submit') (Get-H $tPeg) @{} | Out-Null
+Post-Json ($base + '/leave-requests/' + $c0.data.id + '/review') (Get-H $tKasi) @{ note = 'ok' } | Out-Null
 Post-Json ($base + '/leave-requests/' + $c0.data.id + '/verify') (Get-H $tKas) @{ note = 'ok' } | Out-Null
 try { Post-Json ($base + '/leave-requests/' + $c0.data.id + '/forward') (Get-H $tKas) @{ note = 'x'*10 } | Out-Null; 'N2 FAIL' } catch { 'N2 forward-non-camat: ' + (CodeOf $_) }

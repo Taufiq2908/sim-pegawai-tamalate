@@ -10,6 +10,7 @@ datasource db {
 enum RoleCode {
   SUPER_ADMIN
   VERIFIER
+  SUPERVISOR
   LEADER
   EMPLOYEE
 }
@@ -175,6 +176,7 @@ model LeaveRequest {
   currentHolderRole  String?         @map("current_holder_role") @db.VarChar(20)
   rejectionReason    String?         @map("rejection_reason")
   revisionNote       String?         @map("revision_note")
+  postponeNote       String?         @map("postpone_note")
   createdBy          String          @map("created_by") @db.Uuid
   creator            User            @relation("CreatedLeaves", fields: [createdBy], references: [id])
   createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz
@@ -210,6 +212,8 @@ model LeaveApproval {
   actor          User         @relation("ActorActions", fields: [actorUserId], references: [id])
   actorRole      String       @map("actor_role") @db.VarChar(20)
   actorPosition  String?      @map("actor_position") @db.VarChar(50)
+  actorName      String?      @map("actor_name") @db.VarChar(150)
+  actorNip       String?      @map("actor_nip") @db.VarChar(30)
   fromStatus     String       @map("from_status") @db.VarChar(20)
   toStatus       String       @map("to_status") @db.VarChar(20)
   action         String       @db.VarChar(20)
