@@ -7,6 +7,7 @@ import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
 import { authRequired, requirePermission } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
+import { usersForPermission } from '../lib/permissions';
 import {
   todayYMD,
   autoStatus,
@@ -31,12 +32,20 @@ const photoUpload = multer({
   },
 });
 
-const STATUS = ['HADIR', 'TERLAMBAT', 'IZIN', 'SAKIT', 'ALPA'] as const;
+const STATUS = ['HADIR', 'TERLAMBAT', 'IZIN', 'SAKIT', 'DL', 'ALPA'] as const;
+// ALPA = TK (Tanpa Keterangan, spec). DL = Dinas Luar (memaafkan kedua sesi).
 const PRESENCE = ['HADIR', 'TERLAMBAT'];
+const EXCUSED_FULL = ['IZIN', 'SAKIT', 'DL'];
 
 const includeEmp = {
   employee: { include: { orgUnit: true } },
 };
+
+// Hari yang sudah dikunci Kasubag ("Simpan & Validasi") tidak bisa diubah lagi.
+async function dayLocked(date: Date): Promise<boolean> {
+  const lock = await prisma.attendanceLock.findUnique({ where: { date } });
+  return !!lock;
+}
 
 // ---------- POST /attendances/check-in (pegawai mencatat apel hari ini) ----------
 router.post('/check-in', requirePermission('attendance.checkin'), async (req, res) => {
@@ -50,6 +59,7 @@ router.post('/check-in', requirePermission('attendance.checkin'), async (req, re
     where: { employeeId_date: { employeeId, date } },
   });
   if (exists) return fail(res, 409, 'Sudah presensi hari ini');
+  if (await dayLocked(date)) return fail(res, 409, 'Presensi hari ini sudah dikunci Kasubag');
 
   const deadline = deadlineMinutes(env.apelDeadline);
   const status = autoStatus(now, deadline);
@@ -100,6 +110,7 @@ router.post('/', requirePermission('attendance.manage'), async (req, res) => {
   if (!needsTime && b.checkInTime) return fail(res, 422, 'checkInTime hanya untuk HADIR/TERLAMBAT');
 
   const date = parseYMD(b.date)!;
+  if (await dayLocked(date)) return fail(res, 409, 'Tanggal tersebut sudah dikunci Kasubag');
   const exists = await prisma.attendance.findUnique({
     where: { employeeId_date: { employeeId: b.employeeId, date } },
   });
@@ -124,6 +135,7 @@ router.post('/', requirePermission('attendance.manage'), async (req, res) => {
 router.patch('/:id', requirePermission('attendance.manage'), async (req, res) => {
   const cur = await prisma.attendance.findUnique({ where: { id: req.params.id } });
   if (!cur) return fail(res, 404, 'Presensi tidak ditemukan');
+  if (await dayLocked(cur.date)) return fail(res, 409, 'Tanggal tersebut sudah dikunci Kasubag');
   const schema = z.object({
     status: z.enum(STATUS).optional(),
     checkInTime: z.string().regex(/^\d{1,2}:\d{2}$/).optional().nullable(),
@@ -184,6 +196,7 @@ router.post('/check-out', requirePermission('attendance.checkin'), async (req, r
   });
   if (!record || !record.checkInAt) return fail(res, 404, 'Belum presensi masuk hari ini');
   if (record.checkOutAt) return fail(res, 409, 'Sudah presensi pulang hari ini');
+  if (await dayLocked(record.date)) return fail(res, 409, 'Presensi hari ini sudah dikunci Kasubag');
 
   const required = isFridayWita(now) ? env.checkoutFriday : env.checkoutWeekday;
   const early = makassarParts(now).minutes < deadlineMinutes(required);
@@ -234,17 +247,116 @@ router.get('/report', requirePermission('attendance.view'), async (req, res) => 
       status: r?.status ?? '-',
     };
   });
-  return ok(res, rows, 'ok', { date: dateStr });
+  return ok(res, rows, 'ok', { date: dateStr, locked: !!(await prisma.attendanceLock.findUnique({ where: { date: dateObj } })) });
+});
+
+// ---------- POST /attendances/lock (Kasubag: Simpan & Validasi → kunci harian) ----------
+// Syarat: foto PAGI + SORE sudah diunggah. Pegawai aktif tanpa catatan
+// dimaterialisasi sebagai ALPA (=TK). Hanya position KASUBAG (superadmin bypass).
+router.post('/lock', requirePermission('attendance.manage'), async (req, res) => {
+  if (req.user!.role !== 'SUPER_ADMIN' && !(req.user!.position ?? '').startsWith('KASUBAG')) {
+    return fail(res, 403, 'Penguncian harian hanya oleh Kasubag');
+  }
+  const schema = z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    note: z.string().max(500).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+  if (parsed.data.date > todayYMD()) return fail(res, 422, 'Tidak boleh mengunci tanggal masa depan');
+  const date = parseYMD(parsed.data.date)!;
+  if (await dayLocked(date)) return fail(res, 409, 'Tanggal tersebut sudah dikunci');
+
+  const photos = await prisma.attendanceSessionPhoto.findMany({ where: { date }, select: { session: true } });
+  const sessions = new Set(photos.map((p) => p.session));
+  const missing = ['PAGI', 'SORE'].filter((s) => !sessions.has(s));
+  if (missing.length) {
+    return fail(res, 422, `Foto belum lengkap, kurang sesi: ${missing.join(', ')}`);
+  }
+
+  const employees = await prisma.employee.findMany({ where: { isActive: true }, select: { id: true } });
+  const records = await prisma.attendance.findMany({ where: { date }, select: { employeeId: true } });
+  const recorded = new Set(records.map((r) => r.employeeId));
+  const absent = employees.filter((e) => !recorded.has(e.id));
+
+  await prisma.$transaction(async (tx) => {
+    if (absent.length) {
+      await tx.attendance.createMany({
+        data: absent.map((e) => ({
+          employeeId: e.id,
+          date,
+          status: 'ALPA',
+          method: 'SYSTEM',
+          note: 'Otomatis: tanpa presensi saat penguncian harian',
+          recordedBy: req.user!.id,
+        })),
+      });
+    }
+    await tx.attendanceLock.create({
+      data: { date, lockedBy: req.user!.id, note: parsed.data.note ?? null },
+    });
+  });
+  return ok(res, { date: parsed.data.date, locked: true, materializedTK: absent.length }, 'Harian dikunci');
+});
+
+// ---------- GET /attendances/weekly-recap (Rekapitulasi Daftar Hadir Per Pekan) ----------
+// Matriks semua pegawai × 5 hari kerja {pagi, sore} + total TK + flag bermasalah.
+router.get('/weekly-recap', requirePermission('attendance.summary'), async (req, res) => {
+  const { weekStart } = req.query as any;
+  if (!weekStart || !assertMonday(weekStart)) {
+    return fail(res, 422, 'weekStart wajib tanggal Senin (YYYY-MM-DD)');
+  }
+  const days = workdaysOfWeek(weekStart);
+  const rows = (await weekMatrix(weekStart)).map((x, i) => {
+    const sessions = x.dayRows.flatMap((d) => [d.pagi, d.sore]);
+    const count = (v: string) => sessions.filter((s) => s === v).length;
+    const tk = count('ABSEN');
+    const izin = count('IZIN');
+    const dl = count('DL');
+    return {
+      no: i + 1,
+      employee: {
+        id: x.employee.id, nip: x.employee.nip, name: x.employee.name,
+        position: x.employee.position, rank: x.employee.rank ?? null,
+        employmentStatus: x.employee.employmentStatus,
+        orgUnit: { code: x.employee.orgUnit?.code ?? null, name: x.employee.orgUnit?.name ?? null },
+      },
+      // Kolom tabel rekap: kantor, jabatan, status kepegawaian, TK, izin, DL, rekapitulasi.
+      kantor: x.employee.orgUnit?.name ?? '-',
+      jabatan: x.employee.position,
+      status: x.employee.employmentStatus,
+      tk,
+      izin,
+      dl,
+      rekapitulasi: tk + izin + dl,
+      counts: {
+        hadir: count('HADIR'), terlambat: count('TERLAMBAT'),
+        izin, sakit: count('SAKIT'), dl, tk,
+      },
+      weekStart: days[0],
+      weekEnd: days[4],
+      absenceCount: x.absenceCount,
+      isProblematic: x.absenceCount >= 5,
+      days: x.dayRows,
+    };
+  });
+  return ok(res, rows, 'ok', {
+    weekStart: days[0],
+    weekEnd: days[4],
+    totalEmployees: rows.length,
+    problematic: rows.filter((r) => r.isProblematic).length,
+  });
 });
 
 // 1 hari kerja = 2 sesi (PAGI apel masuk, SORE apel pulang). 1 sesi tak hadir = 1 ketidakhadiran.
-// IZIN/SAKIT sehari penuh memaafkan kedua sesi. >= 5 sesi dalam sepekan = bermasalah.
-type SessionVal = 'HADIR' | 'TERLAMBAT' | 'IZIN' | 'SAKIT' | 'ABSEN';
-async function problematicOfWeek(weekStart: string) {
+// IZIN/SAKIT/DL sehari penuh memaafkan kedua sesi. >= 5 sesi dalam sepekan = bermasalah.
+type SessionVal = 'HADIR' | 'TERLAMBAT' | 'IZIN' | 'SAKIT' | 'DL' | 'ABSEN';
+// Matriks kehadiran 1 pekan (Senin–Jumat) untuk semua pegawai aktif.
+async function weekMatrix(weekStart: string) {
   const days = workdaysOfWeek(weekStart);
   const from = parseYMD(days[0])!;
   const to = parseYMD(days[4])!;
-  const employees = await prisma.employee.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } });
+  const employees = await prisma.employee.findMany({ where: { isActive: true }, include: { orgUnit: true }, orderBy: { name: 'asc' } });
   const records = await prisma.attendance.findMany({
     where: { date: { gte: from, lte: to } },
   });
@@ -262,9 +374,9 @@ async function problematicOfWeek(weekStart: string) {
           if (r.status === 'HADIR' || r.status === 'TERLAMBAT') {
             pagi = r.status;
             sore = r.checkOutAt ? 'HADIR' : 'ABSEN';
-          } else if (r.status === 'IZIN' || r.status === 'SAKIT') {
-            pagi = r.status;
-            sore = r.status;
+          } else if (r.status === 'IZIN' || r.status === 'SAKIT' || r.status === 'DL') {
+            pagi = r.status as SessionVal;
+            sore = r.status as SessionVal;
           }
         }
         return { date: d, pagi, sore };
@@ -272,7 +384,12 @@ async function problematicOfWeek(weekStart: string) {
       const absenceCount = dayRows.filter((x) => x.pagi === 'ABSEN').length
         + dayRows.filter((x) => x.sore === 'ABSEN').length;
       return { employee: e, absenceCount, dayRows };
-    })
+    });
+}
+
+async function problematicOfWeek(weekStart: string) {
+  const days = workdaysOfWeek(weekStart);
+  return (await weekMatrix(weekStart))
     .filter((x) => x.absenceCount >= 5)
     .map((x) => ({
       employee: { id: x.employee.id, nip: x.employee.nip, name: x.employee.name, position: x.employee.position },
@@ -298,6 +415,30 @@ router.get('/problematic', requirePermission('attendance.summary'), async (req, 
 });
 
 // ---------- POST /attendances/warning-letters/generate ----------
+async function notifyAttendance(userIds: string[], title: string, body: string, referenceId?: string | null) {
+  const ids = [...new Set(userIds)];
+  if (!ids.length) return;
+  try {
+    await prisma.notification.createMany({
+      data: ids.map((userId) => ({
+        userId,
+        type: 'ATTENDANCE',
+        title,
+        body,
+        referenceType: 'warning_letter',
+        referenceId: referenceId ?? null,
+      })),
+    });
+  } catch (e) {
+    console.error('notify presensi gagal:', (e as Error).message);
+  }
+}
+
+async function userIdsByPosition(pos: string): Promise<string[]> {
+  const users = await prisma.user.findMany({ where: { position: pos, isActive: true }, select: { id: true } });
+  return users.map((u) => u.id);
+}
+
 router.post('/warning-letters/generate', requirePermission('attendance.manage'), async (req, res) => {
   const schema = z.object({ weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
   const parsed = schema.safeParse(req.body);
@@ -316,12 +457,23 @@ router.post('/warning-letters/generate', requirePermission('attendance.manage'),
     }
     const count = await prisma.warningLetter.count();
     const letterNumber = `TEGURAN-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+    const emp = await prisma.employee.findUnique({
+      where: { id: it.employee.id },
+      include: { orgUnit: true },
+    });
+    const rincian = it.days
+      .filter((d: any) => d.pagi === 'ABSEN' || d.sore === 'ABSEN')
+      .map((d: any) => `${d.date} (pagi ${d.pagi}, sore ${d.sore})`)
+      .join('; ');
     const content =
-      `SURAT TEGURAN (DUMMY) Nomor: ${letterNumber}\n` +
-      `Kepada Yth. Sdr/i ${it.employee.name} (${it.employee.position})\n` +
-      `Berdasarkan data presensi apel periode ${it.weekStart} s.d. ${it.weekEnd}, ` +
+      `SURAT TEGURAN Nomor: ${letterNumber}\n` +
+      `Kepada Yth. Sdr/i ${emp?.name ?? it.employee.name}\n` +
+      `NIP: ${emp?.nip ?? '-'}\n` +
+      `Jabatan: ${emp?.position ?? it.employee.position} / Unit: ${emp?.orgUnit?.name ?? '-'}\n` +
+      `Berdasarkan rekapitulasi presensi apel periode ${it.weekStart} s.d. ${it.weekEnd}, ` +
       `Saudara tercatat tidak hadir sebanyak ${it.absenceCount} sesi apel ` +
-      `tanpa keterangan resmi, sehingga masuk kategori pegawai bermasalah. ` +
+      `tanpa keterangan resmi${rincian ? ` dengan rincian: ${rincian}` : ''}, ` +
+      `sehingga masuk kategori Pegawai Bermasalah. ` +
       `Diminta memperbaiki kedisiplinan kehadiran. [Dokumen dummy untuk demo.]`;
     const created = await prisma.warningLetter.create({
       data: {
@@ -335,6 +487,15 @@ router.post('/warning-letters/generate', requirePermission('attendance.manage'),
       },
     });
     result.push({ ...created, created: true });
+    // Alert otomatis ke Sekcam + Kasubag (Fase 3).
+    const recipients = [...await userIdsByPosition('SEKCAM'), ...await usersForPermission('attendance.summary')]
+      .filter((id) => id !== req.user!.id);
+    await notifyAttendance(
+      recipients,
+      `Pegawai bermasalah: ${emp?.name ?? it.employee.name}`,
+      `${it.absenceCount} sesi apel tanpa keterangan (${it.weekStart}–${it.weekEnd}). Surat: ${letterNumber}.`,
+      created.id,
+    );
   }
   return ok(res, result, `${result.filter((r: any) => r.created).length} surat dibuat, ${result.length} pegawai bermasalah`);
 });
@@ -362,6 +523,45 @@ router.get('/warning-letters', requirePermission('attendance.summary'), async (r
   return ok(res, items, 'ok', { page: p, limit: l, total });
 });
 
+// ---------- GET /attendances/warning-letters/:id/print (payload cetak/laporan BKPSDM) ----------
+// (Didefinisikan SEBELUM /:id agar tidak tertangkap param generik.)
+router.get('/warning-letters/:id/print', requirePermission('attendance.summary'), async (req, res) => {
+  const w = await prisma.warningLetter.findUnique({
+    where: { id: req.params.id },
+    include: { employee: { include: { orgUnit: true } } },
+  });
+  if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
+  const officials = await prisma.user.findMany({
+    where: { isActive: true, OR: [{ position: 'CAMAT' }, { position: 'SEKCAM' }, { position: { startsWith: 'KASUBAG' } }] },
+    include: { employee: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const official = (pos: string) => {
+    const u = officials.find((x) => (x.position ?? '').startsWith(pos));
+    return u ? { name: u.employee?.name ?? u.username, nip: u.employee?.nip ?? null, position: u.position } : null;
+  };
+  const statusPembinaan = !w.summonScheduledAt ? 'Menunggu' : !w.coachedAt ? 'Diproses' : 'Selesai';
+  return ok(res, {
+    letterNumber: w.letterNumber,
+    weekStart: w.weekStart.toISOString().slice(0, 10),
+    weekEnd: w.weekEnd.toISOString().slice(0, 10),
+    absenceCount: w.absenceCount,
+    employee: {
+      name: w.employee.name, nip: w.employee.nip, position: w.employee.position,
+      rank: w.employee.rank, unit: w.employee.orgUnit?.name ?? null,
+    },
+    summon: w.summonScheduledAt ? { scheduledAt: w.summonScheduledAt, note: w.summonNote } : null,
+    coaching: w.coachedAt ? { result: w.coachingResult, followUp: w.coachingFollowUp, coachedAt: w.coachedAt } : null,
+    escalation: {
+      forward: w.forwardAt ? { by: w.forwardBy, at: w.forwardAt, note: w.forwardNote } : null,
+      instruction: w.instructedAt ? { by: w.instructedBy, at: w.instructedAt, text: w.instruction } : null,
+    },
+    officials: { camat: official('CAMAT'), sekcam: official('SEKCAM'), kasubag: official('KASUBAG') },
+    statusPembinaan,
+    content: w.content,
+  });
+});
+
 // ---------- GET /attendances/warning-letters/:id ----------
 router.get('/warning-letters/:id', requirePermission('attendance.summary'), async (req, res) => {
   const w = await prisma.warningLetter.findUnique({
@@ -386,7 +586,67 @@ router.post('/warning-letters/:id/summon', requirePermission('attendance.manage'
     where: { id: w.id },
     data: { summonScheduledAt: new Date(parsed.data.scheduledAt), summonNote: parsed.data.note ?? null },
   });
+  // Beritahu pegawai yang dipanggil.
+  const pegawaiUser = await prisma.user.findFirst({
+    where: { employeeId: w.employeeId, isActive: true },
+    select: { id: true },
+  });
+  if (pegawaiUser && pegawaiUser.id !== req.user!.id) {
+    await notifyAttendance(
+      [pegawaiUser.id],
+      `Panggilan pembinaan: ${w.letterNumber}`,
+      `Anda dijadwalkan pembinaan pada ${parsed.data.scheduledAt}${parsed.data.note ? ` — ${parsed.data.note}` : ''}.`,
+      w.id,
+    );
+  }
   return ok(res, updated, 'Panggilan pembinaan dijadwalkan');
+});
+
+// ---------- POST /attendances/warning-letters/:id/forward (Sekcam teruskan ke Camat) ----------
+router.post('/warning-letters/:id/forward', requirePermission('attendance.forward'), async (req, res) => {
+  if (req.user!.role !== 'SUPER_ADMIN' && req.user!.position !== 'SEKCAM') {
+    return fail(res, 403, 'Penerusan ke Camat hanya oleh Sekcam');
+  }
+  const schema = z.object({ note: z.string().max(500).optional() });
+  const note = schema.safeParse(req.body ?? {}).data?.note ?? null;
+  const w = await prisma.warningLetter.findUnique({ where: { id: req.params.id }, include: { employee: true } });
+  if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
+  const updated = await prisma.warningLetter.update({
+    where: { id: w.id },
+    data: { forwardBy: req.user!.id, forwardAt: new Date(), forwardNote: note },
+  });
+  const camatIds = (await userIdsByPosition('CAMAT')).filter((id) => id !== req.user!.id);
+  await notifyAttendance(
+    camatIds,
+    `Eskalasi pegawai bermasalah: ${w.employee.name}`,
+    `Sekcam meneruskan laporan ${w.letterNumber} (${w.absenceCount} sesi TK)${note ? ` — ${note}` : ''}.`,
+    w.id,
+  );
+  return ok(res, updated, 'Laporan diteruskan ke Camat');
+});
+
+// ---------- POST /attendances/warning-letters/:id/instruct (Camat: Tindak Lanjuti) ----------
+router.post('/warning-letters/:id/instruct', requirePermission('attendance.forward'), async (req, res) => {
+  if (req.user!.role !== 'SUPER_ADMIN' && req.user!.position !== 'CAMAT') {
+    return fail(res, 403, 'Instruksi tindak lanjut hanya oleh Camat');
+  }
+  const schema = z.object({ instruction: z.string().min(5, 'Instruksi wajib diisi') });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+  const w = await prisma.warningLetter.findUnique({ where: { id: req.params.id }, include: { employee: true } });
+  if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
+  const updated = await prisma.warningLetter.update({
+    where: { id: w.id },
+    data: { instructedBy: req.user!.id, instructedAt: new Date(), instruction: parsed.data.instruction },
+  });
+  const executors = (await usersForPermission('attendance.manage')).filter((id) => id !== req.user!.id);
+  await notifyAttendance(
+    executors,
+    `Instruksi Camat: ${w.letterNumber}`,
+    `${parsed.data.instruction} (pegawai: ${w.employee.name}).`,
+    w.id,
+  );
+  return ok(res, updated, 'Instruksi Camat dicatat');
 });
 
 // ---------- PATCH /attendances/warning-letters/:id/coaching (hasil pembinaan) ----------
@@ -517,12 +777,18 @@ router.get('/summary', requirePermission('attendance.summary'), async (req, res)
     byEmp[g.employeeId] ??= {};
     byEmp[g.employeeId][g.status] = g._count._all;
   }
-  const items = employees.map((e) => {
+  const items = employees.map((e, i) => {
     const c = byEmp[e.id] ?? {};
     const recorded = Object.values(c).reduce((a, b) => a + b, 0);
+    const tk = c.ALPA ?? 0;
+    const izin = c.IZIN ?? 0;
+    const dl = c.DL ?? 0;
     return {
+      no: i + 1,
       employee: { id: e.id, nip: e.nip, name: e.name, position: e.position, orgUnit: e.orgUnit.code },
-      counts: { HADIR: c.HADIR ?? 0, TERLAMBAT: c.TERLAMBAT ?? 0, IZIN: c.IZIN ?? 0, SAKIT: c.SAKIT ?? 0, ALPA: c.ALPA ?? 0 },
+      kantor: e.orgUnit.name,
+      counts: { HADIR: c.HADIR ?? 0, TERLAMBAT: c.TERLAMBAT ?? 0, IZIN: izin, SAKIT: c.SAKIT ?? 0, DL: dl, ALPA: tk },
+      rekapitulasi: tk + izin + dl,
       recorded,
     };
   });

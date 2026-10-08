@@ -192,14 +192,18 @@ Perm: `attendance.checkin`. Wajib sudah check-in; 409 bila sudah pulang.
 → `{ record, serverTime, requiredCheckout, early }`.
 
 ### POST /attendances
-Perm: `attendance.manage`. Input verifier untuk orang lain/backdate (tidak boleh masa depan).
+Perm: `attendance.manage` (staf operator + Kasubag). Input untuk orang lain/backdate
+(tidak boleh masa depan; tanggal terkunci → 409).
+Status: `HADIR|TERLAMBAT|IZIN|SAKIT|DL|ALPA` (`ALPA`=TK; `DL`=Dinas Luar,
+memaafkan kedua sesi seperti IZIN/SAKIT).
 ```json
 { "employeeId": "uuid", "date": "2026-10-06", "status": "SAKIT", "note": "demam" }
 // HADIR/TERLAMBAT wajib + "checkInTime": "07:05"
 ```
 
 ### PATCH /attendances/:id
-Perm: `attendance.manage`. Koreksi status/note/jam.
+Perm: `attendance.manage` (staf operator + Kasubag). Koreksi status/note/jam.
+Tanggal terkunci → 409.
 
 ### GET /attendances/today
 Perm: `attendance.view`. Catatan apel saya hari ini + jam server + deadline.
@@ -208,16 +212,39 @@ Perm: `attendance.view`. Catatan apel saya hari ini + jam server + deadline.
 Perm: `attendance.view`. EMPLOYEE otomatis hanya miliknya. Default rentang = bulan berjalan.
 
 ### GET /attendances/summary?from=&to=&orgUnit=KEC-TAMALATE
-Perm: `attendance.summary`. Rekap per pegawai: `{ employee, counts: {HADIR,TERLAMBAT,IZIN,SAKIT,ALPA}, recorded }`.
+Perm: `attendance.summary`. Rekap per pegawai: `{ no, employee, kantor, counts: {HADIR,TERLAMBAT,IZIN,SAKIT,DL,ALPA}, rekapitulasi (=ALPA+IZIN+DL), recorded }`.
 
 ### GET /attendances/report?date=2026-10-07
-Perm: `attendance.view`. Format tabel: `[{nomor, nama, nip, gol, jabatan, jamHadir, jamPulang, status}]` (jam WITA HH:MM, `-` bila kosong). EMPLOYEE hanya barisnya sendiri.
+Perm: `attendance.view`. Format tabel: `[{nomor, nama, nip, gol, jabatan, jamHadir, jamPulang, status}]` (jam WITA HH:MM, `-` bila kosong). EMPLOYEE hanya barisnya sendiri. Meta menyertakan `locked` (kunci Kasubag).
+
+### GET /attendances/weekly-recap?weekStart=2026-09-28
+Perm: `attendance.summary`. Rekapitulasi Daftar Hadir Per Pekan: satu baris per
+pegawai dengan kolom `no, employee, kantor, jabatan, status, tk, izin, dl,`
+`rekapitulasi (=tk+izin+dl), counts, absenceCount, isProblematic, days[]`
+(matriks 5 hari `{pagi, sore}`). Meta: `totalEmployees, problematic`.
+
+### POST /attendances/lock {date, note?}
+Perm: `attendance.manage`, HANYA position KASUBAG (superadmin bypass).
+"Simpan & Validasi": syarat foto PAGI+SORE; tanpa catatan → ALPA (SYSTEM);
+hari terkunci (check-in/out, input, koreksi → 409).
 
 ### GET /attendances/problematic?weekStart=2026-09-28
-Perm: `attendance.summary`. `weekStart` wajib Senin. Pegawai dengan ≥5 hari kerja tanpa HADIR/TERLAMBAT (IZIN/SAKIT dikecualikan).
+Perm: `attendance.summary`. `weekStart` wajib Senin. Pegawai dengan ≥5 sesi
+tidak hadir (IZIN/SAKIT/DL memaafkan kedua sesi; ALPA/tanpa catatan = 2 sesi).
 
 ### POST /attendances/warning-letters/generate {weekStart}
-Perm: `attendance.manage`. Terbitkan surat teguran dummy per pegawai bermasalah (idempoten per pekan).
+Perm: `attendance.manage`. Terbitkan surat teguran per pegawai bermasalah (idempoten per pekan).
+Isi: Nama, NIP, Jabatan/Unit, periode, total sesi TK + rincian harian.
+Otomatis notifikasi Sekcam + pemegang `attendance.summary` (tipe `ATTENDANCE`).
+
+### POST /attendances/warning-letters/:id/summon → notifikasi pegawai yang dipanggil.
+### POST /attendances/warning-letters/:id/forward {note?}
+Perm: `attendance.forward` + position SEKCAM. Eskalasi Sekcam → Camat (notifikasi Camat).
+### POST /attendances/warning-letters/:id/instruct {instruction}
+Perm: `attendance.forward` + position CAMAT. "Tindak Lanjuti" (notifikasi pelaksana).
+### GET /attendances/warning-letters/:id/print
+Payload cetak/laporan BKPSDM: pegawai lengkap, summon, coaching, eskalasi,
+pejabat (Camat/Sekcam/Kasubag), `statusPembinaan` (Menunggu/Diproses/Selesai).
 
 ### GET /attendances/warning-letters (+ /:id)
 

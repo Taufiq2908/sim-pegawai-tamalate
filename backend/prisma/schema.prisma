@@ -258,6 +258,13 @@ model WarningLetter {
   coachingResult String? @map("coaching_result")
   coachingFollowUp String @default("NONE") @map("coaching_follow_up") @db.VarChar(20)
   coachedAt    DateTime? @map("coached_at") @db.Timestamptz
+  // Eskalasi Sekcam → Camat (forward) + instruksi tindak lanjut Camat.
+  forwardBy    String?   @map("forward_by") @db.Uuid
+  forwardAt    DateTime? @map("forward_at") @db.Timestamptz
+  forwardNote  String?   @map("forward_note")
+  instructedBy String?   @map("instructed_by") @db.Uuid
+  instructedAt DateTime? @map("instructed_at") @db.Timestamptz
+  instruction  String?   @map("instruction")
   createdBy    String   @map("created_by") @db.Uuid
   creator      User     @relation("CreatedWarnings", fields: [createdBy], references: [id])
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -266,7 +273,17 @@ model WarningLetter {
   @@map("warning_letters")
 }
 
-// Foto dokumentasi apel per sesi (bukti operator).
+// Kunci harian apel: setelah Kasubag "Simpan & Validasi", catatan tanggal
+// tersebut terkunci (tidak bisa check-in/out, input manual, atau koreksi)
+// dan pegawai tanpa catatan dimaterialisasi sebagai ALPA (=TK).
+model AttendanceLock {
+  date     DateTime @id @db.Date
+  lockedBy String   @map("locked_by") @db.Uuid
+  note     String?
+  lockedAt DateTime @default(now()) @map("locked_at") @db.Timestamptz
+
+  @@map("attendance_locks")
+}
 model AttendanceSessionPhoto {
   id           String   @id @default(uuid()) @db.Uuid
   date         DateTime @db.Date
