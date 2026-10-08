@@ -11,6 +11,7 @@ interface Sheet {
   tanggalPenerimaan: string;
   tanggalSurat: string;
   tanggalPenyelesaian: string | null;
+  tanggalDistribusi: string | null;
   nomorSurat: string;
   asalSurat: string;
   ringkasanIsi: string | null;
@@ -76,6 +77,7 @@ export default function LembarDisposisiPage() {
             <div className="flex gap-2"><dt className="w-36 shrink-0 text-slate-600">Asal Surat</dt><dd className="font-semibold">: {sheet.asalSurat}</dd></div>
             <div className="flex gap-2"><dt className="w-36 shrink-0 text-slate-600">Klasifikasi</dt><dd className="font-semibold">: {sheet.klasifikasi ?? "-"}</dd></div>
             <div className="flex gap-2"><dt className="w-36 shrink-0 text-slate-600">Tgl. Penyelesaian</dt><dd className="font-semibold">: {sheet.tanggalPenyelesaian ?? "-"}</dd></div>
+            <div className="flex gap-2"><dt className="w-36 shrink-0 text-slate-600">Tgl. Distribusi</dt><dd className="font-semibold">: {sheet.tanggalDistribusi ? new Date(sheet.tanggalDistribusi).toLocaleString("id-ID") : "-"}</dd></div>
           </dl>
           <div className="mt-3 border-t pt-2">
             <p className="text-slate-600">Ringkasan isi:</p>

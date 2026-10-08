@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiUpload } from "@/lib/api";
 import type {
   AttendanceRecord,
   AttendanceReportRow,
@@ -14,6 +14,7 @@ import type {
   AttendanceToday,
   PageMeta,
   ProblematicItem,
+  SessionPhoto,
 } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
@@ -97,12 +98,20 @@ export default function PresensiPage() {
   const [summaryMsg, setSummaryMsg] = useState("");
 
   // Form input manual (operator)
+  const [employees, setEmployees] = useState<Array<{ id: string; name: string }>>([]);
   const [mEmp, setMEmp] = useState("");
   const [mDate, setMDate] = useState(today);
   const [mStatus, setMStatus] = useState<AttendanceStatus>("HADIR");
   const [mTime, setMTime] = useState("07:30");
   const [mNote, setMNote] = useState("");
   const [mLoading, setMLoading] = useState(false);
+
+  // Foto dokumentasi apel per sesi
+  const [photos, setPhotos] = useState<SessionPhoto[]>([]);
+  const [phDate, setPhDate] = useState(today);
+  const [phSession, setPhSession] = useState<"PAGI" | "SORE">("PAGI");
+  const [phFile, setPhFile] = useState<File | null>(null);
+  const [phLoading, setPhLoading] = useState(false);
 
   const loadToday = useCallback(async () => {
     setTodayErr("");
@@ -182,9 +191,32 @@ export default function PresensiPage() {
     void loadReport();
     void loadHistory();
   }, [loadReport, loadHistory]);
+
+  useEffect(() => {
+    if (!canManage) return;
+    apiFetch<Array<{ id: string; name: string }>>("/employees?limit=100")
+      .then(({ data }) => {
+        const list = Array.isArray(data) ? data : [];
+        setEmployees(list);
+        if (!mEmp && list.length) setMEmp(list[0].id);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canManage]);
+  const loadPhotos = useCallback(async () => {
+    try {
+      const to = addDays(weekStart, 4);
+      const { data } = await apiFetch<SessionPhoto[]>(`/attendances/session-photos?from=${weekStart}&to=${to}`);
+      setPhotos(Array.isArray(data) ? data : []);
+    } catch {
+      setPhotos([]);
+    }
+  }, [weekStart]);
+
   useEffect(() => {
     void loadWeek();
-  }, [loadWeek]);
+    void loadPhotos();
+  }, [loadWeek, loadPhotos]);
   useEffect(() => {
     void loadSummary();
   }, [loadSummary]);
@@ -276,6 +308,29 @@ export default function PresensiPage() {
       toast.success((raw as { message?: string })?.message ?? "Surat teguran diproses");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Gagal membuat surat teguran");
+    }
+  }
+
+  async function uploadPhoto(e: React.FormEvent) {
+    e.preventDefault();
+    if (!phFile) {
+      toast.error("Pilih file foto dulu (jpg/png).");
+      return;
+    }
+    setPhLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append("date", phDate);
+      fd.append("session", phSession);
+      fd.append("file", phFile);
+      await apiUpload("/attendances/session-photos", fd);
+      setPhFile(null);
+      toast.success("Foto apel diunggah.");
+      void loadPhotos();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unggah foto gagal");
+    } finally {
+      setPhLoading(false);
     }
   }
 
@@ -372,8 +427,8 @@ export default function PresensiPage() {
             <div className="mt-2 grid gap-2 sm:grid-cols-5">
               <select value={mEmp} onChange={(e) => setMEmp(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
                 <option value="">— pegawai —</option>
-                {summary.map((s) => (
-                  <option key={s.employee.id} value={s.employee.id}>{s.employee.name}</option>
+                {(employees.length > 0 ? employees : summary.map((s) => s.employee)).map((emp) => (
+                  <option key={emp.id} value={emp.id}>{emp.name}</option>
                 ))}
               </select>
               <input type="date" value={mDate} max={today} onChange={(e) => setMDate(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
@@ -439,6 +494,37 @@ export default function PresensiPage() {
       </div>
 
       <div className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
+        <h2 className="font-semibold">Dokumentasi foto apel</h2>
+        <p className="mt-0.5 text-xs text-slate-500">Satu foto per sesi per tanggal (jpg/png).</p>
+        {canManage ? (
+          <form onSubmit={uploadPhoto} className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 p-3">
+            <input type="date" value={phDate} max={today} onChange={(e) => setPhDate(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+            <select value={phSession} onChange={(e) => setPhSession(e.target.value as "PAGI" | "SORE")} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
+              <option value="PAGI">Pagi</option>
+              <option value="SORE">Sore</option>
+            </select>
+            <input type="file" accept=".jpg,.jpeg,.png" onChange={(e) => setPhFile(e.target.files?.[0] ?? null)} className="text-sm" />
+            <button disabled={phLoading} className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+              {phLoading ? "…" : "Unggah foto"}
+            </button>
+          </form>
+        ) : null}
+        {photos.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">Belum ada foto pekan ini.</p>
+        ) : (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {photos.map((p) => (
+              <a key={p.id} href={`/api${p.photoUrl}`} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg border border-slate-200 hover:border-slate-900">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/api${p.photoUrl}`} alt={`Apel ${p.session} ${p.date}`} className="h-28 w-full object-cover" loading="lazy" />
+                <p className="px-2 py-1 text-xs font-semibold">{p.session} • {String(p.date).slice(0, 10)}</p>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
         <h2 className="font-semibold">Riwayat bulan berjalan {histMeta ? `(${histMeta.total})` : ""}</h2>
         {history.length === 0 ? (
           <div className="mt-2"><EmptyState title="Belum ada riwayat" /></div>
@@ -488,7 +574,7 @@ export default function PresensiPage() {
 
           <div className="mt-5 border-t pt-4">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-semibold">Pegawai bermasalah (backend: per hari — menunggu update per sesi)</h3>
+              <h3 className="font-semibold">Pegawai bermasalah (≥5 sesi/minggu)</h3>
               <Link href="/presensi/teguran" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">
                 Daftar teguran
               </Link>
@@ -499,12 +585,15 @@ export default function PresensiPage() {
               ) : null}
             </div>
             {problematic.length === 0 ? (
-              <p className="mt-2 text-sm text-slate-500">Tidak ada pegawai bermasalah pekan ini (versi backend).</p>
+              <p className="mt-2 text-sm text-slate-500">Tidak ada pegawai bermasalah pekan ini.</p>
             ) : (
               <ul className="mt-2 space-y-1.5 text-sm">
                 {problematic.map((p) => (
                   <li key={p.employee.id} className="rounded-lg bg-red-50 px-3 py-2">
-                    <b>{p.employee.name}</b> — {p.absenceCount} hari ({(p.absentDates ?? []).join(", ")})
+                    <b>{p.employee.name}</b> — {p.absenceCount} sesi
+                    {p.days ? (
+                      <span className="text-slate-600"> ({p.days.filter((d) => d.pagi === "ABSEN" || d.sore === "ABSEN").map((d) => `${d.date.slice(5)}(${d.pagi === "ABSEN" ? "P" : ""}${d.sore === "ABSEN" ? "S" : ""})`).join(", ")})</span>
+                    ) : null}
                   </li>
                 ))}
               </ul>

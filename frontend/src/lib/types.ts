@@ -50,6 +50,7 @@ export type LeaveStatus =
   | "PARAF"
   | "APPROVED"
   | "SIGNED"
+  | "FORWARDED"
   | "COMPLETED"
   | "REJECTED";
 
@@ -149,10 +150,36 @@ export interface ProblematicItem {
   weekStart: string;
   weekEnd: string;
   absenceCount: number;
-  absentDates: string[];
+  absentDates?: string[];
+  days?: Array<{ date: string; pagi: string; sore: string }>;
 }
 
-export type LetterStatus = "RECEIVED" | "DISPOSED" | "COMPLETED" | "ARCHIVED";
+export interface SessionPhoto {
+  id: string;
+  date: string;
+  session: "PAGI" | "SORE";
+  photoUrl: string;
+  createdAt?: string;
+}
+
+export interface WarningLetterDetail {
+  id: string;
+  letterNumber: string;
+  employeeId: string;
+  weekStart: string;
+  weekEnd: string;
+  absenceCount: number;
+  content: string;
+  summonScheduledAt: string | null;
+  summonNote: string | null;
+  coachingResult: string | null;
+  coachingFollowUp: "NONE" | "BKPSDM" | null;
+  coachedAt: string | null;
+  createdAt: string;
+  employee?: { name: string; position: string; nip: string | null };
+}
+
+export type LetterStatus = "RECEIVED" | "PARAF" | "DISPOSED" | "COMPLETED" | "ARCHIVED";
 
 export interface Disposition {
   id: string;

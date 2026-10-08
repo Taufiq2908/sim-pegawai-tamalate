@@ -14,6 +14,7 @@ const FILTERS: Array<{ value: "" | LeaveStatus; label: string }> = [
   { value: "VERIFIED", label: "Terverifikasi" },
   { value: "PARAF", label: "Paraf" },
   { value: "APPROVED", label: "Disetujui" },
+  { value: "FORWARDED", label: "Ke Sekda" },
   { value: "COMPLETED", label: "Selesai" },
   { value: "REJECTED", label: "Ditolak" },
 ];

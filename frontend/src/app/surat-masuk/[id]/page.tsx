@@ -19,6 +19,8 @@ export default function SuratMasukDetailPage() {
   const [acting, setActing] = useState<string | null>(null);
 
   const [toUserId, setToUserId] = useState("");
+  const [userQuery, setUserQuery] = useState("");
+  const [userOptions, setUserOptions] = useState<Array<{ id: string; username: string }>>([]);
   const [instruction, setInstruction] = useState("");
   const [deadline, setDeadline] = useState("");
   const [targetCode, setTargetCode] = useState("");
@@ -48,12 +50,15 @@ export default function SuratMasukDetailPage() {
     apiFetch<Array<{ code: string; name: string }>>("/letters/disposition-targets")
       .then(({ data }) => setTargets(Array.isArray(data) ? data : []))
       .catch(() => {});
+    apiFetch<Array<{ id: string; username: string }>>("/users?limit=50&active=true")
+      .then(({ data }) => setUserOptions(Array.isArray(data) ? data : []))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
 
   async function dispose() {
     if (!toUserId.trim() || instruction.trim().length < 5) {
-      toast.error("Penerima (UUID user) dan instruksi minimal 5 karakter wajib diisi.");
+      toast.error("Pilih penerima dan isi instruksi minimal 5 karakter.");
       return;
     }
     setActing("dispose");
@@ -99,7 +104,7 @@ export default function SuratMasukDetailPage() {
     }
   }
 
-  async function simple(action: "complete" | "archive", body: unknown) {
+  async function simple(action: string, body: unknown) {
     setActing(action);
     try {
       const { data } = await apiFetch<IncomingLetter>(`/letters/${id}/${action}`, {
@@ -228,9 +233,23 @@ export default function SuratMasukDetailPage() {
                 <div className="mt-4 border-t pt-4">
                   <h3 className="text-sm font-semibold">Teruskan disposisi</h3>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    <input value={toUserId} onChange={(e) => setToUserId(e.target.value)} placeholder="UUID user penerima*" className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+                    {userOptions.length > 0 ? (
+                      <select value={toUserId} onChange={(e) => setToUserId(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900">
+                        <option value="">— pilih penerima —</option>
+                        {userOptions
+                          .filter((u) => !userQuery || u.username.toLowerCase().includes(userQuery.toLowerCase()))
+                          .map((u) => (
+                            <option key={u.id} value={u.id}>{u.username}</option>
+                          ))}
+                      </select>
+                    ) : (
+                      <input value={toUserId} onChange={(e) => setToUserId(e.target.value)} placeholder="UUID user penerima*" className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+                    )}
                     <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
                   </div>
+                  {userOptions.length > 0 ? (
+                    <input value={userQuery} onChange={(e) => setUserQuery(e.target.value)} placeholder="Cari username penerima…" className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-slate-900" />
+                  ) : null}
                   <select value={targetCode} onChange={(e) => setTargetCode(e.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900">
                     <option value="">— tujuan jabatan (opsional, no. 10 = lainnya) —</option>
                     {targets.map((t) => (
@@ -241,7 +260,16 @@ export default function SuratMasukDetailPage() {
                   <button disabled={acting !== null} onClick={() => void dispose()} className="mt-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
                     {acting === "dispose" ? "Memproses…" : "Kirim disposisi"}
                   </button>
-                  <p className="mt-1 text-xs text-slate-500">*Backend belum menyediakan daftar user — minta UUID ke admin. Akan jadi dropdown setelah endpoint user tersedia.</p>
+                </div>
+              ) : null}
+
+              {actions.includes("paraf") ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <h3 className="text-sm font-semibold">Pemeriksaan Sekcam — paraf</h3>
+                  <p className="mt-1 text-xs text-slate-600">Paraf hanya dari status RECEIVED. Catatan opsional.</p>
+                  <button disabled={acting !== null} onClick={() => void simple("paraf", { note: completeNote || undefined })} className="mt-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                    {acting === "paraf" ? "Memproses…" : "Paraf & teruskan ke Camat"}
+                  </button>
                 </div>
               ) : null}
             </div>

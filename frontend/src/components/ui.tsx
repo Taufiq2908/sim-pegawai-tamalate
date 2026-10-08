@@ -6,6 +6,7 @@ const STATUS_STYLE: Record<string, string> = {
   PARAF: "bg-violet-100 text-violet-800",
   APPROVED: "bg-emerald-100 text-emerald-800",
   SIGNED: "bg-teal-100 text-teal-800",
+  FORWARDED: "bg-indigo-100 text-indigo-800",
   COMPLETED: "bg-green-100 text-green-800",
   REJECTED: "bg-red-100 text-red-800",
   RECEIVED: "bg-blue-100 text-blue-800",

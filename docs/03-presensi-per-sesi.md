@@ -63,3 +63,10 @@ GET   /attendances/warning-letters (tambah filter followUp=BKPSDM)
 - Rekap mingguan per-sesi (tabel Pagi|Sore) sudah dihitung sisi klien sebagai tampilan sementara.
 - Checklist operator, upload foto, dan UI pembinaan menunggu endpoint §2.2–§2.4.
 - Keamanan: `GET /leave-requests/:id` masih membocorkan `approvals[].actor.passwordHash` — mohon dihapus dari response.
+
+## 4. Status backend v2 (commit `bf60109`, sudah diimplementasikan teman backend)
+- §2.1 problematic per sesi + `days[]` ✅ — frontend pakai `days[]`, label "sesi".
+- §2.2 `GET /employees` (+ `GET /users`) ✅ — dropdown pegawai & penerima disposisi.
+- §2.3 foto sesi ✅ (`POST/GET /attendances/session-photos`) — galeri + upload di `/presensi`.
+- §2.4 pembinaan minimal ✅ (`summon` + `coaching`, filter `followUp`) — UI di detail teguran.
+- passwordHash dihapus dari response ✅.

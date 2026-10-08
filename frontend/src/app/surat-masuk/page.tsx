@@ -10,6 +10,7 @@ import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 const FILTERS: Array<{ value: "" | LetterStatus; label: string }> = [
   { value: "", label: "Semua" },
   { value: "RECEIVED", label: "Diterima" },
+  { value: "PARAF", label: "Diparaaf" },
   { value: "DISPOSED", label: "Didisposisi" },
   { value: "COMPLETED", label: "Selesai" },
   { value: "ARCHIVED", label: "Arsip" },

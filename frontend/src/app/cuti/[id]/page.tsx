@@ -16,6 +16,7 @@ const ACTION_LABEL: Record<string, string> = {
   approve: "Setujui",
   reject: "Tolak",
   sign: "Tandatangani",
+  forward: "Teruskan ke Sekda",
   complete: "Selesaikan",
 };
 
@@ -47,8 +48,12 @@ export default function CutiDetailPage() {
   }, [load]);
 
   async function act(action: string) {
-    if ((action === "revise" || action === "reject") && !note.trim()) {
-      toast.error("Catatan wajib diisi untuk revisi/penolakan.");
+    if ((action === "revise" || action === "reject" || action === "forward") && !note.trim()) {
+      const msg =
+        action === "forward"
+          ? "Catatan wajib diisi untuk forward (nomor/tanggal penerusan ke Sekda)."
+          : "Catatan wajib diisi untuk revisi/penolakan.";
+      toast.error(msg);
       return;
     }
     setActing(action);
@@ -119,10 +124,13 @@ export default function CutiDetailPage() {
                   <textarea
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    placeholder="Catatan (wajib untuk revisi/tolak, opsional lainnya)"
+                    placeholder="Catatan (wajib untuk revisi/tolak/forward ke Sekda, opsional lainnya)"
                     rows={2}
                     className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
                   />
+                  {detail.availableActions.includes("forward") ? (
+                    <p className="mt-1 text-xs text-slate-500">Forward hanya untuk pengajuan Camat — diteruskan ke Sekda di luar sistem.</p>
+                  ) : null}
                 </>
               ) : (
                 <p className="mt-2 text-sm text-slate-500">Tidak ada aksi tersedia untuk Anda pada status ini.</p>
