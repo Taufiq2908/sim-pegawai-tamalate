@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/shell";
 import { apiFetch } from "@/lib/api";
 import type { LeaveDetail } from "@/lib/types";
-import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
+import { EmptyState, ErrorBox, ProcessTrail, Skeleton, StatusBadge } from "@/components/ui";
 
 const ACTION_LABEL: Record<string, string> = {
   submit: "Ajukan",
@@ -73,7 +73,7 @@ export default function CutiDetailPage() {
 
   return (
     <AppShell>
-      <button onClick={() => router.back()} className="text-sm font-semibold text-slate-600 hover:text-slate-900">
+      <button onClick={() => router.back()} className="text-sm font-semibold text-muted hover:text-slate-900">
         ← Kembali
       </button>
       <div className="mt-2">
@@ -88,33 +88,44 @@ export default function CutiDetailPage() {
           <EmptyState title="Data tidak ditemukan" />
         ) : (
           <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="rounded-lg border border-line bg-surface p-5">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-bold">{detail.requestNumber}</h1>
                 <StatusBadge status={detail.status} />
               </div>
               <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                <div><dt className="text-slate-500">Pegawai</dt><dd className="font-medium">{detail.employee?.name}</dd></div>
-                <div><dt className="text-slate-500">Jenis cuti</dt><dd className="font-medium">{detail.leaveType?.name}</dd></div>
-                <div><dt className="text-slate-500">Periode</dt><dd className="font-medium">{detail.startDate?.slice(0,10)} → {detail.endDate?.slice(0,10)} ({detail.totalDays} hari)</dd></div>
-                <div><dt className="text-slate-500">Alasan</dt><dd className="font-medium">{detail.reason}</dd></div>
-                {detail.revisionNote ? <div><dt className="text-slate-500">Catatan revisi</dt><dd className="font-medium text-amber-700">{detail.revisionNote}</dd></div> : null}
-                {detail.rejectionReason ? <div><dt className="text-slate-500">Alasan penolakan</dt><dd className="font-medium text-red-700">{detail.rejectionReason}</dd></div> : null}
+                <div><dt className="text-muted">Pegawai</dt><dd className="font-medium">{detail.employee?.name}</dd></div>
+                <div><dt className="text-muted">Jenis cuti</dt><dd className="font-medium">{detail.leaveType?.name}</dd></div>
+                <div><dt className="text-muted">Periode</dt><dd className="font-medium">{detail.startDate?.slice(0,10)} → {detail.endDate?.slice(0,10)} ({detail.totalDays} hari)</dd></div>
+                <div><dt className="text-muted">Alasan</dt><dd className="font-medium">{detail.reason}</dd></div>
+                {detail.revisionNote ? <div><dt className="text-muted">Catatan revisi</dt><dd className="font-medium text-warn-700">{detail.revisionNote}</dd></div> : null}
+                {detail.rejectionReason ? <div><dt className="text-muted">Alasan penolakan</dt><dd className="font-medium text-bad-700">{detail.rejectionReason}</dd></div> : null}
               </dl>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-5">
-              <h2 className="font-semibold">Aksi persetujuan</h2>
+            <div className="rounded-lg border border-line bg-surface p-5">
+              <h2 className="font-semibold">Keputusan</h2>
               {detail.availableActions?.length ? (
                 <>
+                  <p className="mt-1 border-l-2 border-warn-700 pl-3 text-sm text-secondary">
+                    Menunggu keputusan Anda — permohonan ini berada pada tahap Anda.
+                  </p>
+                  {(detail.status === "DRAFT" || detail.status === "REVISION") ? (
+                    <a
+                      href={`/cuti/${detail.id}/edit`}
+                      className="mt-2 inline-block rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-paper"
+                    >
+                      Ubah pengajuan
+                    </a>
+                  ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {detail.availableActions.map((a) => (
                       <button
                         key={a}
                         disabled={acting !== null}
                         onClick={() => void act(a)}
-                        className={`rounded-lg px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-50 ${
-                          a === "reject" ? "bg-red-600 hover:bg-red-500" : "bg-slate-900 hover:bg-slate-700"
+                        className={`rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-50 ${
+                          a === "reject" ? "bg-bad-700 hover:brightness-110" : "bg-brand-900 hover:bg-brand-800"
                         }`}
                       >
                         {acting === a ? "Memproses…" : (ACTION_LABEL[a] ?? a)}
@@ -126,24 +137,42 @@ export default function CutiDetailPage() {
                     onChange={(e) => setNote(e.target.value)}
                     placeholder="Catatan (wajib untuk revisi/tolak/forward ke Sekda, opsional lainnya)"
                     rows={2}
-                    className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
+                    className="mt-3 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700"
                   />
                   {detail.availableActions.includes("forward") ? (
-                    <p className="mt-1 text-xs text-slate-500">Forward hanya untuk pengajuan Camat — diteruskan ke Sekda di luar sistem.</p>
+                    <p className="mt-1 text-xs text-muted">Forward hanya untuk pengajuan Camat — diteruskan ke Sekda di luar sistem.</p>
                   ) : null}
                 </>
               ) : (
-                <p className="mt-2 text-sm text-slate-500">Tidak ada aksi tersedia untuk Anda pada status ini.</p>
+                <p className="mt-2 text-sm text-muted">Tidak ada aksi tersedia untuk Anda pada status ini.</p>
               )}
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-5">
+            {["APPROVED", "SIGNED", "COMPLETED"].includes(detail.status) ? (
+              <div className="rounded-lg border border-line bg-surface p-5">
+                <h2 className="font-semibold">Surat pengantar ke BKPSDM</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Unduh/cetak surat pengantar sesuai formulir resmi, teruskan ke BKPSDM di luar sistem.
+                  Setelah surat jawaban diterima, kembali ke sini untuk pengarsipan dan penyerahan ke pegawai.
+                </p>
+                <a
+                  href={`/cuti/${detail.id}/surat`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-block rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:bg-paper"
+                >
+                  Buka surat pengantar (cetak)
+                </a>
+              </div>
+            ) : null}
+
+            <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Dokumen ({detail.documents?.length ?? 0})</h2>
               <ul className="mt-2 space-y-2 text-sm">
                 {(detail.documents ?? []).map((d) => (
-                  <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
+                  <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-paper px-3 py-2">
                     <span className="font-semibold">{d.originalName}</span>
-                    <span className="text-xs text-slate-500">({d.docType}, {(d.sizeBytes/1024).toFixed(1)} KB)</span>
+                    <span className="text-xs text-muted">({d.docType}, {(d.sizeBytes/1024).toFixed(1)} KB)</span>
                     <a
                       href={`/api${d.downloadUrl}`}
                       target="_blank"
@@ -155,26 +184,25 @@ export default function CutiDetailPage() {
                   </li>
                 ))}
                 {(detail.documents ?? []).length === 0 ? (
-                  <li className="text-slate-500">Belum ada dokumen.</li>
+                  <li className="text-muted">Belum ada dokumen.</li>
                 ) : null}
               </ul>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-5">
-              <h2 className="font-semibold">Timeline</h2>
-              <ol className="mt-3 space-y-3">
-                {(detail.timeline ?? []).map((t, i) => (
-                  <li key={i} className="flex gap-3 text-sm">
-                    <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-slate-900" />
-                    <div>
-                      <p className="font-semibold">{t.action} <span className="font-normal text-slate-500">{t.fromStatus} → {t.toStatus}</span></p>
-                      <p className="text-slate-600">{t.actor}</p>
-                      {t.note ? <p className="text-slate-600">“{t.note}”</p> : null}
-                      <p className="text-xs text-slate-400">{new Date(t.createdAt).toLocaleString("id-ID")}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
+            <div className="rounded-lg border border-line bg-surface p-5">
+              <h2 className="font-semibold">Riwayat proses</h2>
+              <ProcessTrail
+                items={(detail.timeline ?? []).map((t, i, arr) => ({
+                  title: `${t.action} — ${t.fromStatus} → ${t.toStatus}`,
+                  subtitle: t.actor,
+                  note: t.note,
+                  time: new Date(t.createdAt).toLocaleString("id-ID"),
+                  state:
+                    i < arr.length - 1 || ["COMPLETED", "REJECTED"].includes(detail.status)
+                      ? "done"
+                      : "now",
+                }))}
+              />
             </div>
           </div>
         )}

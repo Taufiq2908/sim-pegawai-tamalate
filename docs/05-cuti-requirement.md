@@ -1,44 +1,72 @@
-# Cuti — requirement terverifikasi (digest)
+# Cuti — requirement (selaras alur yang disepakati)
 
-> Sumber lengkap: dokumen "DOKUMENTASI LENGKAP FITUR CUTI" (60 bagian, chat).
+> Sumber: SOP 8 langkah + formulir resmi + klarifikasi atasan/Kasubag.
 > Prinsip: hanya yang didukung bahan = business rule; sisanya [BELUM DITENTUKAN].
-> Frontend tidak meng-hardcode: hak/sisa cuti, hari kerja vs kalender, syarat per jenis,
-> e-signature wajib, SLA, overlap otomatis.
+> Frontend tidak meng-hardcode: hak/sisa cuti, hari kerja vs kalender, syarat per
+> jenis, TTE sebagai kewajiban, SLA, overlap otomatis, nama jabatan dalam workflow.
 
-## 1. Struktur organisasi ganda (requirement terpenting)
-- Kecamatan: Pelaksana → Kasubag Umum & Kepegawaian → Sekcam (paraf) → Camat → BKPSDM.
-- Kelurahan: Staf → Kasi → Sekretaris Lurah → Lurah (mapping final per tahap belum lengkap).
-- Khusus: Camat → Sekda (kecamatan hanya buatkan surat); Sekcam → Camat langsung.
-- Konsekuensi frontend: jangan hardcode nama jabatan; tampilkan dari data (siap saat org API ada).
+## 1. Alur yang disepakati (SOP + lapisan atasan)
+
+```text
+Pegawai mengajukan (DRAFT → SUBMITTED)
+  ↓ Atasan langsung — pertimbangan DISETUJUI/PERUBAHAN/DITANGGUHKAN/TIDAK (→REVIEWED*)
+  ↓ Kasubag — verifikasi berkas + setuju + teruskan (→VERIFIED)
+  ↓ Sekcam — paraf (→PARAF)
+  ↓ Camat — keputusan (→APPROVED) / khusus cuti Camat: FORWARD ke Sekda
+  ↓ Sistem generate surat pengantar (frontend, halaman cetak)
+  ↓ Pelaksana unduh → teruskan ke BKPSDM di LUAR sistem
+  ↓ Kembali: catat surat jawaban (B1) → SIGNED → serahkan ke pegawai → COMPLETED/arsip
+```
+
+(*) Tahap REVIEWED/perm `leave.review` belum ada di backend — lihat B4 di `06`.
+Kasubag = SUPERVISOR + GRANT verify; atasan = SUPERVISOR murni;
+operator = VERIFIER tanpa hak memutuskan; penentu = LEADER. (Detail: `06` B10.)
+
+Khusus: Camat → Sekda (kecamatan hanya buatkan surat); Sekcam → Camat langsung;
+Kelurahan: Staf → Kasi → Sekretaris Lurah → Lurah (mapping final per tahap
+[BELUM DITENTUKAN] lengkap). UI tidak mengunci teks jabatan — tampilkan dari data.
 
 ## 2. Formulir resmi: 6 jenis + section A–I
-Jenis: TAHUNAN, BESAR, SAKIT, MELAHIRKAN, ALASAN_PENTING, DILUAR_TANGGUNGAN.
-Section: A data pemohon (auto-fill) • B jenis • C alasan bebas • D periode + durasi
-• E riwayat (tampil, bukan ketik) • F alamat+telepon • G pernyataan • H/I keputusan
-4 opsi (DISETUJUI/PERUBAHAN/DITANGGUHKAN/TIDAK DISETUJUI).
+Jenis: TAHUNAN, BESAR, SAKIT, MELAHIRKAN, ALASAN_PENTING, DILUAR_TANGGUNGAN
+(2 terakhir belum di-seed backend). Section: A data pemohon auto-fill •
+B jenis • C alasan bebas • D periode + estimasi durasi (angka resmi = backend,
+hari kalender) • E riwayat (tampil dari sistem, bukan ketik; "sisa" butuh API
+saldo) • F alamat+telepon • G pernyataan (fase 1: cetak + basah) •
+H/I keputusan 4 opsi. TTE tersertifikasi BUKAN kewajiban fase 1; UI memakai
+istilah "persetujuan digital" (nama+NIP+jabatan+waktu per aksi).
 
-## 3. Yang SUDAH didukung backend saat ini (terverifikasi di kode)
-- 4 jenis cuti (TAHUNAN, SAKIT, MELAHIRKAN, ALASAN_PENTING). **BESAR + DILUAR_TANGGUNGAN belum di-seed.**
-- Rantai DRAFT→SUBMITTED→VERIFIED→PARAF→APPROVED→SIGNED→COMPLETED (+REVISION/REJECTED,
-  +FORWARDED untuk Camat→Sekda). revise≈PERUBAHAN, reject≈TIDAK DISETUJUI.
-  **DITANGGUHKAN tidak ada.**
-- `availableActions` per status+permission (dipakai frontend render tombol).
-- Upload 5MB pdf/jpg/png, timeline audit, totalDays hari kalender oleh backend.
-- Submit wajib ≥2 dokumen termasuk SK_TERAKHIR (divalidasi backend).
-- Tidak boleh memproses pengajuan sendiri (kecuali submit).
-- List: filter `status` + cari `q` (**nama pegawai saja**, bukan NIP/nomor) + pagination.
-- PATCH edit saat DRAFT/REVISION oleh pemilik. **Tidak ada DELETE, tidak ada notifikasi cuti.**
+## 3. Yang SUDAH didukung backend (terverifikasi di kode, pasca-v2)
+- 4 jenis cuti. Rantai DRAFT→SUBMITTED→VERIFIED→PARAF→APPROVED→SIGNED→
+  COMPLETED (+REVISION/REJECTED/FORWARDED). revise≈PERUBAHAN,
+  reject≈TIDAK DISETUJUI. **Tahap atasan (REVIEWED) dan DITANGGUHKAN belum ada.**
+- `availableActions` per status+permission (frontend render tombol dari sini).
+- Submit wajib ≥2 dokumen termasuk SK_TERAKHIR; tidak boleh memproses
+  pengajuan sendiri; passwordHash sudah dihapus dari response.
+- Upload 5MB pdf/jpg/png; timeline audit; PATCH milik sendiri saat
+  DRAFT/REVISION. **Tidak ada DELETE, tidak ada notifikasi cuti.**
+- List: filter `status` + cari `q` (**nama saja**) + pagination.
+- `GET /employees` + `GET /users` tersedia (dropdown, bukan UUID mentah).
 
-## 4. Yang masih butuh backend
-- Seed 2 jenis cuti kurang; aksi postpone; tahap BKPSDM (submit/wait/receive/deliver/archive).
-- Workflow per-org (kecamatan vs kelurahan) + pengecualian Camat→Sekda.
-- Saldo/sisa cuti + riwayat per pegawai (endpoint khusus; frontend tampilkan dari API, bukan hitung).
-- Dokumen wajib per jenis cuti (konfigurasi); notifikasi ke pejabat pemroses.
-- Cari by NIP/nomor surat; filter jenis/unit/periode; DELETE draft.
+## 4. Yang masih butuh backend (detail: `06` B1–B11)
+- B4: transisi + perm tahap atasan; B10: role SUPERVISOR + GRANT Kasubag + akun pejabat.
+- B1: upload surat jawaban BKPSDM saat APPROVED/SIGNED (**penghambat alur**).
+- B2: master pegawai (joinDate/masa kerja, rantai atasan, pejabat aktif) + sertakan di `/auth/me`.
+- B3: API resolver atasan langsung. B6: riwayat + saldo cuti per pegawai.
+- B7: seed BESAR + DILUAR_TANGGUNGAN. B8: notifikasi tiap transisi cuti.
+- B5: DITANGGUHKAN (transisi `postpone`) bila 4 opsi wajib; alasan wajib tolak/ubah.
+- Cari by NIP/nomor; filter jenis/unit/periode; DELETE draft; dokumen wajib per jenis.
+- B11: snapshot signer per aksi + aset paraf/TTE + endpoint verifikasi QR (bila QR dipakai).
 
-## 5. Status implementasi frontend v1 (terkunci)
-- `/cuti` list + filter status + cari nama; kartu statistik per status.
-- `/cuti/baru` form per section + auto-fill pemohon + preview durasi (estimasi kalender).
-- `/cuti/[id]` detail + aksi dari availableActions + timeline + dokumen + riwayat pegawai.
-- `/cuti/[id]/edit` (DRAFT/REVISION milik sendiri).
-- Belum ada (menunggu backend): saldo cuti, tahap BKPSDM, postpone, hapus draft, notifikasi cuti.
+## 5. Status implementasi frontend (terkunci)
+- `/cuti`: tabel + filter status + cari nama + pagination.
+- `/cuti/baru`: section bergaris + auto-fill pemohon + estimasi durasi +
+  2 dokumen wajib + sticky bar [Simpan draft] [Ajukan cuti].
+- `/cuti/[id]`: panel Keputusan (banner bila tahap milik user) + aksi dari
+  `availableActions` (forward ke Sekda + catatan wajib) + dokumen + ProcessTrail
+  + tombol Ubah (milik sendiri, DRAFT/REVISION) + kartu surat pengantar (APPROVED+).
+- `/cuti/[id]/edit`: form PATCH milik sendiri.
+- `/cuti/[id]/surat`: cetak surat pengantar sesuai formulir (kop + tabel I–VIII,
+  centang otomatis, logo dari `/logo-tamalate.png` bila ada, lampiran riwayat
+  sistem, nama Camat hardcode sementara dari formulir).
+- Belum ada (menunggu backend): saldo cuti, tahap atasan/BKPSDM, postpone,
+  hapus draft, notifikasi cuti, upload jawaban BKPSDM.

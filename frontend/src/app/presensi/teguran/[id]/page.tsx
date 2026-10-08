@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import type { WarningLetterDetail } from "@/lib/types";
@@ -82,8 +82,8 @@ export default function TeguranDetailPage() {
   }
 
   return (
-    <AppShell>
-      <button onClick={() => router.back()} className="text-sm font-semibold text-slate-600 hover:text-slate-900">
+    <RequirePerm perm="attendance.summary" label="Surat Teguran">
+      <button onClick={() => router.back()} className="text-sm font-semibold text-muted hover:text-slate-900">
         ← Kembali
       </button>
       <div className="mt-2">
@@ -95,32 +95,32 @@ export default function TeguranDetailPage() {
           <EmptyState title="Data tidak ditemukan" />
         ) : (
           <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="rounded-lg border border-line bg-surface p-5">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-bold">{item.letterNumber}</h1>
                 {item.coachingFollowUp ? <StatusBadge status={item.coachingFollowUp} /> : null}
-                <button onClick={() => window.print()} className="no-print ml-auto rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">
+                <button onClick={() => window.print()} className="no-print ml-auto rounded-lg border border-line px-3 py-1.5 text-sm font-semibold hover:bg-paper">
                   Cetak
                 </button>
               </div>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-muted">
                 {item.employee?.name} ({item.employee?.position}) • Pekan {String(item.weekStart).slice(0, 10)} s.d. {String(item.weekEnd).slice(0, 10)} • {item.absenceCount} sesi
               </p>
-              <pre className="mt-4 whitespace-pre-wrap rounded-lg bg-slate-50 p-4 text-sm leading-relaxed">{item.content}</pre>
+              <pre className="mt-4 whitespace-pre-wrap rounded-lg bg-paper p-4 text-sm leading-relaxed">{item.content}</pre>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Pembinaan</h2>
               {item.summonScheduledAt ? (
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-sm text-muted">
                   Dipanggil: <b>{new Date(item.summonScheduledAt).toLocaleString("id-ID")}</b>
                   {item.summonNote ? ` — ${item.summonNote}` : ""}
                 </p>
               ) : (
-                <p className="mt-1 text-sm text-slate-500">Belum ada panggilan pembinaan.</p>
+                <p className="mt-1 text-sm text-muted">Belum ada panggilan pembinaan.</p>
               )}
               {item.coachingResult ? (
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-sm text-muted">
                   Hasil: <b>{item.coachingResult}</b> ({item.coachingFollowUp}
                   {item.coachedAt ? ` • ${new Date(item.coachedAt).toLocaleString("id-ID")}` : ""})
                 </p>
@@ -130,25 +130,25 @@ export default function TeguranDetailPage() {
                 <div className="mt-3 space-y-3 border-t pt-3">
                   {!item.summonScheduledAt ? (
                     <div className="flex flex-wrap gap-2">
-                      <input type="datetime-local" value={schedAt} onChange={(e) => setSchedAt(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
-                      <input value={summonNote} onChange={(e) => setSummonNote(e.target.value)} placeholder="Catatan panggilan (opsional)" className="min-w-48 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
-                      <button disabled={acting !== null} onClick={() => void summon()} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                      <input type="datetime-local" value={schedAt} onChange={(e) => setSchedAt(e.target.value)} className="rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      <input value={summonNote} onChange={(e) => setSummonNote(e.target.value)} placeholder="Catatan panggilan (opsional)" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      <button disabled={acting !== null} onClick={() => void summon()} className="rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
                         {acting === "summon" ? "…" : "Buat panggilan"}
                       </button>
                     </div>
                   ) : !item.coachingResult ? (
                     <div className="flex flex-wrap gap-2">
-                      <input value={result} onChange={(e) => setResult(e.target.value)} placeholder="Hasil pembinaan (min 5 karakter)*" className="min-w-48 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
-                      <select value={followUp} onChange={(e) => setFollowUp(e.target.value as "NONE" | "BKPSDM")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                      <input value={result} onChange={(e) => setResult(e.target.value)} placeholder="Hasil pembinaan (min 5 karakter)*" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      <select value={followUp} onChange={(e) => setFollowUp(e.target.value as "NONE" | "BKPSDM")} className="rounded-lg border border-line px-3 py-2 text-sm">
                         <option value="NONE">Selesai internal</option>
                         <option value="BKPSDM">Teruskan ke BKPSDM</option>
                       </select>
-                      <button disabled={acting !== null} onClick={() => void coaching()} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                      <button disabled={acting !== null} onClick={() => void coaching()} className="rounded-lg bg-ok-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
                         {acting === "coaching" ? "…" : "Catat hasil"}
                       </button>
                     </div>
                   ) : (
-                    <p className="text-sm text-slate-500">Pembinaan selesai dicatat.</p>
+                    <p className="text-sm text-muted">Pembinaan selesai dicatat.</p>
                   )}
                 </div>
               ) : null}
@@ -156,6 +156,6 @@ export default function TeguranDetailPage() {
           </div>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }

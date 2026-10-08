@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { apiFetch } from "@/lib/api";
 import { Field, SubmitButton } from "@/components/form";
 import { ErrorBox } from "@/components/ui";
@@ -106,24 +106,24 @@ export default function SuratKeluarBaruPage() {
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
   return (
-    <AppShell>
+    <RequirePerm perm="outgoing.view" label="Surat Keluar">
       <h1 className="text-xl font-bold">Buat Surat Keluar</h1>
-      <div className="mt-3 flex gap-1 rounded-xl border border-slate-200 bg-white p-1 text-sm">
+      <div className="mt-3 flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm">
         {(["create", "reserve"] as const).map((m) => (
           <button
             key={m}
             type="button"
             onClick={() => setMode(m)}
-            className={`rounded-lg px-4 py-2 font-medium ${mode === m ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+            className={`rounded-lg px-4 py-2 font-medium ${mode === m ? "bg-brand-900 text-white" : "text-muted hover:bg-paper"}`}
           >
             {m === "create" ? "Langsung terbit" : "Reservasi nomor"}
           </button>
         ))}
       </div>
 
-      <form onSubmit={onSubmit} className="mt-4 max-w-2xl space-y-4 rounded-xl border border-slate-200 bg-white p-5">
+      <form onSubmit={onSubmit} className="mt-4 max-w-2xl space-y-4 rounded-lg border border-line bg-surface p-5">
         <Field label="Klasifikasi arsip*">
-          <select required value={form.classificationCode} onChange={set("classificationCode")} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+          <select required value={form.classificationCode} onChange={set("classificationCode")} className="w-full rounded-lg border border-line px-3 py-2 text-sm">
             <option value="">— pilih —</option>
             {classes.map((c) => (
               <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
@@ -131,55 +131,55 @@ export default function SuratKeluarBaruPage() {
           </select>
         </Field>
         <Field label="Tanggal surat* (tidak boleh masa depan)">
-          <input type="date" required value={form.letterDate} onChange={set("letterDate")} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+          <input type="date" required value={form.letterDate} onChange={set("letterDate")} className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
         </Field>
         {mode === "create" ? (
           <>
             <Field label="Perihal (min 5 karakter)*">
-              <input required value={form.subject} onChange={set("subject")} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+              <input required value={form.subject} onChange={set("subject")} className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
             </Field>
             <Field label="Tujuan surat*">
-              <input required value={form.recipient} onChange={set("recipient")} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+              <input required value={form.recipient} onChange={set("recipient")} className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
             </Field>
             <div className="grid gap-4 sm:grid-cols-3">
               <Field label="Prioritas">
-                <select value={form.priority} onChange={set("priority")} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                <select value={form.priority} onChange={set("priority")} className="w-full rounded-lg border border-line px-3 py-2 text-sm">
                   <option value="BIASA">Biasa</option>
                   <option value="SEGERA">Segera</option>
                   <option value="SANGAT_SEGERA">Sangat segera</option>
                 </select>
               </Field>
               <Field label="Sifat">
-                <select value={form.secrecy} onChange={set("secrecy")} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                <select value={form.secrecy} onChange={set("secrecy")} className="w-full rounded-lg border border-line px-3 py-2 text-sm">
                   <option value="B">Biasa</option>
                   <option value="R">Rahasia</option>
                   <option value="SR">Sangat rahasia</option>
                 </select>
               </Field>
               <Field label="Penandatangan">
-                <input value={form.signerName} onChange={set("signerName")} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+                <input value={form.signerName} onChange={set("signerName")} className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
               </Field>
             </div>
           </>
         ) : (
           <>
             <Field label="Alasan reservasi (min 5 karakter)*">
-              <textarea required value={form.reason} onChange={set("reason")} rows={3} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+              <textarea required value={form.reason} onChange={set("reason")} rows={3} className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
             </Field>
             <Field label="Penandatangan (opsional)">
-              <input value={form.signerName} onChange={set("signerName")} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" />
+              <input value={form.signerName} onChange={set("signerName")} className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
             </Field>
           </>
         )}
         {error ? <ErrorBox message={error} /> : null}
         <SubmitButton loading={loading}>{mode === "create" ? "Terbitkan surat" : "Reservasi nomor"}</SubmitButton>
         {mode === "reserve" ? (
-          <div className="rounded-lg bg-slate-50 p-3">
+          <div className="rounded-lg bg-paper p-3">
             <button
               type="button"
               disabled={reserving3}
               onClick={() => void reserve3()}
-              className="w-full rounded-lg border border-slate-900 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50"
+              className="w-full rounded-lg border border-slate-900 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-paper disabled:opacity-50"
             >
               {reserving3 ? "Mereservasi…" : "Reservasi 3 nomor sekaligus (untuk surat menyusul/backdate)"}
             </button>
@@ -193,6 +193,6 @@ export default function SuratKeluarBaruPage() {
           </div>
         ) : null}
       </form>
-    </AppShell>
+    </RequirePerm>
   );
 }

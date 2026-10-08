@@ -6,23 +6,29 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { Icons } from "@/components/icons";
+import { EmptyState, Skeleton } from "@/components/ui";
 
 const SECTIONS = [
   {
-    title: "Menu Utama",
+    title: "Utama",
     items: [
-      { href: "/", label: "Dashboard", icon: Icons.grid },
-      { href: "/cuti", label: "Cuti", icon: Icons.calendar },
-      { href: "/presensi", label: "Presensi Apel", icon: Icons.clock },
-      { href: "/notifikasi", label: "Notifikasi", icon: Icons.bell },
+      { href: "/", label: "Dashboard", icon: Icons.grid, perm: "" },
+      { href: "/notifikasi", label: "Notifikasi", icon: Icons.bell, perm: "" },
     ],
   },
   {
-    title: "Administrasi",
+    title: "Kepegawaian",
     items: [
-      { href: "/surat-masuk", label: "Surat Masuk", icon: Icons.inbox },
-      { href: "/surat-keluar", label: "Surat Keluar", icon: Icons.send },
-      { href: "/kgb", label: "KGB", icon: Icons.chart },
+      { href: "/cuti", label: "Cuti", icon: Icons.calendar, perm: "leave.view" },
+      { href: "/presensi", label: "Presensi", icon: Icons.clock, perm: "attendance.view" },
+      { href: "/kgb", label: "KGB", icon: Icons.chart, perm: "kgb.view" },
+    ],
+  },
+  {
+    title: "Kedinasan",
+    items: [
+      { href: "/surat-masuk", label: "Surat Masuk", icon: Icons.inbox, perm: "letter.view" },
+      { href: "/surat-keluar", label: "Surat Keluar", icon: Icons.send, perm: "outgoing.view" },
     ],
   },
 ];
@@ -53,10 +59,20 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/$/, "Dashboard"],
 ];
 
+const SUBTITLES: Array<[RegExp, string]> = [
+  [/^\/cuti$/, "Kelola pengajuan cuti dan proses persetujuan pegawai"],
+  [/^\/presensi$/, "Pencatatan apel, rekap sesi, dan pembinaan"],
+  [/^\/surat-masuk$/, "Agenda, disposisi, distribusi, dan arsip"],
+  [/^\/surat-keluar$/, "Penomoran naskah dinas dan reservasi nomor"],
+  [/^\/kgb$/, "Pengajuan kenaikan gaji berkala"],
+  [/^\/notifikasi$/, "Disposisi dan informasi untuk Anda"],
+  [/^\/$/, "Ruang kerja administrasi kecamatan"],
+];
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, loading, logout, hasPermission } = useAuth();
   const [unread, setUnread] = useState<number | null>(null);
 
   useEffect(() => {
@@ -74,75 +90,77 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   const title = TITLES.find(([re]) => re.test(pathname))?.[1] ?? "SIMPEG";
+  const subtitle = SUBTITLES.find(([re]) => re.test(pathname))?.[1] ?? "";
   const displayName = user?.employee?.name ?? user?.username ?? "—";
+  const roleLine = `${user?.role ?? ""}${user?.position ? ` • ${user.position}` : ""}`;
+  const visible = (items: typeof SECTIONS[number]["items"]) =>
+    loading ? items : items.filter((it) => !it.perm || hasPermission(it.perm));
+
+  async function doLogout() {
+    await logout();
+    router.replace("/login");
+  }
 
   return (
     <div className="min-h-screen lg:flex">
-      <aside className="hidden w-68 shrink-0 flex-col bg-gradient-to-b from-brand-950 via-brand-900 to-[#0c2b33] text-slate-200 lg:flex">
-        <div className="flex items-center gap-3 px-5 pb-5 pt-6">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-700 text-lg font-extrabold text-white shadow-lg shadow-black/30">
-            T
-          </div>
-          <div>
-            <p className="text-sm font-extrabold tracking-wide text-white">SIMPEG TAMALATE</p>
-            <p className="text-[11px] tracking-wider text-brand-200/70">KECAMATAN TAMALATE</p>
-          </div>
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-line bg-surface lg:sticky lg:top-0 lg:flex lg:h-screen">
+        <div className="px-5 pb-4 pt-6">
+          <p className="text-sm font-semibold tracking-wide text-ink">SIMPEG Tamalate</p>
+          <p className="mt-0.5 text-xs text-muted">Kecamatan Tamalate</p>
         </div>
 
         <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
-          {SECTIONS.map((sec) => (
-            <div key={sec.title}>
-              <p className="px-3 pb-1.5 text-[11px] font-bold tracking-widest text-brand-200/50">{sec.title.toUpperCase()}</p>
-              <div className="space-y-0.5">
-                {sec.items.map((item) => {
-                  const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-                  const Icon = item.icon;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
-                        active
-                          ? "bg-white/10 text-white shadow-inner"
-                          : "text-slate-300/90 hover:bg-white/5 hover:text-white"
-                      }`}
-                    >
-                      <span className={active ? "text-gold-400" : "text-slate-400 group-hover:text-slate-200"}>
-                        <Icon />
-                      </span>
-                      {item.label}
-                      {item.href === "/notifikasi" && unread ? (
-                        <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-[11px] font-bold text-white">
-                          {unread > 9 ? "9+" : unread}
+          {SECTIONS.map((sec) => {
+            const items = visible(sec.items);
+            if (items.length === 0) return null;
+            return (
+              <div key={sec.title}>
+                <p className="px-2 pb-1 text-[11px] font-semibold tracking-wider text-muted">{sec.title.toUpperCase()}</p>
+                <div className="space-y-px">
+                  {items.map((item) => {
+                    const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                    const Icon = item.icon;
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={`flex min-h-10 items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition ${
+                          active
+                            ? "bg-brand-900 font-semibold text-white"
+                            : "text-soft hover:bg-[#e4e9e6] hover:text-ink"
+                        }`}
+                      >
+                        <span className={active ? "text-white" : "text-slate-500"}>
+                          <Icon className="h-[18px] w-[18px]" />
                         </span>
-                      ) : null}
-                    </Link>
-                  );
-                })}
+                        {item.label}
+                        {item.href === "/notifikasi" && unread ? (
+                          <span className="ml-auto rounded-md bg-bad-700 px-1.5 py-px text-[11px] font-semibold text-white">
+                            {unread > 9 ? "9+" : unread}
+                          </span>
+                        ) : null}
+                      </Link>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </nav>
 
-        <div className="border-t border-white/10 p-4">
-          <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold-400 to-amber-600 text-sm font-extrabold text-brand-950">
+        <div className="border-t border-line p-3">
+          <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-900 text-xs font-semibold text-white">
               {initials(displayName)}
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-bold text-white">{displayName}</p>
-              <p className="truncate text-[11px] text-slate-400">
-                {user?.role}
-                {user?.position ? ` • ${user.position}` : ""}
-              </p>
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="truncate text-sm font-semibold text-ink">{displayName}</p>
+              <p className="truncate text-xs text-muted">{roleLine || "—"}</p>
             </div>
           </div>
           <button
-            onClick={async () => {
-              await logout();
-              router.replace("/login");
-            }}
-            className="mt-2 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-slate-300 hover:bg-white/5 hover:text-white"
+            onClick={() => void doLogout()}
+            className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-muted hover:bg-paper hover:text-ink"
           >
             <Icons.logout className="h-4 w-4" /> Keluar
           </button>
@@ -150,45 +168,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/85 backdrop-blur">
+        <header className="sticky top-0 z-10 border-b border-line bg-paper/90 backdrop-blur">
           <div className="flex items-center gap-3 px-4 py-3 lg:px-8">
-            <div className="flex items-center gap-2 lg:hidden">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-900 text-sm font-extrabold text-white">T</div>
-              <p className="text-sm font-extrabold">SIMPEG</p>
+            <div className="min-w-0 flex-1 lg:hidden">
+              <h1 className="truncate text-base">{title}</h1>
+              {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
             </div>
             <div className="hidden lg:block">
-              <h1 className="text-base font-extrabold text-slate-900">{title}</h1>
+              <h1>{title}</h1>
+              {subtitle ? <p className="text-sm text-muted">{subtitle}</p> : null}
             </div>
             <div className="ml-auto flex items-center gap-2">
               <Link
                 href="/notifikasi"
                 aria-label="Notifikasi"
-                className="relative rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                className="relative rounded-lg border border-line bg-surface p-2 text-muted hover:text-ink"
               >
                 <Icons.bell className="h-5 w-5" />
                 {unread ? (
-                  <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">
+                  <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-bad-700 px-1 text-[11px] font-semibold text-white">
                     {unread > 9 ? "9+" : unread}
                   </span>
                 ) : null}
               </Link>
-              <span className="hidden items-center gap-2 rounded-xl bg-slate-900 py-1.5 pl-1.5 pr-3 text-sm font-semibold text-white sm:flex">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/15 text-xs font-extrabold">
+              <span className="hidden items-center gap-2 rounded-lg border border-line bg-surface py-1 pl-1 pr-2.5 text-sm sm:flex">
+                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-brand-900 text-[11px] font-semibold text-white">
                   {initials(displayName)}
                 </span>
                 {displayName.split(" ")[0]}
               </span>
             </div>
           </div>
-          <nav className="flex gap-1.5 overflow-x-auto px-4 pb-3 lg:hidden">
-            {SECTIONS.flatMap((s) => s.items).map((item) => {
+          <nav className="flex gap-1 overflow-x-auto px-4 pb-2 lg:hidden">
+            {visible(SECTIONS.flatMap((s) => s.items)).map((item) => {
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium ${
-                    active ? "bg-brand-900 text-white" : "bg-slate-100 text-slate-700"
+                  className={`inline-flex min-h-10 items-center whitespace-nowrap rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                    active ? "border-brand-900 bg-brand-900 text-white" : "border-line bg-surface text-secondary"
                   }`}
                 >
                   {item.label}
@@ -196,12 +215,53 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               );
             })}
           </nav>
+          <div className="flex items-center gap-2 px-4 pb-3 lg:hidden">
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="truncate text-sm font-semibold">{displayName}</p>
+              <p className="truncate text-xs text-muted">{roleLine}</p>
+            </div>
+            <button
+              onClick={() => void doLogout()}
+              className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-muted"
+            >
+              <Icons.logout className="h-4 w-4" /> Keluar
+            </button>
+          </div>
         </header>
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 lg:px-8">{children}</main>
-        <footer className="px-4 pb-6 text-center text-xs text-slate-400 lg:px-8">
-          SIMPEG Kecamatan Tamalate • Presensi • Persuratan • Kepegawaian
-        </footer>
       </div>
     </div>
   );
+}
+
+/** Gate halaman per permission: sembunyikan dari nav (di AppShell) + cegah akses langsung.
+ *  Keamanan final tetap di backend (403). */
+export function RequirePerm({
+  perm,
+  label,
+  children,
+}: {
+  perm: string;
+  label: string;
+  children: React.ReactNode;
+}) {
+  const { loading, hasPermission } = useAuth();
+  if (loading) {
+    return (
+      <AppShell>
+        <Skeleton className="h-40 w-full" />
+      </AppShell>
+    );
+  }
+  if (!hasPermission(perm)) {
+    return (
+      <AppShell>
+        <EmptyState
+          title={`Anda tidak memiliki akses ke ${label}`}
+          hint="Hubungi Kasubag Umum & Kepegawaian bila Anda seharusnya bisa membuka halaman ini."
+        />
+      </AppShell>
+    );
+  }
+  return <AppShell>{children}</AppShell>;
 }
