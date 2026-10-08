@@ -109,21 +109,29 @@ export default function DashboardPage() {
           M(notif, "Notifikasi", "belum dibaca", "blue", "/notifikasi"),
         ]);
       } else if (role === "VERIFIER") {
-        // Operator: antrean verifikasi + operasional harian.
-        setHeading("Antrean verifikasi dan operasional hari ini.");
-        const [cuti, kgb, surat, notif, prob] = await Promise.all([
-          get("/leave-requests?status=SUBMITTED"),
-          get("/kgb-requests?status=SUBMITTED"),
+        setHeading("Operasional hari ini.");
+        const [reg, bkpsdm, surat, notif] = await Promise.all([
+          get("/leave-requests?status=SIGNED"),
+          get("/leave-requests?status=REGISTERED"),
           get("/letters?status=RECEIVED"),
           unread(),
-          problematic(),
         ]);
         if (!alive) return;
         setMetrics([
-          M(num(cuti), "Cuti", "menunggu verifikasi", "amber", "/cuti?status=SUBMITTED"),
-          M(num(kgb), "KGB", "menunggu verifikasi", "amber", "/kgb"),
-          M(num(surat), "Surat baru", "belum dicatat/paraf", "amber", "/surat-masuk?status=RECEIVED"),
-          M(prob, "Bermasalah", "pegawai pekan ini", "red", "/presensi"),
+          M(num(reg), "Cuti", "siap registrasi", "amber", "/cuti?status=SIGNED"),
+          M(num(bkpsdm), "Cuti", "menunggu ke BKPSDM", "amber", "/cuti?status=REGISTERED"),
+          M(num(surat), "Surat baru", "belum dicatat", "amber", "/surat-masuk?status=RECEIVED"),
+          M(notif, "Notifikasi", "belum dibaca", "blue", "/notifikasi"),
+        ]);
+      } else if (role === "SUPERVISOR") {
+        setHeading("Menunggu pertimbangan Anda.");
+        const [cuti, notif] = await Promise.all([
+          get("/leave-requests?status=SUBMITTED"),
+          unread(),
+        ]);
+        if (!alive) return;
+        setMetrics([
+          M(num(cuti), "Cuti", "menunggu pertimbangan", "amber", "/cuti?status=SUBMITTED"),
           M(notif, "Notifikasi", "belum dibaca", "blue", "/notifikasi"),
         ]);
       } else if (role === "LEADER") {

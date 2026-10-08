@@ -1,8 +1,10 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { loadSignature } from "@/lib/signature";
+import { SignaturePad } from "@/components/signature";
 import { useAuth } from "@/lib/auth";
 import type { LeaveDetail } from "@/lib/types";
 import { ErrorBox, Skeleton } from "@/components/ui";
@@ -53,24 +55,15 @@ export default function SuratPengantarCutiPage() {
     try {
       const { data } = await apiFetch<LeaveDetail>(`/leave-requests/${id}`);
       setDetail(data);
-      // Riwayat cuti pemohon dari sistem (best-effort; sembunyikan bila gagal).
+      // Riwayat cuti pemohon dari endpoint resmi (best-effort; sembunyikan bila gagal).
       try {
-        const empName = (data.employee as unknown as { name: string })?.name ?? "";
-        if (empName) {
-          const h = await apiFetch<Array<{
-            id: string; startDate: string; totalDays: number; status: string;
-            leaveType?: { name: string };
-          }>>(`/leave-requests?q=${encodeURIComponent(empName)}&limit=100`);
-          const rows = (Array.isArray(h.data) ? h.data : [])
-            .filter((r) => r.id !== data.id)
-            .map((r) => ({
-              year: String(r.startDate).slice(0, 4),
-              type: r.leaveType?.name ?? "—",
-              days: r.totalDays,
-              status: r.status,
-            }));
-          setHistory(rows);
-        }
+        const h = await apiFetch<Array<{ year: string; leaveType: { name: string }; days: number; status: string }>>(
+          `/employees/${data.employeeId}/leave-history`,
+        );
+        const rows = (Array.isArray(h.data) ? h.data : [])
+          .filter((r) => (r as unknown as { id: string }).id !== data.id)
+          .map((r) => ({ year: r.year, type: r.leaveType?.name ?? "—", days: r.days, status: r.status }));
+        setHistory(rows);
       } catch {
         setHistory([]);
       }
@@ -106,16 +99,48 @@ export default function SuratPengantarCutiPage() {
     nip: string | null;
     position?: string;
     rank?: string | null;
+    joinDate?: string | null;
   };
+  const masaKerja = (() => {
+    if (!emp.joinDate) return "";
+    const start = new Date(emp.joinDate.slice(0, 10) + "T00:00:00");
+    const now = new Date();
+    const months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+    if (isNaN(months) || months < 0) return "";
+    return `${Math.floor(months / 12)} tahun ${months % 12} bulan`;
+  })();
   const isOwner = user?.employee?.id === detail.employee?.id;
   const unitKerja = (isOwner ? user?.orgUnit?.name : null) ?? "..............................";
   const code = detail.leaveType?.code;
-  const viiSetuju = ["PARAF", "APPROVED", "SIGNED", "COMPLETED", "FORWARDED"].includes(detail.status);
+  const viiSetuju = ["PARAF", "APPROVED", "SIGNED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED", "FORWARDED"].includes(detail.status);
   const viiTolak = detail.status === "REJECTED";
-  const viiiSetuju = ["APPROVED", "SIGNED", "COMPLETED"].includes(detail.status);
+  const viiiSetuju = ["APPROVED", "SIGNED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(detail.status);
   const viiiTolak = detail.status === "REJECTED";
-  const parafEntry = (detail.timeline ?? []).find((t) => t.action === "PARAF");
-  const atasanJabatan = JABATAN_ID[actorPosition(parafEntry?.actor)] ?? "";
+  const findEntry = (action: string) => (detail.timeline ?? []).find((t) => t.action === action);
+  const reviewEntry = findEntry("REVIEW");
+  const parafEntry = findEntry("PARAF");
+  const approveEntry = findEntry("APPROVE");
+  const atasanEntry = reviewEntry ?? parafEntry;
+  const atasanUsername = (atasanEntry?.actor ?? "").split(" ")[0] || null;
+  const atasanName = atasanEntry?.actorName ?? "";
+  const atasanNip = atasanEntry?.actorNip ?? "";
+  const atasanJabatan = JABATAN_ID[actorPosition(atasanEntry?.actor)] ?? "";
+  const atasanTime = atasanEntry ? new Date(atasanEntry.createdAt).toLocaleString("id-ID") : "";
+  const camatUsername = (approveEntry?.actor ?? "").split(" ")[0] || null;
+  const camatName = approveEntry?.actorName || "MUH. ARIL SYAHBANI K, S.IP";
+  const camatNip = approveEntry?.actorNip || "198804152007011001";
+  const camatTime = approveEntry ? new Date(approveEntry.createdAt).toLocaleString("id-ID") : "";
+  const [sigTick, setSigTick] = useState(0);
+  const atasanSig = useMemo(
+    () => (sigTick >= 0 ? loadSignature(atasanUsername) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [atasanUsername, sigTick],
+  );
+  const camatSig = useMemo(
+    () => (sigTick >= 0 ? loadSignature(camatUsername) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [camatUsername, sigTick],
+  );
 
   const check = (on: boolean) => (on ? "✓" : "");
 
@@ -132,6 +157,24 @@ export default function SuratPengantarCutiPage() {
           Cetak surat pengantar
         </button>
       </div>
+
+      <details className="no-print mx-auto mb-4 max-w-3xl rounded-lg border border-dashed border-line bg-paper px-4 py-3 font-sans">
+        <summary className="cursor-pointer text-sm font-semibold">
+          Tanda tangan elektronik saya (dummy — tersimpan di browser ini saja)
+        </summary>
+        <p className="mt-1 text-xs text-muted">
+          Gambar di bawah, lalu cetak surat: gambar muncul di blok penandatangan yang aksinya
+          Anda lakukan (login sebagai akun tersebut di browser ini).
+          Versi produksi membutuhkan penyimpanan server (docs/06 B11).
+        </p>
+        <div className="mt-2">
+          {user?.username ? (
+            <SignaturePad username={user.username} onSaved={() => setSigTick((n) => n + 1)} />
+          ) : (
+            <p className="text-sm text-muted">Login dulu untuk membuat tanda tangan.</p>
+          )}
+        </div>
+      </details>
 
       <div className="mx-auto max-w-3xl px-6 pb-10 text-[13px] leading-snug">
         {/* KOP */}
@@ -183,7 +226,7 @@ export default function SuratPengantarCutiPage() {
             </tr>
             <tr>
               <td className={cell}>Jabatan</td><td className={cell}>{emp.position ?? ""}</td>
-              <td className={cell}>Masa Kerja</td><td className={cell} />
+              <td className={cell}>Masa Kerja</td><td className={cell}>{masaKerja}</td>
             </tr>
             <tr>
               <td className={cell}>Unit Kerja</td><td colSpan={3} className={cell}>{unitKerja}</td>
@@ -322,12 +365,23 @@ export default function SuratPengantarCutiPage() {
               <td className={cell}>TIDAK DISETUJUI {check(viiTolak)}</td>
             </tr>
             <tr>
-              <td colSpan={3} className={`${cell} h-10`} />
+              <td colSpan={3} className={`${cell} h-10 font-bold`}>
+                {atasanSig ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={atasanSig} alt="Tanda tangan atasan" className="h-12 object-contain" />
+                ) : (
+                  atasanName
+                )}
+              </td>
               <td className={`${cell} text-center font-bold`}>Jabatan<br />{atasanJabatan}</td>
             </tr>
             <tr>
-              <td colSpan={3} className={cell} />
-              <td className={`${cell} text-center`}>Nip. ................</td>
+              <td colSpan={3} className={cell}>
+                {atasanSig && atasanTime ? (
+                  <span className="text-[11px]">Ditandatangani secara elektronik oleh {atasanName} pada {atasanTime} (dummy, browser ini).</span>
+                ) : null}
+              </td>
+              <td className={`${cell} text-center`}>Nip. {atasanNip || "................"}</td>
             </tr>
           </tbody>
         </table>
@@ -347,10 +401,18 @@ export default function SuratPengantarCutiPage() {
         <div className="flex justify-end">
           <div className="w-72 border border-black p-2 text-center">
             <p className="font-bold">Camat Tamalate</p>
-            <div className="h-14" />
-            <p className="font-bold underline">MUH. ARIL SYAHBANI K, S.IP</p>
+            {camatSig ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={camatSig} alt="Tanda tangan camat" className="mx-auto h-14 object-contain" />
+            ) : (
+              <div className="h-14" />
+            )}
+            <p className="font-bold underline">{camatName}</p>
             <p>Pangkat : Pembina</p>
-            <p>Nip. 198804152007011001</p>
+            <p>Nip. {camatNip}</p>
+            {camatSig && camatTime ? (
+              <p className="mt-1 text-[11px]">Ditandatangani secara elektronik pada {camatTime} (dummy, browser ini).</p>
+            ) : null}
           </div>
         </div>
       </div>

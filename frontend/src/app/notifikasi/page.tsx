@@ -82,6 +82,11 @@ export default function NotifikasiPage() {
                       Buka surat masuk
                     </Link>
                   ) : null}
+                  {n.referenceType === "leave_request" && n.referenceId ? (
+                    <Link href={`/cuti/${n.referenceId}`} className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
+                      Buka pengajuan cuti
+                    </Link>
+                  ) : null}
                   {!n.isRead ? (
                     <button onClick={() => void markRead(n.id)} className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm font-semibold text-ink hover:bg-paper">
                       Tandai dibaca

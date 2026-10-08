@@ -51,7 +51,7 @@ istilah "persetujuan digital" (nama+NIP+jabatan+waktu per aksi).
   tidak boleh memproses pengajuan sendiri; passwordHash sudah dihapus dari response.
 - Upload 5MB pdf/jpg/png; timeline audit; PATCH milik sendiri saat
   DRAFT/REVISION; DELETE draft milik sendiri; filter jenis/unit/periode + cari NIP/nomor.
-- List: filter `status` + cari `q` (**nama saja**) + pagination.
+- List: filter `status` + cari `q` (nama/NIP/nomor) + pagination.
 - `GET /employees` + `GET /users` tersedia (dropdown, bukan UUID mentah).
 
 ## 4. Status backend per item `06` (per 2026-10-08, teruji e2e)
@@ -65,16 +65,13 @@ aset paraf fisik + QR ditunda) = SUDAH diimplementasi. Sisa yang belum:
 - TTE tersertifikasi / integrasi BSrE (fase 1: cetak + basah).
 
 ## 5. Status implementasi frontend (terkunci)
-- `/cuti`: tabel + filter status + cari nama + pagination.
-- `/cuti/baru`: section bergaris + auto-fill pemohon + estimasi durasi +
-  2 dokumen wajib + sticky bar [Simpan draft] [Ajukan cuti].
-- `/cuti/[id]`: panel Keputusan (banner bila tahap milik user) + aksi dari
-  `availableActions` (forward ke Sekda + catatan wajib) + dokumen + ProcessTrail
-  + tombol Ubah (milik sendiri, DRAFT/REVISION) + kartu surat pengantar (APPROVED+).
+- `/cuti`: tabel + filter status/jenis/tanggal + cari nama/NIP/nomor + kolom unit + pagination.
+- `/cuti/baru`: section bergaris + auto-fill + masa kerja + saldo tahunan +
+  syarat surat dokter dinamis + 2 dokumen wajib + sticky bar [Simpan draft] [Ajukan cuti].
+- `/cuti/[id]`: kartu atasan langsung (direct+rantai+note) + panel Keputusan
+  (semua aksi baru + catatan wajib) + hapus draft + upload jawaban BKPSDM
+  (APPROVED/SIGNED, non-pemohon) + timeline nama+NIP + tombol Ubah + surat pengantar.
 - `/cuti/[id]/edit`: form PATCH milik sendiri.
-- `/cuti/[id]/surat`: cetak surat pengantar sesuai formulir (kop + tabel I–VIII,
-  centang otomatis, logo dari `/logo-tamalate.png` bila ada, lampiran riwayat
-  sistem, nama Camat hardcode sementara dari formulir).
-- Belum ada di frontend (backend-nya SUDAH siap, lihat kontrak `02` §3a):
-  saldo cuti, tahap atasan/BKPSDM, postpone, hapus draft, notifikasi cuti,
-  upload jawaban BKPSDM.
+- `/cuti/[id]/surat`: riwayat dari endpoint resmi + nama/NIP penandatangan dari
+  snapshot + masa kerja + logo bila ada.
+- Dashboard: cabang SUPERVISOR; notifikasi cuti deep-link ke detail.

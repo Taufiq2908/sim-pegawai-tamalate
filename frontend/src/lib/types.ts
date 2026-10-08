@@ -1,7 +1,7 @@
 // Tipe domain mengikuti kontrak docs/02-api-contract.md
 // + bentuk aktual backend yang terverifikasi (list: data=array, meta=top-level).
 
-export type Role = "SUPER_ADMIN" | "VERIFIER" | "LEADER" | "EMPLOYEE";
+export type Role = "SUPER_ADMIN" | "VERIFIER" | "SUPERVISOR" | "LEADER" | "EMPLOYEE";
 
 export interface OrgUnit {
   id: string;
@@ -16,6 +16,9 @@ export interface EmployeeRef {
   name: string;
   employmentStatus?: string;
   position?: string;
+  rank?: string | null;
+  joinDate?: string | null;
+  orgUnit?: OrgUnit | null;
 }
 
 export interface AuthUser {
@@ -45,13 +48,18 @@ export interface PageMeta {
 export type LeaveStatus =
   | "DRAFT"
   | "SUBMITTED"
+  | "REVIEWED"
   | "REVISION"
+  | "POSTPONED"
   | "VERIFIED"
   | "PARAF"
   | "APPROVED"
   | "SIGNED"
+  | "REGISTERED"
+  | "SUBMITTED_BKPSDMD"
   | "FORWARDED"
   | "COMPLETED"
+  | "ARCHIVED"
   | "REJECTED";
 
 export interface LeaveType {
@@ -90,11 +98,30 @@ export interface LeaveTimelineEntry {
   fromStatus: string;
   toStatus: string;
   actor: string;
+  actorName?: string | null;
+  actorNip?: string | null;
+  actorRole?: string | null;
+  actorPosition?: string | null;
   note: string | null;
   createdAt: string;
 }
 
+export interface SupervisorMini {
+  id: string;
+  username: string;
+  name: string;
+  nip: string | null;
+  position: string | null;
+}
+
+export interface SupervisorInfo {
+  direct: SupervisorMini | null;
+  chain: SupervisorMini[];
+  note: string | null;
+}
+
 export interface LeaveDetail extends Omit<LeaveItem, "employee" | "leaveType"> {
+  employeeId: string;
   employee: EmployeeRef & Record<string, unknown>;
   leaveType: LeaveType;
   reason: string;
@@ -102,6 +129,8 @@ export interface LeaveDetail extends Omit<LeaveItem, "employee" | "leaveType"> {
   contactDuringLeave: string | null;
   revisionNote: string | null;
   rejectionReason: string | null;
+  postponeNote?: string | null;
+  supervisor?: SupervisorInfo | null;
   documents: LeaveDocument[];
   timeline: LeaveTimelineEntry[];
   availableActions: string[];
