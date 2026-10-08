@@ -117,13 +117,14 @@ export default function KgbDetailPage() {
 
             <div className="rounded-xl border border-slate-200 bg-white p-5">
               <h2 className="font-semibold">Dokumen ({detail.documents?.length ?? 0})</h2>
-              <ul className="mt-2 space-y-1 text-sm">
+              <ul className="mt-2 space-y-2 text-sm">
                 {(detail.documents ?? []).map((d) => (
-                  <li key={d.id}>
-                    <a href={`/api${d.downloadUrl}`} target="_blank" rel="noreferrer" className="font-medium text-blue-700 underline hover:no-underline">
-                      {d.originalName}
-                    </a>{" "}
-                    <span className="text-slate-500">({d.docType})</span>
+                  <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
+                    <span className="font-semibold">{d.originalName}</span>
+                    <span className="text-xs text-slate-500">({d.docType})</span>
+                    <a href={`/api${d.downloadUrl}`} target="_blank" rel="noreferrer" className="ml-auto rounded-lg bg-brand-900 px-3 py-1 text-xs font-bold text-white hover:brightness-110">
+                      Unduh
+                    </a>
                   </li>
                 ))}
                 {(detail.documents ?? []).length === 0 ? <li className="text-slate-500">Belum ada dokumen.</li> : null}

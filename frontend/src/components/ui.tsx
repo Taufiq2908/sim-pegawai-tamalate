@@ -51,7 +51,7 @@ export function ErrorBox({ message, onRetry }: { message: string; onRetry?: () =
     <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
       <p>{message}</p>
       {onRetry ? (
-        <button onClick={onRetry} className="mt-2 font-semibold underline hover:no-underline">
+        <button onClick={onRetry} className="mt-2 rounded-lg bg-red-700 px-3 py-1.5 font-semibold text-white hover:bg-red-600">
           Coba lagi
         </button>
       ) : null}

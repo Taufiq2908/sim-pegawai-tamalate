@@ -299,7 +299,7 @@ export default function SuratMasukDetailPage() {
                 <button disabled={acting !== null} onClick={() => void upload()} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50">
                   {acting === "upload" ? "…" : "Unggah dokumen"}
                 </button>
-                <a href={`/surat-masuk/${detail.id}/lembar-disposisi`} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-700 underline">
+                <a href={`/surat-masuk/${detail.id}/lembar-disposisi`} target="_blank" rel="noreferrer" className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
                   Lembar disposisi (cetak)
                 </a>
               </div>

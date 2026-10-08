@@ -139,18 +139,19 @@ export default function CutiDetailPage() {
 
             <div className="rounded-xl border border-slate-200 bg-white p-5">
               <h2 className="font-semibold">Dokumen ({detail.documents?.length ?? 0})</h2>
-              <ul className="mt-2 space-y-1 text-sm">
+              <ul className="mt-2 space-y-2 text-sm">
                 {(detail.documents ?? []).map((d) => (
-                  <li key={d.id}>
+                  <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
+                    <span className="font-semibold">{d.originalName}</span>
+                    <span className="text-xs text-slate-500">({d.docType}, {(d.sizeBytes/1024).toFixed(1)} KB)</span>
                     <a
                       href={`/api${d.downloadUrl}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="font-medium text-blue-700 underline hover:no-underline"
+                      className="ml-auto rounded-lg bg-brand-900 px-3 py-1 text-xs font-bold text-white hover:brightness-110"
                     >
-                      {d.originalName}
-                    </a>{" "}
-                    <span className="text-slate-500">({d.docType}, {(d.sizeBytes/1024).toFixed(1)} KB)</span>
+                      Unduh
+                    </a>
                   </li>
                 ))}
                 {(detail.documents ?? []).length === 0 ? (

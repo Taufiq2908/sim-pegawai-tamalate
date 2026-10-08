@@ -76,14 +76,14 @@ export default function NotifikasiPage() {
                   </span>
                 </div>
                 <p className="mt-1 text-sm text-slate-600">{n.body}</p>
-                <div className="mt-2 flex gap-3">
+                <div className="mt-2 flex gap-2">
                   {n.referenceType === "letter_disposition" ? (
-                    <Link href="/surat-masuk" className="text-sm font-semibold text-blue-700 underline hover:no-underline">
+                    <Link href="/surat-masuk" className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
                       Buka surat masuk
                     </Link>
                   ) : null}
                   {!n.isRead ? (
-                    <button onClick={() => void markRead(n.id)} className="text-sm font-semibold text-blue-700 underline hover:no-underline">
+                    <button onClick={() => void markRead(n.id)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
                       Tandai dibaca
                     </button>
                   ) : null}
