@@ -101,3 +101,43 @@ export function DangerButton({
     </button>
   );
 }
+
+/** Tombol pilih file yang jelas: label tombol + nama/ukuran file + syarat.
+ *  Input asli disembunyikan dengan sr-only agar validasi `required` tetap jalan. */
+export function FileButton({
+  accept = ".pdf,.jpg,.jpeg,.png",
+  required,
+  hint,
+  onSelect,
+}: {
+  accept?: string;
+  required?: boolean;
+  hint?: string;
+  onSelect: (file: File | null) => void;
+}) {
+  const [info, setInfo] = useState<string | null>(null);
+  return (
+    <div>
+      <label className="flex min-h-10 cursor-pointer items-center gap-2.5 rounded-lg border border-dashed border-line bg-paper px-3 py-2 transition hover:border-brand-700">
+        <span className="shrink-0 rounded-md bg-brand-900 px-3 py-1.5 text-xs font-semibold text-white">
+          Pilih file
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm text-secondary">
+          {info ?? "Belum ada file dipilih"}
+        </span>
+        <input
+          type="file"
+          accept={accept}
+          required={required}
+          className="sr-only"
+          onChange={(e) => {
+            const f = e.target.files?.[0] ?? null;
+            setInfo(f ? `${f.name} (${(f.size / 1024).toFixed(0)} KB)` : null);
+            onSelect(f);
+          }}
+        />
+      </label>
+      {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
+    </div>
+  );
+}

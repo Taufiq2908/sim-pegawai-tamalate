@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { loadSignature } from "@/lib/signature";
 import { SignaturePad } from "@/components/signature";
+import { toast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
 import type { LeaveDetail } from "@/lib/types";
 import { ErrorBox, Skeleton } from "@/components/ui";
@@ -48,6 +49,24 @@ export default function SuratPengantarCutiPage() {
   const [error, setError] = useState("");
   const [history, setHistory] = useState<Array<{ year: string; type: string; days: number; status: string }>>([]);
   const [logoOk, setLogoOk] = useState(true);
+  const [sigTick, setSigTick] = useState(0);
+  const [signAct, setSignAct] = useState<string | null>(null);
+  const [signNote, setSignNote] = useState("");
+  const [signing, setSigning] = useState(false);
+  // Tanda tangan dummy per penandatangan — dihitung dari detail bila sudah ada.
+  const atasanSig = useMemo(() => {
+    const tl = detail?.timeline ?? [];
+    const entry = tl.find((t) => t.action === "REVIEW") ?? tl.find((t) => t.action === "PARAF");
+    const username = (entry?.actor ?? "").split(" ")[0] || null;
+    return sigTick >= 0 && username ? loadSignature(username) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sigTick, detail?.id]);
+  const camatSig = useMemo(() => {
+    const entry = (detail?.timeline ?? []).find((t) => t.action === "APPROVE");
+    const username = (entry?.actor ?? "").split(" ")[0] || null;
+    return sigTick >= 0 && username ? loadSignature(username) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sigTick, detail?.id]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,6 +95,8 @@ export default function SuratPengantarCutiPage() {
 
   useEffect(() => {
     void load();
+    const act = new URLSearchParams(window.location.search).get("act");
+    if (act === "review" || act === "approve") setSignAct(act);
   }, [load]);
 
   if (loading) {
@@ -130,19 +151,29 @@ export default function SuratPengantarCutiPage() {
   const camatName = approveEntry?.actorName || "MUH. ARIL SYAHBANI K, S.IP";
   const camatNip = approveEntry?.actorNip || "198804152007011001";
   const camatTime = approveEntry ? new Date(approveEntry.createdAt).toLocaleString("id-ID") : "";
-  const [sigTick, setSigTick] = useState(0);
-  const atasanSig = useMemo(
-    () => (sigTick >= 0 ? loadSignature(atasanUsername) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [atasanUsername, sigTick],
-  );
-  const camatSig = useMemo(
-    () => (sigTick >= 0 ? loadSignature(camatUsername) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [camatUsername, sigTick],
-  );
 
   const check = (on: boolean) => (on ? "✓" : "");
+
+  async function confirmSign() {
+    if (!signAct || !detail) return;
+    if (!loadSignature(user?.username)) {
+      toast.error("Gambar tanda tangan dulu pada panel di bawah.");
+      return;
+    }
+    setSigning(true);
+    try {
+      await apiFetch(`/leave-requests/${detail.id}/${signAct}`, {
+        method: "POST",
+        body: JSON.stringify({ note: signNote.trim() || undefined }),
+      });
+      toast.success("Ditandatangani dan diteruskan.");
+      window.location.href = `/cuti/${detail.id}`;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal memproses");
+    } finally {
+      setSigning(false);
+    }
+  }
 
   const cell = "border border-black px-2 py-1";
   const todayID = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
@@ -158,8 +189,37 @@ export default function SuratPengantarCutiPage() {
         </button>
       </div>
 
-      <details className="no-print mx-auto mb-4 max-w-3xl rounded-lg border border-dashed border-line bg-paper px-4 py-3 font-sans">
-        <summary className="cursor-pointer text-sm font-semibold">
+      {signAct && detail?.availableActions?.includes(signAct) ? (
+        <div className="no-print mx-auto mb-4 max-w-3xl rounded-lg border border-warn-700/30 bg-warn-100 px-4 py-3 font-sans">
+          <p className="text-sm font-semibold">
+            {signAct === "review" ? "Pertimbangan & tanda tangan atasan langsung" : "Persetujuan & tanda tangan Camat"}
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            Gambar tanda tangan di bawah, lalu tekan tombol konfirmasi — status baru diperbarui
+            dan diteruskan setelah itu.
+          </p>
+          <div className="mt-2">
+            {user?.username ? (
+              <SignaturePad username={user.username} onSaved={() => setSigTick((n) => n + 1)} />
+            ) : null}
+          </div>
+          <input
+            value={signNote}
+            onChange={(e) => setSignNote(e.target.value)}
+            placeholder="Catatan (opsional)"
+            className="mt-2 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none"
+          />
+          <button
+            disabled={signing}
+            onClick={() => void confirmSign()}
+            className="mt-2 w-full rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {signing ? "Memproses…" : "Sudah tandatangan — teruskan"}
+          </button>
+        </div>
+      ) : null}
+
+      <details className="no-print mx-auto mb-4 max-w-3xl rounded-lg border border-dashed border-line bg-paper px-4 py-3 font-sans">        <summary className="cursor-pointer text-sm font-semibold">
           Tanda tangan elektronik saya (dummy — tersimpan di browser ini saja)
         </summary>
         <p className="mt-1 text-xs text-muted">

@@ -1,4 +1,5 @@
 "use client";
+import { FileButton } from "@/components/form";
 import { toast } from "@/components/toast";
 
 import { useParams, useRouter } from "next/navigation";
@@ -11,12 +12,12 @@ import { EmptyState, ErrorBox, ProcessTrail, Skeleton, StatusBadge } from "@/com
 
 const ACTION_LABEL: Record<string, string> = {
   submit: "Ajukan",
-  review: "Beri pertimbangan",
+  review: "Setujui & tandatangani",
   verify: "Verifikasi",
   revise: "Minta revisi",
   postpone: "Tangguhkan",
   paraf: "Paraf",
-  approve: "Setujui",
+  approve: "Setujui & tandatangani",
   reject: "Tolak",
   sign: "Tandatangani",
   register: "Registrasi",
@@ -59,6 +60,12 @@ export default function CutiDetailPage() {
   }, [load]);
 
   async function act(action: string) {
+    // Pertimbangan atasan & keputusan Camat lewat halaman surat:
+    // tanda tangan dulu, baru status diperbarui.
+    if ((action === "review" || action === "approve") && detail) {
+      router.push(`/cuti/${detail.id}/surat?act=${action}`);
+      return;
+    }
     if (NOTE_REQUIRED.includes(action) && !note.trim()) {
       toast.error("Catatan wajib diisi untuk aksi ini.");
       return;
@@ -113,9 +120,12 @@ export default function CutiDetailPage() {
   }
 
   const isOwner = !!user?.employee && !!detail && user.employee.id === detail.employee?.id;
+  // availableActions dari backend sudah sadar jabatan pemohon (forward hanya Camat,
+  // approve-di-VERIFIED hanya Sekcam, dst.) — frontend render apa adanya.
+  const visibleActions = detail?.availableActions ?? [];
   const canAnswer =
     !!detail &&
-    ["APPROVED", "SIGNED"].includes(detail.status) &&
+    ["APPROVED", "REGISTERED", "SUBMITTED_BKPSDMD"].includes(detail.status) &&
     hasPermission("leave.document.upload") &&
     !(user?.role === "EMPLOYEE" && isOwner);
 
@@ -172,7 +182,7 @@ export default function CutiDetailPage() {
 
             <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Keputusan</h2>
-              {detail.availableActions?.length ? (
+              {visibleActions.length ? (
                 <>
                   <p className="mt-1 border-l-2 border-warn-700 pl-3 text-sm text-secondary">
                     Menunggu keputusan Anda — permohonan ini berada pada tahap Anda.
@@ -186,7 +196,7 @@ export default function CutiDetailPage() {
                     </a>
                   ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {detail.availableActions.map((a) => (
+                    {visibleActions.map((a) => (
                       <button
                         key={a}
                         disabled={acting !== null}
@@ -217,7 +227,7 @@ export default function CutiDetailPage() {
                       </button>
                     </div>
                   ) : null}
-                  {detail.availableActions.includes("forward") ? (
+                  {visibleActions.includes("forward") ? (
                     <p className="mt-1 text-xs text-muted">Forward hanya untuk pengajuan Camat — diteruskan ke Sekda di luar sistem.</p>
                   ) : null}
                 </>
@@ -226,12 +236,12 @@ export default function CutiDetailPage() {
               )}
             </div>
 
-            {["APPROVED", "SIGNED", "COMPLETED"].includes(detail.status) ? (
+            {["APPROVED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(detail.status) && hasPermission("leave.register") ? (
               <div className="rounded-lg border border-line bg-surface p-5">
                 <h2 className="font-semibold">Surat pengantar ke BKPSDM</h2>
                 <p className="mt-1 text-sm text-muted">
                   Unduh/cetak surat pengantar sesuai formulir resmi, teruskan ke BKPSDM di luar sistem.
-                  Setelah surat jawaban diterima, catat di bawah lalu lanjutkan SIGNED → registrasi.
+                  Setelah surat jawaban diterima, catat di bawah lalu lanjutkan alur.
                 </p>
                 <a
                   href={`/cuti/${detail.id}/surat`}
@@ -243,7 +253,7 @@ export default function CutiDetailPage() {
                 </a>
                 {canAnswer ? (
                   <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
-                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setAnswerFile(e.target.files?.[0] ?? null)} className="text-sm" />
+                    <FileButton hint="Surat jawaban BKPSDM, PDF/JPG/PNG" onSelect={setAnswerFile} />
                     <button disabled={acting !== null} onClick={() => void uploadAnswer()} className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
                       {acting === "answer" ? "…" : "Catat surat jawaban"}
                     </button>

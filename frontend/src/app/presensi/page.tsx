@@ -1,4 +1,5 @@
 "use client";
+import { FileButton } from "@/components/form";
 import { toast } from "@/components/toast";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
@@ -95,6 +96,7 @@ export default function PresensiPage() {
   const [mDate, setMDate] = useState(today);
   const [mStatus, setMStatus] = useState<AttendanceStatus>("HADIR");
   const [mTime, setMTime] = useState("07:30");
+  const [mOut, setMOut] = useState("");
   const [mNote, setMNote] = useState("");
   const [mLoading, setMLoading] = useState(false);
 
@@ -307,6 +309,7 @@ export default function PresensiPage() {
           date: mDate,
           status: mStatus,
           ...(mStatus === "HADIR" || mStatus === "TERLAMBAT" ? { checkInTime: mTime } : {}),
+          ...(mStatus === "HADIR" || mStatus === "TERLAMBAT" ? (mOut.trim() ? { checkOutTime: mOut.trim() } : {}) : {}),
           ...(mNote.trim() ? { note: mNote.trim() } : {}),
         }),
       });
@@ -469,7 +472,10 @@ export default function PresensiPage() {
                 {MANUAL_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
               {(mStatus === "HADIR" || mStatus === "TERLAMBAT") ? (
-                <input value={mTime} onChange={(e) => setMTime(e.target.value)} placeholder="HH:MM" pattern="^\d{1,2}:\d{2}$" className="rounded-lg border border-line px-2 py-1.5 text-sm" />
+                <>
+                  <input value={mTime} onChange={(e) => setMTime(e.target.value)} placeholder="Masuk HH:MM" pattern="^\d{1,2}:\d{2}$" className="rounded-lg border border-line px-2 py-1.5 text-sm" />
+                  <input value={mOut} onChange={(e) => setMOut(e.target.value)} placeholder="Pulang HH:MM (opsional)" pattern="^\d{1,2}:\d{2}$" className="rounded-lg border border-line px-2 py-1.5 text-sm" />
+                </>
               ) : (
                 <input value={mNote} onChange={(e) => setMNote(e.target.value)} placeholder="Keterangan" className="rounded-lg border border-line px-2 py-1.5 text-sm" />
               )}
@@ -606,7 +612,7 @@ export default function PresensiPage() {
               <option value="PAGI">Pagi</option>
               <option value="SORE">Sore</option>
             </select>
-            <input type="file" accept=".jpg,.jpeg,.png" onChange={(e) => setPhFile(e.target.files?.[0] ?? null)} className="text-sm" />
+            <FileButton accept=".jpg,.jpeg,.png" hint="JPG/PNG foto barisan apel" onSelect={setPhFile} />
             <button disabled={phLoading} className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
               {phLoading ? "…" : "Unggah foto"}
             </button>

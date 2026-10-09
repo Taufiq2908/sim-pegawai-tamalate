@@ -1,4 +1,5 @@
 "use client";
+import { FileButton } from "@/components/form";
 import { toast } from "@/components/toast";
 
 import { useParams, useRouter } from "next/navigation";
@@ -295,7 +296,7 @@ export default function SuratMasukDetailPage() {
                 ) : null}
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
-                <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
+                <FileButton hint="PDF/JPG/PNG, maks 10MB" onSelect={setFile} />
                 <button disabled={acting !== null} onClick={() => void upload()} className="rounded-lg border border-line px-3 py-1.5 text-sm font-semibold hover:bg-paper disabled:opacity-50">
                   {acting === "upload" ? "…" : "Unggah dokumen"}
                 </button>

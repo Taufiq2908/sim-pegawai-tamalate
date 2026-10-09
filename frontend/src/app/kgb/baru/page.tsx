@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AppShell } from "@/components/shell";
 import { apiFetch, apiUpload } from "@/lib/api";
-import { Field, SubmitButton } from "@/components/form";
+import { Field, FileButton, SubmitButton } from "@/components/form";
 import { ErrorBox } from "@/components/ui";
 
 export default function KgbBaruPage() {
@@ -92,7 +92,7 @@ export default function KgbBaruPage() {
           <textarea value={form.note} onChange={set("note")} rows={2} className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
         </Field>
         <Field label="Dokumen SK terakhir (opsional, pdf/jpg/png ≤5MB)">
-          <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
+          <FileButton hint="PDF/JPG/PNG, maks 5MB (opsional)" onSelect={setFile} />
         </Field>
         {error ? <ErrorBox message={error} /> : null}
         <SubmitButton loading={loading}>Ajukan KGB</SubmitButton>

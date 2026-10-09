@@ -1,12 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
 import type { LeaveType } from "@/lib/types";
-import { Field } from "@/components/form";
+import { Field, FileButton } from "@/components/form";
 import { ErrorBox } from "@/components/ui";
 import { toast } from "@/components/toast";
 
@@ -36,8 +36,6 @@ export default function CutiBaruPage() {
   const [balance, setBalance] = useState<{ entitlement: number; used: number; remaining: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [draftMode, setDraftMode] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
 
   const durasi = useMemo(() => inclusiveDays(form.startDate, form.endDate), [form.startDate, form.endDate]);
   const selectedType = types.find((t) => t.code === form.leaveTypeCode);
@@ -134,7 +132,8 @@ export default function CutiBaruPage() {
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    void save(draftMode);
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    void save(submitter?.value === "draft");
   }
 
   const set =
@@ -146,7 +145,7 @@ export default function CutiBaruPage() {
       <h1>Pengajuan cuti</h1>
       <p className="mt-1 text-sm text-muted">Lengkapi data di bawah. Data pegawai diambil dari profil.</p>
 
-      <form ref={formRef} onSubmit={onSubmit} className="mt-6 max-w-2xl pb-28">
+      <form onSubmit={onSubmit} className="mt-6 max-w-2xl pb-28">
         <section>
           <h2 className="text-xs font-semibold tracking-wider text-muted">DATA PEGAWAI</h2>
           <dl className="mt-3 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
@@ -198,7 +197,7 @@ export default function CutiBaruPage() {
         <section className="mt-8 space-y-4">
           <h2 className="border-b border-line pb-2 text-xs font-semibold tracking-wider text-muted">DOKUMEN — WAJIB ≥2, SALAH SATUNYA SK TERAKHIR</h2>
           <Field label="1. SK terakhir* (pdf/jpg/png ≤5MB)">
-            <input type="file" required accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFileSk(e.target.files?.[0] ?? null)} className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
+            <FileButton required hint="PDF/JPG/PNG, maks 5MB" onSelect={setFileSk} />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="2. Jenis dokumen pendukung*">
@@ -211,42 +210,41 @@ export default function CutiBaruPage() {
               </select>
             </Field>
             <Field label="File dokumen pendukung*">
-              <input type="file" required accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFileSecond(e.target.files?.[0] ?? null)} className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
+              <FileButton required hint="PDF/JPG/PNG, maks 5MB" onSelect={setFileSecond} />
             </Field>
           </div>
           {selectedType?.requiresDocument ? (
             <Field label={`Surat dokter* (wajib untuk ${selectedType.name})`}>
-              <input type="file" required accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFileDoctor(e.target.files?.[0] ?? null)} className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
+              <FileButton required hint="PDF/JPG/PNG, maks 5MB" onSelect={setFileDoctor} />
             </Field>
           ) : null}
         </section>
 
         {error ? <ErrorBox message={error} /> : null}
-      </form>
 
-      <div className="sticky bottom-0 -mx-4 mt-6 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur lg:-mx-8 lg:px-8">
-        <div className="mx-auto flex max-w-2xl gap-2">
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => {
-              setDraftMode(true);
-              formRef.current?.requestSubmit();
-            }}
-            className="rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-paper disabled:opacity-50"
-          >
-            {loading ? "Memproses…" : "Simpan draft"}
-          </button>
-          <button
-            type="submit"
-            disabled={loading}
-            onClick={() => setDraftMode(false)}
-            className="flex-1 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
-          >
-            {loading ? "Memproses…" : "Ajukan cuti"}
-          </button>
+        <div className="sticky bottom-0 -mx-4 mt-6 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur lg:-mx-8 lg:px-8">
+          <div className="mx-auto flex max-w-2xl gap-2">
+            <button
+              type="submit"
+              name="aksi"
+              value="draft"
+              disabled={loading}
+              className="rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-paper disabled:opacity-50"
+            >
+              {loading ? "Memproses…" : "Simpan draft"}
+            </button>
+            <button
+              type="submit"
+              name="aksi"
+              value="ajukan"
+              disabled={loading}
+              className="flex-1 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+            >
+              {loading ? "Memproses…" : "Ajukan cuti"}
+            </button>
+          </div>
         </div>
-      </div>
+      </form>
     </AppShell>
   );
 }
