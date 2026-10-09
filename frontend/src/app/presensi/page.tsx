@@ -1,7 +1,7 @@
 "use client";
 import { toast } from "@/components/toast";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
@@ -32,62 +32,54 @@ function addDays(ymd: string, n: number): string {
   return new Date(new Date(ymd + "T00:00:00Z").getTime() + n * 86400000).toISOString().slice(0, 10);
 }
 
-type Sesi = "HADIR" | "TERLAMBAT" | "IZIN" | "SAKIT" | "ABSEN" | "-";
-
-function sesiPagi(rec: AttendanceRecord | undefined, date: string, today: string): Sesi {
-  if (!rec) return date < today ? "ABSEN" : "-";
-  if (rec.checkInAt) return rec.status as Sesi;
-  if (rec.status === "IZIN" || rec.status === "SAKIT") return rec.status;
-  return "ABSEN";
+export interface RecapRow {
+  no: number;
+  employee: { id: string; nip: string | null; name: string; position: string; rank: string | null; employmentStatus: string; orgUnit: { code: string | null; name: string | null } };
+  kantor: string;
+  jabatan: string;
+  status: string;
+  tk: number;
+  izin: number;
+  dl: number;
+  rekapitulasi: number;
+  counts: { hadir: number; terlambat: number; izin: number; sakit: number; dl: number; tk: number };
+  absenceCount: number;
+  isProblematic: boolean;
+  days: Array<{ date: string; pagi: string; sore: string }>;
 }
 
-function sesiSore(rec: AttendanceRecord | undefined, date: string, today: string): Sesi {
-  if (!rec) return date < today ? "ABSEN" : "-";
-  if (rec.checkOutAt) return "HADIR";
-  if (rec.status === "IZIN" || rec.status === "SAKIT") return rec.status;
-  if (!rec.checkInAt) return "ABSEN";
-  return date < today ? "ABSEN" : "-";
-}
+const MANUAL_STATUS: AttendanceStatus[] = ["HADIR", "TERLAMBAT", "IZIN", "SAKIT", "DL", "ALPA"];
 
-const SESI_STYLE: Record<Sesi, string> = {
-  HADIR: "bg-ok-100 text-ok-700",
-  TERLAMBAT: "bg-warn-100 text-warn-700",
-  IZIN: "bg-info-100 text-info-700",
-  SAKIT: "bg-info-100 text-info-700",
-  ABSEN: "bg-bad-100 text-bad-700",
-  "-": "bg-paper text-slate-400",
-};
-
-function SesiCell({ v, short }: { v: Sesi; short?: boolean }) {
-  return (
-    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold ${SESI_STYLE[v]}`}>
-      {short ? (v === "HADIR" ? "H" : v === "TERLAMBAT" ? "T" : v === "ABSEN" ? "A" : v === "-" ? "-" : v[0]) : v}
-    </span>
-  );
-}
-
-const MANUAL_STATUS: AttendanceStatus[] = ["HADIR", "TERLAMBAT", "IZIN", "SAKIT", "ALPA"];
+const PATCH_STATUS: AttendanceStatus[] = ["HADIR", "TERLAMBAT", "IZIN", "SAKIT", "DL", "ALPA"];
 
 export default function PresensiPage() {
   const { user, hasPermission } = useAuth();
   const canCheckin = hasPermission("attendance.checkin");
   const canManage = hasPermission("attendance.manage");
   const canSummary = hasPermission("attendance.summary");
+  const canForward = hasPermission("attendance.forward");
+  const isKasubag = (user?.position ?? "").startsWith("KASUBAG") || user?.role === "SUPER_ADMIN";
   const today = todayWita();
 
   const [todayData, setTodayData] = useState<AttendanceToday | null>(null);
   const [todayErr, setTodayErr] = useState("");
   const [acting, setActing] = useState<"in" | "out" | null>(null);
 
-  // Checklist operator hari ini
+  // Daftar hadir + status kunci hari ini
   const [repDate, setRepDate] = useState(today);
   const [report, setReport] = useState<AttendanceReportRow[]>([]);
+  const [repLocked, setRepLocked] = useState(false);
   const [repLoading, setRepLoading] = useState(false);
 
-  // Rekap mingguan per sesi (Opsi A)
+  // Validasi harian (cocok visual + revisi per baris)
+  const [validating, setValidating] = useState<AttendanceRecord[]>([]);
+  const [valLoading, setValLoading] = useState(false);
+  const [patching, setPatching] = useState<string | null>(null);
+
+  // Rekap mingguan dari server
   const [weekStart, setWeekStart] = useState(mondayOfWeekWita(today));
-  const weekDays = useMemo(() => [0, 1, 2, 3, 4].map((i) => addDays(weekStart, i)), [weekStart]);
-  const [weekRecs, setWeekRecs] = useState<AttendanceRecord[]>([]);
+  const [recap, setRecap] = useState<RecapRow[]>([]);
+  const [recapMeta, setRecapMeta] = useState<{ weekStart: string; weekEnd: string; totalEmployees: number; problematic: number } | null>(null);
   const [weekLoading, setWeekLoading] = useState(false);
 
   const [history, setHistory] = useState<AttendanceRecord[]>([]);
@@ -112,6 +104,7 @@ export default function PresensiPage() {
   const [phSession, setPhSession] = useState<"PAGI" | "SORE">("PAGI");
   const [phFile, setPhFile] = useState<File | null>(null);
   const [phLoading, setPhLoading] = useState(false);
+  const [locking, setLocking] = useState(false);
 
   const loadToday = useCallback(async () => {
     setTodayErr("");
@@ -126,29 +119,49 @@ export default function PresensiPage() {
   const loadReport = useCallback(async () => {
     setRepLoading(true);
     try {
-      const { data } = await apiFetch<AttendanceReportRow[]>(`/attendances/report?date=${repDate}`);
+      const { data, meta } = await apiFetch<AttendanceReportRow[]>(`/attendances/report?date=${repDate}`);
       setReport(Array.isArray(data) ? data : []);
+      setRepLocked(!!(meta as { locked?: boolean } | null)?.locked);
     } catch {
       setReport([]);
+      setRepLocked(false);
     } finally {
       setRepLoading(false);
     }
   }, [repDate]);
 
+  const loadValidating = useCallback(async () => {
+    if (!canManage) return;
+    setValLoading(true);
+    try {
+      const { data } = await apiFetch<AttendanceRecord[]>(
+        `/attendances?from=${repDate}&to=${repDate}&limit=100`,
+      );
+      setValidating(Array.isArray(data) ? data : []);
+    } catch {
+      setValidating([]);
+    } finally {
+      setValLoading(false);
+    }
+  }, [canManage, repDate]);
+
   const loadWeek = useCallback(async () => {
+    if (!canSummary) {
+      setRecap([]);
+      return;
+    }
     setWeekLoading(true);
     try {
-      const to = addDays(weekStart, 4);
-      const { data } = await apiFetch<AttendanceRecord[]>(
-        `/attendances?from=${weekStart}&to=${to}&limit=100`,
-      );
-      setWeekRecs(Array.isArray(data) ? data : []);
+      const { data, meta } = await apiFetch<RecapRow[]>(`/attendances/weekly-recap?weekStart=${weekStart}`);
+      setRecap(Array.isArray(data) ? data : []);
+      setRecapMeta(meta as { weekStart: string; weekEnd: string; totalEmployees: number; problematic: number } | null);
     } catch {
-      setWeekRecs([]);
+      setRecap([]);
+      setRecapMeta(null);
     } finally {
       setWeekLoading(false);
     }
-  }, [weekStart]);
+  }, [canSummary, weekStart]);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -190,7 +203,8 @@ export default function PresensiPage() {
   useEffect(() => {
     void loadReport();
     void loadHistory();
-  }, [loadReport, loadHistory]);
+    void loadValidating();
+  }, [loadReport, loadHistory, loadValidating]);
 
   useEffect(() => {
     if (!canManage) return;
@@ -221,35 +235,43 @@ export default function PresensiPage() {
     void loadSummary();
   }, [loadSummary]);
 
-  // Matriks mingguan: pegawai × hari × sesi
-  const matrix = useMemo(() => {
-    const byKey = new Map<string, AttendanceRecord>();
-    for (const r of weekRecs) {
-      byKey.set(`${r.employeeId}|${r.date.slice(0, 10)}`, r);
-    }
-    const roster: Array<{ id: string; name: string }> =
-      summary.length > 0
-        ? summary.map((s) => ({ id: s.employee.id, name: s.employee.name }))
-        : weekRecs.length > 0
-          ? [...new Map(weekRecs.map((r) => [r.employeeId, r.employee?.name ?? r.employeeId] as const)).entries()].map(
-              ([id, name]) => ({ id, name }),
-            )
-          : user?.employee
-            ? [{ id: user.employee.id, name: user.employee.name }]
-            : [];
-    return roster.map((p) => {
-      const cells = weekDays.map((d) => {
-        const rec = byKey.get(`${p.id}|${d}`);
-        return { pagi: sesiPagi(rec, d, today), sore: sesiSore(rec, d, today) };
+  async function patchStatus(id: string, status: AttendanceStatus) {
+    setPatching(id);
+    try {
+      await apiFetch(`/attendances/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
       });
-      const missed = cells.reduce(
-        (n, c) => n + (c.pagi === "ABSEN" ? 1 : 0) + (c.sore === "ABSEN" ? 1 : 0),
-        0,
-      );
-      return { ...p, cells, missed };
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekRecs, summary, weekDays]);
+      toast.success("Status diperbarui.");
+      void loadReport();
+      void loadValidating();
+      void loadWeek();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal memperbarui");
+    } finally {
+      setPatching(null);
+    }
+  }
+
+  async function lockDay() {
+    if (!window.confirm(`Kunci presensi tanggal ${repDate}? Tanpa presensi akan menjadi TK dan data tidak bisa diubah lagi.`)) return;
+    setLocking(true);
+    try {
+      const { data, raw } = await apiFetch<{ materializedTK: number }>(`/attendances/lock`, {
+        method: "POST",
+        body: JSON.stringify({ date: repDate }),
+      });
+      void raw;
+      toast.success(`Harian dikunci. ${(data as { materializedTK: number }).materializedTK} pegawai tanpa presensi menjadi TK.`);
+      void loadReport();
+      void loadValidating();
+      void loadWeek();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal mengunci");
+    } finally {
+      setLocking(false);
+    }
+  }
 
   async function check(kind: "in" | "out") {
     setActing(kind);
@@ -335,7 +357,6 @@ export default function PresensiPage() {
   }
 
   const rec = todayData?.record;
-  const dayNames = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat"];
 
   return (
     <AppShell>
@@ -377,10 +398,13 @@ export default function PresensiPage() {
         )}
       </div>
 
-      {/* Checklist operator */}
+      {/* Daftar hadir harian */}
       <div className="mt-4 rounded-lg border border-line bg-surface p-5">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="font-semibold">Daftar hadir operator</h2>
+          <h2 className="font-semibold">Daftar hadir harian</h2>
+          {repLocked ? (
+            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">Terkunci Kasubag</span>
+          ) : null}
           <input
             type="date"
             value={repDate}
@@ -388,6 +412,15 @@ export default function PresensiPage() {
             onChange={(e) => setRepDate(e.target.value)}
             className="ml-auto rounded-lg border border-line px-3 py-1.5 text-sm outline-none focus:border-brand-700"
           />
+          {isKasubag && canManage && !repLocked ? (
+            <button
+              disabled={locking}
+              onClick={() => void lockDay()}
+              className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {locking ? "Mengunci…" : "Simpan & validasi"}
+            </button>
+          ) : null}
         </div>
         {repLoading ? (
           <Skeleton className="mt-3 h-40 w-full" />
@@ -412,8 +445,8 @@ export default function PresensiPage() {
                     <td className="py-2 pr-3">{r.nomor}</td>
                     <td className="py-2 pr-3 font-medium">{r.nama}</td>
                     <td className="py-2 pr-3 text-muted">{r.jabatan}</td>
-                    <td className="py-2 pr-3">{r.jamHadir ?? (r.status === "IZIN" || r.status === "SAKIT" ? r.status : "—")}</td>
-                    <td className="py-2 pr-3">{r.jamPulang ?? (r.status === "IZIN" || r.status === "SAKIT" ? r.status : "—")}</td>
+                    <td className="py-2 pr-3">{r.jamHadir ?? (r.status === "IZIN" || r.status === "SAKIT" || r.status === "DL" ? r.status : "—")}</td>
+                    <td className="py-2 pr-3">{r.jamPulang ?? (r.status === "IZIN" || r.status === "SAKIT" || r.status === "DL" ? r.status : "—")}</td>
                     <td className="py-2"><StatusBadge status={r.status} /></td>
                   </tr>
                 ))}
@@ -448,50 +481,120 @@ export default function PresensiPage() {
         ) : null}
       </div>
 
-      {/* Rekap mingguan per sesi — Opsi A */}
-      <div className="mt-4 rounded-lg border border-line bg-surface p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="font-semibold">Rekap mingguan per sesi</h2>
-          <div className="ml-auto flex items-center gap-1 text-sm">
-            <button onClick={() => setWeekStart(addDays(weekStart, -7))} className="rounded-lg border border-line px-2 py-1 hover:bg-paper">‹</button>
-            <span className="px-2 font-medium">{weekStart} – {addDays(weekStart, 4)}</span>
-            <button onClick={() => setWeekStart(addDays(weekStart, 7))} className="rounded-lg border border-line px-2 py-1 hover:bg-paper">›</button>
-          </div>
+      {/* Validasi harian — cocok visual + revisi per baris (Fase 2) */}
+      {canManage ? (
+        <div className="mt-4 rounded-lg border border-line bg-surface p-5">
+          <h2 className="font-semibold">Validasi presensi harian</h2>
+          <p className="mt-0.5 text-xs text-muted">
+            Cocokkan daftar tercatat dengan barisan apel. Ubah status yang tidak sesuai menjadi TK
+            atau keterangan sah (Izin/Sakit/DL), lalu kunci harian bila foto pagi+sore lengkap.
+            {repLocked ? " Hari ini sudah dikunci." : ""}
+          </p>
+          {valLoading ? (
+            <Skeleton className="mt-3 h-32 w-full" />
+          ) : validating.length === 0 ? (
+            <p className="mt-2 text-sm text-muted">Belum ada yang tercatat pada tanggal ini.</p>
+          ) : (
+            <ul className="mt-2 space-y-1.5 text-sm">
+              {validating.map((v) => (
+                <li key={v.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-paper px-3 py-2">
+                  <span className="font-medium">{v.employee?.name}</span>
+                  <span className="text-muted">
+                    {v.checkInAt ? new Date(v.checkInAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—"}
+                  </span>
+                  <StatusBadge status={v.status} />
+                  <span className="ml-auto flex items-center gap-1.5">
+                    <select
+                      defaultValue={v.status}
+                      disabled={patching !== null || repLocked}
+                      onChange={(e) => void patchStatus(v.id, e.target.value as AttendanceStatus)}
+                      className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
+                      aria-label={`Ubah status ${v.employee?.name}`}
+                    >
+                      {PATCH_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    {patching === v.id ? <span className="text-xs text-muted">…</span> : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-        <p className="mt-1 text-xs text-muted">H=hadir, T=terlambat, A=tidak hadir sesi. Merah (≥5) = pegawai bermasalah. Hitungan klien sementara — backend menyusul per <code>docs/03-presensi-per-sesi.md</code>.</p>
-        {weekLoading ? (
-          <Skeleton className="mt-3 h-40 w-full" />
-        ) : matrix.length === 0 ? (
-          <div className="mt-3"><EmptyState title="Belum ada data pekan ini" /></div>
-        ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-180 text-left text-sm">
-              <thead>
-                <tr className="border-b text-xs text-muted">
-                  <th className="py-2 pr-3">Nama</th>
-                  {weekDays.map((d, i) => (
-                    <th key={d} className="px-1 py-2 text-center">{dayNames[i]}<br />{d.slice(5)}</th>
-                  ))}
-                  <th className="py-2 pl-2 text-center">Absen</th>
-                </tr>
-              </thead>
-              <tbody>
-                {matrix.map((row) => (
-                  <tr key={row.id} className={`border-b last:border-0 ${row.missed >= 5 ? "bg-bad-100/60" : ""}`}>
-                    <td className="py-1.5 pr-3 font-medium">{row.name}</td>
-                    {row.cells.map((c, i) => (
-                      <td key={i} className="px-1 py-1.5 text-center">
-                        <SesiCell v={c.pagi} short /> <SesiCell v={c.sore} short />
-                      </td>
-                    ))}
-                    <td className={`py-1.5 pl-2 text-center font-bold ${row.missed >= 5 ? "text-bad-700" : ""}`}>{row.missed}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      ) : null}
+
+      {/* Rekapitulasi daftar hadir per pekan — dari server */}
+      {canSummary ? (
+        <div className="mt-4 rounded-lg border border-line bg-surface p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-semibold">Rekapitulasi daftar hadir per pekan</h2>
+            <div className="ml-auto flex items-center gap-1 text-sm">
+              <button onClick={() => setWeekStart(addDays(weekStart, -7))} className="rounded-lg border border-line px-2 py-1 hover:bg-paper">‹</button>
+              <span className="px-2 font-medium">{weekStart} – {addDays(weekStart, 4)}</span>
+              <button onClick={() => setWeekStart(addDays(weekStart, 7))} className="rounded-lg border border-line px-2 py-1 hover:bg-paper">›</button>
+            </div>
           </div>
-        )}
-      </div>
+          {recapMeta ? (
+            <p className="mt-1 text-xs text-muted">
+              {recapMeta.totalEmployees} pegawai • {recapMeta.problematic} bermasalah (≥5 TK) • TK = Tanpa Keterangan
+            </p>
+          ) : null}
+          {weekLoading ? (
+            <Skeleton className="mt-3 h-40 w-full" />
+          ) : recap.length === 0 ? (
+            <div className="mt-3"><EmptyState title="Belum ada data pekan ini" /></div>
+          ) : (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[820px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-line text-xs text-muted">
+                    <th className="px-2 py-2 font-medium">No</th>
+                    <th className="px-2 py-2 font-medium">Nama</th>
+                    <th className="px-2 py-2 font-medium">Kantor</th>
+                    <th className="px-2 py-2 font-medium">Jabatan</th>
+                    <th className="px-2 py-2 font-medium">Status</th>
+                    <th className="px-2 py-2 text-center font-medium">TK</th>
+                    <th className="px-2 py-2 text-center font-medium">Izin</th>
+                    <th className="px-2 py-2 text-center font-medium">DL</th>
+                    <th className="px-2 py-2 text-center font-medium">Rekap</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recap.map((row) => (
+                    <Fragment key={row.employee.id}>
+                      <tr className={`border-b border-line last:border-0 ${row.isProblematic ? "bg-bad-100/60" : ""}`}>
+                        <td className="px-2 py-2">{row.no}</td>
+                        <td className="px-2 py-2 font-medium">
+                          {row.employee.name}
+                          <span className="block text-xs font-normal text-muted">{row.employee.nip ?? row.employee.id.slice(0, 8)}</span>
+                        </td>
+                        <td className="px-2 py-2 text-muted">{row.kantor}</td>
+                        <td className="px-2 py-2 text-muted">{row.jabatan}</td>
+                        <td className="px-2 py-2 text-muted">{row.status}</td>
+                        <td className={`px-2 py-2 text-center font-semibold tabular-nums ${row.tk >= 5 ? "text-bad-700" : ""}`}>{row.tk}</td>
+                        <td className="px-2 py-2 text-center tabular-nums">{row.izin}</td>
+                        <td className="px-2 py-2 text-center tabular-nums">{row.dl}</td>
+                        <td className="px-2 py-2 text-center tabular-nums">{row.rekapitulasi}</td>
+                      </tr>
+                    <tr key={`${row.employee.id}-d`} className="border-b border-line">
+                        <td />
+                        <td colSpan={8} className="px-2 pb-2">
+                          <div className="flex flex-wrap gap-1">
+                            {row.days.map((d) => (
+                              <span key={d.date} title={`${d.date}: pagi ${d.pagi}, sore ${d.sore}`} className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${d.pagi === "ABSEN" || d.sore === "ABSEN" ? "bg-bad-100 text-bad-700" : "bg-paper text-muted"}`}>
+                                {d.date.slice(5)} {d.pagi[0]}/{d.sore[0]}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       <div className="mt-4 rounded-lg border border-line bg-surface p-5">
         <h2 className="font-semibold">Dokumentasi foto apel</h2>
@@ -546,26 +649,32 @@ export default function PresensiPage() {
           <h2 className="font-semibold">Rekap per pegawai</h2>
           {summaryMsg ? <p className="mt-1 text-sm text-bad-700">{summaryMsg}</p> : null}
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-160 text-left text-sm">
+            <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
-                <tr className="border-b text-xs text-muted">
-                  <th className="py-2 pr-3">Nama</th>
-                  <th className="py-2 pr-3">Hadir</th>
-                  <th className="py-2 pr-3">Terlambat</th>
-                  <th className="py-2 pr-3">Izin</th>
-                  <th className="py-2 pr-3">Sakit</th>
-                  <th className="py-2">Alpa</th>
+                <tr className="border-b border-line text-xs text-muted">
+                  <th className="px-2 py-2 font-medium">Nama</th>
+                  <th className="px-2 py-2 font-medium">Kantor</th>
+                  <th className="px-2 py-2 text-center font-medium">Hadir</th>
+                  <th className="px-2 py-2 text-center font-medium">Terlambat</th>
+                  <th className="px-2 py-2 text-center font-medium">Izin</th>
+                  <th className="px-2 py-2 text-center font-medium">Sakit</th>
+                  <th className="px-2 py-2 text-center font-medium">DL</th>
+                  <th className="px-2 py-2 text-center font-medium">TK</th>
+                  <th className="px-2 py-2 text-center font-medium">Rekap</th>
                 </tr>
               </thead>
               <tbody>
                 {summary.map((s) => (
-                  <tr key={s.employee.id} className="border-b last:border-0">
-                    <td className="py-2 pr-3 font-medium">{s.employee.name}</td>
-                    <td className="py-2 pr-3">{s.counts.HADIR}</td>
-                    <td className="py-2 pr-3">{s.counts.TERLAMBAT}</td>
-                    <td className="py-2 pr-3">{s.counts.IZIN}</td>
-                    <td className="py-2 pr-3">{s.counts.SAKIT}</td>
-                    <td className="py-2">{s.counts.ALPA}</td>
+                  <tr key={s.employee.id} className="border-b border-line last:border-0">
+                    <td className="px-2 py-2 font-medium">{s.employee.name}</td>
+                    <td className="px-2 py-2 text-muted">{(s as unknown as { kantor?: string }).kantor ?? s.employee.orgUnit}</td>
+                    <td className="px-2 py-2 text-center tabular-nums">{s.counts.HADIR}</td>
+                    <td className="px-2 py-2 text-center tabular-nums">{s.counts.TERLAMBAT}</td>
+                    <td className="px-2 py-2 text-center tabular-nums">{s.counts.IZIN}</td>
+                    <td className="px-2 py-2 text-center tabular-nums">{s.counts.SAKIT}</td>
+                    <td className="px-2 py-2 text-center tabular-nums">{(s.counts as unknown as { DL?: number }).DL ?? 0}</td>
+                    <td className="px-2 py-2 text-center tabular-nums">{s.counts.ALPA}</td>
+                    <td className="px-2 py-2 text-center tabular-nums">{(s as unknown as { rekapitulasi?: number }).rekapitulasi ?? s.counts.ALPA + s.counts.IZIN}</td>
                   </tr>
                 ))}
               </tbody>
@@ -574,7 +683,7 @@ export default function PresensiPage() {
 
           <div className="mt-5 border-t pt-4">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-semibold">Pegawai bermasalah (≥5 sesi/minggu)</h3>
+              <h3 className="font-semibold">Pegawai bermasalah (≥5 TK/minggu)</h3>
               <Link href="/presensi/teguran" className="rounded-lg border border-line px-3 py-1.5 text-sm font-semibold hover:bg-paper">
                 Daftar teguran
               </Link>

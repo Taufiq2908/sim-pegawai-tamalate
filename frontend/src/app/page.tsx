@@ -124,14 +124,33 @@ export default function DashboardPage() {
           M(notif, "Notifikasi", "belum dibaca", "blue", "/notifikasi"),
         ]);
       } else if (role === "SUPERVISOR") {
-        setHeading("Menunggu pertimbangan Anda.");
-        const [cuti, notif] = await Promise.all([
+        const isKasubag = position.startsWith("KASUBAG");
+        setHeading(isKasubag ? "Validasi dan pembinaan hari ini." : "Menunggu pertimbangan Anda.");
+        const [cuti, notif, prob, locked] = await Promise.all([
           get("/leave-requests?status=SUBMITTED"),
           unread(),
+          problematic(),
+          isKasubag
+            ? (async () => {
+                try {
+                  const t = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+                  const { meta } = await apiFetch<unknown>(`/attendances/report?date=${t}`);
+                  return (meta as { locked?: boolean } | null)?.locked ? "Terkunci" : "Belum";
+                } catch {
+                  return "—";
+                }
+              })()
+            : Promise.resolve(null),
         ]);
         if (!alive) return;
         setMetrics([
           M(num(cuti), "Cuti", "menunggu pertimbangan", "amber", "/cuti?status=SUBMITTED"),
+          ...(isKasubag
+            ? [
+                M(prob ?? "—", "Bermasalah", "pegawai pekan ini", "red", "/presensi"),
+                M(locked ?? "—", "Validasi", "apel hari ini", locked === "Terkunci" ? "green" : "amber", "/presensi"),
+              ]
+            : []),
           M(notif, "Notifikasi", "belum dibaca", "blue", "/notifikasi"),
         ]);
       } else if (role === "LEADER") {

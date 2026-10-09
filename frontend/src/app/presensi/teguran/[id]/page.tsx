@@ -14,6 +14,7 @@ export default function TeguranDetailPage() {
   const router = useRouter();
   const { hasPermission } = useAuth();
   const canManage = hasPermission("attendance.manage");
+  const canForward = hasPermission("attendance.forward");
   const [item, setItem] = useState<WarningLetterDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -22,6 +23,8 @@ export default function TeguranDetailPage() {
   const [summonNote, setSummonNote] = useState("");
   const [result, setResult] = useState("");
   const [followUp, setFollowUp] = useState<"NONE" | "BKPSDM">("NONE");
+  const [forwardNote, setForwardNote] = useState("");
+  const [instruction, setInstruction] = useState("");
   const [acting, setActing] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -48,12 +51,12 @@ export default function TeguranDetailPage() {
     }
     setActing("summon");
     try {
-      const { data } = await apiFetch<WarningLetterDetail>(`/attendances/warning-letters/${id}/summon`, {
+      await apiFetch<WarningLetterDetail>(`/attendances/warning-letters/${id}/summon`, {
         method: "POST",
         body: JSON.stringify({ scheduledAt: new Date(schedAt).toISOString(), note: summonNote || undefined }),
       });
-      setItem(data);
       toast.success("Panggilan pembinaan dijadwalkan.");
+      await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Gagal menjadwalkan");
     } finally {
@@ -61,6 +64,41 @@ export default function TeguranDetailPage() {
     }
   }
 
+  async function forward() {
+    setActing("forward");
+    try {
+      await apiFetch<WarningLetterDetail>(`/attendances/warning-letters/${id}/forward`, {
+        method: "POST",
+        body: JSON.stringify({ note: forwardNote || undefined }),
+      });
+      toast.success("Laporan diteruskan ke Camat.");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal meneruskan");
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function instruct() {
+    if (instruction.trim().length < 5) {
+      toast.error("Instruksi wajib diisi (min 5 karakter).");
+      return;
+    }
+    setActing("instruct");
+    try {
+      await apiFetch<WarningLetterDetail>(`/attendances/warning-letters/${id}/instruct`, {
+        method: "POST",
+        body: JSON.stringify({ instruction: instruction.trim() }),
+      });
+      toast.success("Instruksi Camat dicatat.");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal mencatat");
+    } finally {
+      setActing(null);
+    }
+  }
   async function coaching() {
     if (result.trim().length < 5) {
       toast.error("Hasil pembinaan wajib diisi (min 5 karakter).");
@@ -68,12 +106,12 @@ export default function TeguranDetailPage() {
     }
     setActing("coaching");
     try {
-      const { data } = await apiFetch<WarningLetterDetail>(`/attendances/warning-letters/${id}/coaching`, {
+      await apiFetch<WarningLetterDetail>(`/attendances/warning-letters/${id}/coaching`, {
         method: "PATCH",
         body: JSON.stringify({ result: result.trim(), followUp }),
       });
-      setItem(data);
       toast.success("Hasil pembinaan dicatat.");
+      await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Gagal mencatat");
     } finally {
@@ -104,9 +142,48 @@ export default function TeguranDetailPage() {
                 </button>
               </div>
               <p className="mt-1 text-sm text-muted">
-                {item.employee?.name} ({item.employee?.position}) • Pekan {String(item.weekStart).slice(0, 10)} s.d. {String(item.weekEnd).slice(0, 10)} • {item.absenceCount} sesi
+                {item.employee?.name} ({item.employee?.position}) • Pekan {String(item.weekStart).slice(0, 10)} s.d. {String(item.weekEnd).slice(0, 10)} • {item.absenceCount} TK
               </p>
               <pre className="mt-4 whitespace-pre-wrap rounded-lg bg-paper p-4 text-sm leading-relaxed">{item.content}</pre>
+            </div>
+
+            <div className="rounded-lg border border-line bg-surface p-5">
+              <h2 className="font-semibold">Eskalasi</h2>
+              {item.forwardAt ? (
+                <p className="mt-1 text-sm text-muted">
+                  Diteruskan ke Camat{item.forwardNote ? `: ${item.forwardNote}` : ""}
+                  {item.forwardAt ? ` • ${new Date(item.forwardAt).toLocaleString("id-ID")}` : ""}
+                </p>
+              ) : (
+                <p className="mt-1 text-sm text-muted">Belum diteruskan ke Camat.</p>
+              )}
+              {item.instruction ? (
+                <p className="mt-1 text-sm">
+                  <b>Instruksi Camat:</b> {item.instruction}
+                  {item.instructedAt ? <span className="text-muted"> • {new Date(item.instructedAt).toLocaleString("id-ID")}</span> : null}
+                </p>
+              ) : null}
+              {canForward ? (
+                <div className="mt-3 space-y-2 border-t border-line pt-3">
+                  {!item.forwardAt ? (
+                    <div className="flex flex-wrap gap-2">
+                      <input value={forwardNote} onChange={(e) => setForwardNote(e.target.value)} placeholder="Catatan penerusan (opsional)" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      <button disabled={acting !== null} onClick={() => void forward()} className="rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                        {acting === "forward" ? "…" : "Teruskan ke Camat"}
+                      </button>
+                    </div>
+                  ) : !item.instruction ? (
+                    <div className="flex flex-wrap gap-2">
+                      <input value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Instruksi tindak lanjut (min 5 karakter)*" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      <button disabled={acting !== null} onClick={() => void instruct()} className="rounded-lg bg-ok-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                        {acting === "instruct" ? "…" : "Tindak lanjuti"}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted">Instruksi sudah dicatat.</p>
+                  )}
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-lg border border-line bg-surface p-5">
