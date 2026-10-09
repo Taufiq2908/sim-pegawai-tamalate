@@ -17,7 +17,7 @@ import type {
   ProblematicItem,
   SessionPhoto,
 } from "@/lib/types";
-import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
+import { EmptyState, ErrorBox, Skeleton, StatusBadge, TrailBadge, actorDisplay } from "@/components/ui";
 
 function todayWita(): string {
   return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -237,12 +237,19 @@ export default function PresensiPage() {
     void loadSummary();
   }, [loadSummary]);
 
-  async function patchStatus(id: string, status: AttendanceStatus) {
+  async function patchStatus(id: string, status: AttendanceStatus, time?: string) {
+    if ((status === "HADIR" || status === "TERLAMBAT") && !time?.match(/^\d{1,2}:\d{2}$/)) {
+      toast.error("Isi jam masuk (HH:MM) untuk HADIR/TERLAMBAT.");
+      return;
+    }
     setPatching(id);
     try {
       await apiFetch(`/attendances/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({
+          status,
+          ...(status === "HADIR" || status === "TERLAMBAT" ? { checkInTime: time } : {}),
+        }),
       });
       toast.success("Status diperbarui.");
       void loadReport();
@@ -250,6 +257,31 @@ export default function PresensiPage() {
       void loadWeek();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Gagal memperbarui");
+    } finally {
+      setPatching(null);
+    }
+  }
+
+  function prefillManual(employeeId: string) {
+    setMEmp(employeeId);
+    setMDate(repDate);
+    setMStatus("HADIR");
+    document.getElementById("manual-form")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  async function quickSet(employeeId: string, status: AttendanceStatus) {
+    setPatching(employeeId);
+    try {
+      await apiFetch("/attendances", {
+        method: "POST",
+        body: JSON.stringify({ employeeId, date: repDate, status }),
+      });
+      toast.success("Status tercatat.");
+      void loadReport();
+      void loadValidating();
+      void loadWeek();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal mencatat");
     } finally {
       setPatching(null);
     }
@@ -446,7 +478,13 @@ export default function PresensiPage() {
                 {report.map((r) => (
                   <tr key={r.nomor} className="border-b last:border-0">
                     <td className="py-2 pr-3">{r.nomor}</td>
-                    <td className="py-2 pr-3 font-medium">{r.nama}</td>
+                    <td className="py-2 pr-3">
+                      <span className="font-medium">{r.nama}</span>
+                      <span className="mt-0.5 flex flex-wrap gap-1">
+                        {r.diisiOleh ? <TrailBadge text={`Diisi ${r.diisiOleh}`} /> : null}
+                        {r.koreksi ? <TrailBadge text={`Diubah ${r.koreksi.oleh ?? "?"} • ${String(r.koreksi.pada).slice(0, 10)}`} /> : null}
+                      </span>
+                    </td>
                     <td className="py-2 pr-3 text-muted">{r.jabatan}</td>
                     <td className="py-2 pr-3">{r.jamHadir ?? (r.status === "IZIN" || r.status === "SAKIT" || r.status === "DL" ? r.status : "—")}</td>
                     <td className="py-2 pr-3">{r.jamPulang ?? (r.status === "IZIN" || r.status === "SAKIT" || r.status === "DL" ? r.status : "—")}</td>
@@ -458,7 +496,7 @@ export default function PresensiPage() {
           </div>
         )}
         {canManage ? (
-          <form onSubmit={manualSubmit} className="mt-4 rounded-lg bg-paper p-3">
+          <form id="manual-form" onSubmit={manualSubmit} className="mt-4 scroll-mt-24 rounded-lg bg-paper p-3">
             <p className="text-sm font-semibold">Input manual / backdate (operator)</p>
             <div className="mt-2 grid gap-2 sm:grid-cols-5">
               <select value={mEmp} onChange={(e) => setMEmp(e.target.value)} className="rounded-lg border border-line px-2 py-1.5 text-sm">
@@ -492,37 +530,92 @@ export default function PresensiPage() {
         <div className="mt-4 rounded-lg border border-line bg-surface p-5">
           <h2 className="font-semibold">Validasi presensi harian</h2>
           <p className="mt-0.5 text-xs text-muted">
-            Cocokkan daftar tercatat dengan barisan apel. Ubah status yang tidak sesuai menjadi TK
-            atau keterangan sah (Izin/Sakit/DL), lalu kunci harian bila foto pagi+sore lengkap.
+            Cocokkan daftar tercatat dengan barisan apel. Yang belum presensi tidak perlu
+            check-in — langsung beri Izin/Sakit/DL/TK di bawah. Kunci harian bila foto
+            pagi+sore lengkap.
             {repLocked ? " Hari ini sudah dikunci." : ""}
           </p>
           {valLoading ? (
             <Skeleton className="mt-3 h-32 w-full" />
-          ) : validating.length === 0 ? (
-            <p className="mt-2 text-sm text-muted">Belum ada yang tercatat pada tanggal ini.</p>
           ) : (
             <ul className="mt-2 space-y-1.5 text-sm">
-              {validating.map((v) => (
-                <li key={v.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-paper px-3 py-2">
-                  <span className="font-medium">{v.employee?.name}</span>
-                  <span className="text-muted">
-                    {v.checkInAt ? new Date(v.checkInAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—"}
-                  </span>
-                  <StatusBadge status={v.status} />
-                  <span className="ml-auto flex items-center gap-1.5">
-                    <select
-                      defaultValue={v.status}
-                      disabled={patching !== null || repLocked}
-                      onChange={(e) => void patchStatus(v.id, e.target.value as AttendanceStatus)}
-                      className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
-                      aria-label={`Ubah status ${v.employee?.name}`}
-                    >
-                      {PATCH_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                    {patching === v.id ? <span className="text-xs text-muted">…</span> : null}
-                  </span>
-                </li>
-              ))}
+              {employees.map((emp) => {
+                const v = validating.find((r) => r.employeeId === emp.id);
+                return (
+                  <li key={emp.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-paper px-3 py-2">
+                    <span className="font-medium">{emp.name}</span>
+                    {v ? (
+                      <>
+                        <span className="text-muted">
+                          {v.checkInAt ? new Date(v.checkInAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "tanpa presensi"}
+                        </span>
+                        <StatusBadge status={v.status} />
+                        {v.recorder && v.method !== "SELF" ? <TrailBadge text={`Diisi ${actorDisplay(v.recorder)}`} /> : null}
+                        {v.correctedAt ? <TrailBadge text={`Diubah ${actorDisplay(v.corrector) ?? "?"} • ${new Date(v.correctedAt).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}`} /> : null}
+                        <span className="ml-auto flex items-center gap-1.5">
+                          <input
+                            id={`t-${v.id}`}
+                            defaultValue={v.checkInAt ? new Date(v.checkInAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }).replace(".", ":") : ""}
+                            placeholder="HH:MM"
+                            pattern="^\d{1,2}:\d{2}$"
+                            disabled={patching !== null || repLocked}
+                            className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-sm"
+                            aria-label={`Jam masuk ${emp.name}`}
+                          />
+                          <select
+                            defaultValue={v.status}
+                            disabled={patching !== null || repLocked}
+                            onChange={(e) => {
+                              const st = e.target.value as AttendanceStatus;
+                              const t = (document.getElementById(`t-${v.id}`) as HTMLInputElement | null)?.value ?? "";
+                              void patchStatus(v.id, st, t);
+                              e.target.value = v.status;
+                            }}
+                            className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
+                            aria-label={`Ubah status ${emp.name}`}
+                          >
+                            {PATCH_STATUS.map((s) => <option key={s} value={s}>{s === "ALPA" ? "TK" : s}</option>)}
+                          </select>
+                          {patching === v.id ? <span className="text-xs text-muted">…</span> : null}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-muted">tanpa presensi</span>
+                        <span className="ml-auto flex items-center gap-1.5">
+                          <select
+                            defaultValue=""
+                            disabled={patching !== null || repLocked}
+                            onChange={(e) => {
+                              const st = e.target.value as AttendanceStatus;
+                              if (st) void quickSet(emp.id, st);
+                              e.target.value = "";
+                            }}
+                            className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
+                            aria-label={`Catat status ${emp.name}`}
+                          >
+                            <option value="">Beri status…</option>
+                            {(["IZIN", "SAKIT", "DL", "ALPA"] as AttendanceStatus[]).map((s) => (
+                              <option key={s} value={s}>{s === "ALPA" ? "TK" : s}</option>
+                            ))}
+                          </select>
+                          <button
+                            disabled={patching !== null || repLocked}
+                            onClick={() => prefillManual(emp.id)}
+                            className="rounded-md border border-line bg-surface px-2 py-1 text-sm font-medium hover:bg-paper disabled:opacity-50"
+                          >
+                            Isi
+                          </button>
+                          {patching === emp.id ? <span className="text-xs text-muted">…</span> : null}
+                        </span>
+                      </>
+                    )}
+                  </li>
+                );
+              })}
+              {employees.length === 0 ? (
+                <li className="text-muted">Daftar pegawai tidak tersedia.</li>
+              ) : null}
             </ul>
           )}
         </div>

@@ -73,6 +73,19 @@ export function StatusBadge({ status }: { status: string }) {
   );
 }
 
+export function actorDisplay(u: { username: string; employee?: { name: string } | null } | null | undefined): string | null {
+  if (!u) return null;
+  return u.employee?.name ?? u.username;
+}
+
+export function TrailBadge({ text }: { text: string }) {
+  return (
+    <span className="rounded bg-paper px-1.5 py-0.5 text-[11px] text-secondary ring-1 ring-inset ring-line">
+      {text}
+    </span>
+  );
+}
+
 export function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse rounded-lg bg-slate-200/70 ${className}`} />;
 }

@@ -147,6 +147,9 @@ export interface AttendanceRecord {
   status: AttendanceStatus;
   method: string;
   note: string | null;
+  recorder?: { id: string; username: string; employee?: { name: string } | null } | null;
+  corrector?: { id: string; username: string; employee?: { name: string } | null } | null;
+  correctedAt?: string | null;
   employee?: EmployeeRef & { orgUnit?: OrgUnit };
 }
 
@@ -166,6 +169,8 @@ export interface AttendanceReportRow {
   jamHadir: string | null;
   jamPulang: string | null;
   status: string;
+  diisiOleh: string | null;
+  koreksi: { oleh: string | null; pada: string } | null;
 }
 
 export interface AttendanceSummaryItem {
