@@ -136,7 +136,7 @@ export interface LeaveDetail extends Omit<LeaveItem, "employee" | "leaveType"> {
   availableActions: string[];
 }
 
-export type AttendanceStatus = "HADIR" | "TERLAMBAT" | "IZIN" | "SAKIT" | "ALPA";
+export type AttendanceStatus = "HADIR" | "TERLAMBAT" | "IZIN" | "SAKIT" | "DL" | "ALPA";
 
 export interface AttendanceRecord {
   id: string;
@@ -170,7 +170,9 @@ export interface AttendanceReportRow {
 
 export interface AttendanceSummaryItem {
   employee: { id: string; nip: string | null; name: string; position: string; orgUnit: string };
-  counts: Record<AttendanceStatus, number>;
+  kantor?: string;
+  counts: Record<AttendanceStatus, number> & { DL?: number };
+  rekapitulasi?: number;
   recorded: number;
 }
 
@@ -204,6 +206,12 @@ export interface WarningLetterDetail {
   coachingResult: string | null;
   coachingFollowUp: "NONE" | "BKPSDM" | null;
   coachedAt: string | null;
+  forwardBy?: string | null;
+  forwardAt?: string | null;
+  forwardNote?: string | null;
+  instructedBy?: string | null;
+  instructedAt?: string | null;
+  instruction?: string | null;
   createdAt: string;
   employee?: { name: string; position: string; nip: string | null };
 }
