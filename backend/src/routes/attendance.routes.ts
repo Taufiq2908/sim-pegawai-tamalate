@@ -37,9 +37,21 @@ const STATUS = ['HADIR', 'TERLAMBAT', 'IZIN', 'SAKIT', 'DL', 'ALPA'] as const;
 const PRESENCE = ['HADIR', 'TERLAMBAT'];
 const EXCUSED_FULL = ['IZIN', 'SAKIT', 'DL'];
 
+const userMini = {
+  select: { id: true, username: true, employee: { select: { name: true } } },
+};
+
 const includeEmp = {
   employee: { include: { orgUnit: true } },
+  recorder: userMini,
+  corrector: userMini,
 };
+
+// Nama tampilan pencatat/pengoreksi untuk badge "Diisi/Diubah ...".
+function actorName(u: any): string | null {
+  if (!u) return null;
+  return u.employee?.name ?? u.username;
+}
 
 // Hari yang sudah dikunci Kasubag ("Simpan & Validasi") tidak bisa diubah lagi.
 async function dayLocked(date: Date): Promise<boolean> {
@@ -174,6 +186,9 @@ router.patch('/:id', requirePermission('attendance.manage'), async (req, res) =>
       ...(checkInAt !== undefined ? { checkInAt } : {}),
       ...(checkOutAt !== undefined ? { checkOutAt } : {}),
       ...(b.note !== undefined ? { note: b.note } : {}),
+      // Jejak: setiap koreksi operator/Kasubag dicatat siapa & kapan.
+      correctedBy: req.user!.id,
+      correctedAt: new Date(),
     },
     include: includeEmp,
   });
@@ -243,6 +258,7 @@ router.get('/report', requirePermission('attendance.view'), async (req, res) => 
     prisma.employee.findMany({ where: empWhere, orderBy: { name: 'asc' } }),
     prisma.attendance.findMany({
       where: { date: dateObj, employee: empWhere },
+      include: { recorder: userMini, corrector: userMini },
     }),
   ]);
   const byEmp: Record<string, any> = {};
@@ -257,7 +273,13 @@ router.get('/report', requirePermission('attendance.view'), async (req, res) => 
       jabatan: e.position,
       jamHadir: hhmmWita(r?.checkInAt ?? null),
       jamPulang: hhmmWita(r?.checkOutAt ?? null),
-      status: r?.status ?? '-',
+      // Tanpa catatan presensi mandiri = Tanpa Keterangan (sama seperti ALPA).
+      status: r?.status ?? 'Tanpa keterangan',
+      // Jejak pengisian/pengoreksi: null bila presensi mandiri murni.
+      diisiOleh: r && r.method !== 'SELF' ? actorName(r.recorder) : null,
+      koreksi: r?.correctedAt
+        ? { oleh: actorName(r.corrector), pada: r.correctedAt }
+        : null,
     };
   });
   return ok(res, rows, 'ok', { date: dateStr, locked: !!(await prisma.attendanceLock.findUnique({ where: { date: dateObj } })) });

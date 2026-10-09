@@ -209,7 +209,9 @@ memaafkan kedua sesi seperti IZIN/SAKIT).
 
 ### PATCH /attendances/:id
 Perm: `attendance.manage` (staf operator + Kasubag). Koreksi status/note/jam.
-Tanggal terkunci → 409.
+Tanggal terkunci → 409. Setiap PATCH mencatat `correctedBy/correctedAt`
+(jejak "diubah Kasubag"); response record menyertakan `recorder` + `corrector`
+(`{id, username, employee:{name}}`).
 
 ### GET /attendances/today
 Perm: `attendance.view`. Catatan apel saya hari ini + jam server + deadline.
@@ -221,7 +223,7 @@ Perm: `attendance.view`. EMPLOYEE otomatis hanya miliknya. Default rentang = bul
 Perm: `attendance.summary`. Rekap per pegawai: `{ no, employee, kantor, counts: {HADIR,TERLAMBAT,IZIN,SAKIT,DL,ALPA}, rekapitulasi (=ALPA+IZIN+DL), recorded }`.
 
 ### GET /attendances/report?date=2026-10-07
-Perm: `attendance.view`. Format tabel: `[{nomor, nama, nip, gol, jabatan, jamHadir, jamPulang, status}]` (jam WITA HH:MM, `-` bila kosong). EMPLOYEE hanya barisnya sendiri. Meta menyertakan `locked` (kunci Kasubag).
+Perm: `attendance.view`. Format tabel: `[{nomor, nama, nip, gol, jabatan, jamHadir, jamPulang, status, diisiOleh, koreksi}]` (jam WITA HH:MM, `-` bila kosong; tanpa catatan = `Tanpa keterangan`). `diisiOleh` = nama pengisi bila bukan mandiri, else null. `koreksi` = `{oleh, pada}` bila pernah dikoreksi operator/Kasubag, else null. EMPLOYEE hanya barisnya sendiri. Meta menyertakan `locked` (kunci Kasubag).
 
 ### GET /attendances/weekly-recap?weekStart=2026-09-28
 Perm: `attendance.summary`. Rekapitulasi Daftar Hadir Per Pekan: satu baris per

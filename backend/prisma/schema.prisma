@@ -114,6 +114,7 @@ model User {
   actions       LeaveApproval[]          @relation("ActorActions")
   createdLeaves LeaveRequest[]           @relation("CreatedLeaves")
   recordedAttendances Attendance[]       @relation("RecordedAttendances")
+  correctedAttendances Attendance[]      @relation("CorrectedAttendances")
   createdLetters IncomingLetter[]        @relation("CreatedLetters")
   sentDispositions LetterDisposition[]   @relation("SentDispositions")
   receivedDispositions LetterDisposition[] @relation("ReceivedDispositions")
@@ -236,6 +237,10 @@ model Attendance {
   note       String?
   recordedBy String   @map("recorded_by") @db.Uuid
   recorder   User     @relation("RecordedAttendances", fields: [recordedBy], references: [id])
+  // Jejak koreksi: setiap PATCH oleh operator/Kasubag mencatat siapa & kapan.
+  correctedBy String?  @map("corrected_by") @db.Uuid
+  corrector   User?    @relation("CorrectedAttendances", fields: [correctedBy], references: [id])
+  correctedAt DateTime? @map("corrected_at") @db.Timestamptz
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
