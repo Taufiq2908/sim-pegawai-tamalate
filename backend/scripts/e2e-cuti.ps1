@@ -40,17 +40,15 @@ Post-Json ($base + '/leave-requests/' + $id + '/paraf') (Get-H $tSek) @{ note = 
 'PARAF: PARAF'
 Post-Json ($base + '/leave-requests/' + $id + '/approve') (Get-H $tCam) @{ note = 'Setuju' } | Out-Null
 'APPROVE: APPROVED'
-try { Post-Json ($base + '/leave-requests/' + $id + '/sign') (Get-H $tCam) @{ note = 'x' } | Out-Null; 'S3 FAIL' } catch { 'S3 sign-tanpa-jawaban: ' + (CodeOf $_) }
-'jawaban' | Out-File -Encoding ascii tmp-jawab.pdf
-$ans = curl.exe -s -X POST -H ('Authorization: Bearer ' + $tVer) -F 'file=@tmp-jawab.pdf;type=application/pdf' ($base + '/leave-requests/' + $id + '/answer-letter')
-Remove-Item tmp-jawab.pdf
-'ANSWER: ' + (($ans | ConvertFrom-Json).data.docType)
-Post-Json ($base + '/leave-requests/' + $id + '/sign') (Get-H $tCam) @{ note = 'ok' } | Out-Null
-'SIGN: SIGNED'
 Post-Json ($base + '/leave-requests/' + $id + '/register') (Get-H $tVer) @{ note = 'ok' } | Out-Null
 'REGISTER: REGISTERED'
 Post-Json ($base + '/leave-requests/' + $id + '/tobkpsdm') (Get-H $tVer) @{ note = 'ok' } | Out-Null
 'TOBKPSDM: SUBMITTED_BKPSDMD'
+try { Post-Json ($base + '/leave-requests/' + $id + '/receiveresult') (Get-H $tVer) @{ note = 'x' } | Out-Null; 'S3 FAIL' } catch { 'S3 result-tanpa-jawaban: ' + (CodeOf $_) }
+'jawaban' | Out-File -Encoding ascii tmp-jawab.pdf
+$ans = curl.exe -s -X POST -H ('Authorization: Bearer ' + $tVer) -F 'file=@tmp-jawab.pdf;type=application/pdf' ($base + '/leave-requests/' + $id + '/answer-letter')
+Remove-Item tmp-jawab.pdf
+'ANSWER: ' + (($ans | ConvertFrom-Json).data.docType)
 Post-Json ($base + '/leave-requests/' + $id + '/receiveresult') (Get-H $tVer) @{ note = 'Hasil diterima & diserahkan' } | Out-Null
 'RECEIVERESULT: COMPLETED'
 Post-Json ($base + '/leave-requests/' + $id + '/archive') (Get-H $tVer) @{} | Out-Null

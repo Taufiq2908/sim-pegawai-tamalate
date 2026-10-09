@@ -119,7 +119,8 @@ persetujuan ke blok surat (VII atasan, VIII camat). Syarat backend:
 ## Status implementasi (backend, 2026-10-08 — semua lolos e2e)
 
 - B1: `POST /leave-requests/:id/answer-letter` (docType `SURAT_JAWABAN_BKPSDM`,
-  APPROVED/SIGNED, oleh pelaksana); `sign` 422 bila belum ada jawaban.
+  APPROVED/REGISTERED/SUBMITTED_BKPSDMD, oleh pelaksana); `receiveresult` 422
+  bila belum ada jawaban. Status SIGNED dihapus dari rantai (baris lama dimigrasi).
 - B2: `joinDate` (+position/rank/orgUnit) di `/auth/me.employee`; nama+NIP+
   pangkat pejabat via resolver B3 (Camat/Sekcam/Kasubag/Kasi aktif).
 - B3: `GET /employees/:id/supervisor` + field `supervisor` di detail cuti.

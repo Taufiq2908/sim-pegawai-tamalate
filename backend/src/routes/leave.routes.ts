@@ -28,9 +28,12 @@ async function toDetail(r: any, perms: string[]) {
   const supervisor = r.employee
     ? await resolveSupervisor({ position: r.employee.position, orgUnit: r.employee.orgUnit ?? null })
     : null;
+  const applicant = r.employee
+    ? { position: r.employee.position ?? null, orgType: r.employee.orgUnit?.type ?? null }
+    : null;
   return {
     ...r,
-    availableActions: availableActions(r.status, perms),
+    availableActions: availableActions(r.status, perms, applicant),
     supervisor,
     documents: (r.documents ?? []).map((d: any) => ({
       id: d.id,
@@ -59,7 +62,7 @@ async function toDetail(r: any, perms: string[]) {
 const ACTION_LABEL_ID: Record<string, string> = {
   submit: 'diajukan', review: 'diberi pertimbangan atasan', verify: 'diverifikasi',
   revise: 'diminta revisi', postpone: 'ditangguhkan', paraf: 'diparaf',
-  approve: 'disetujui', sign: 'ditandatangani', register: 'diregistrasi',
+  approve: 'disetujui', register: 'diregistrasi',
   tobkpsdm: 'diteruskan ke BKPSDM', receiveresult: 'diterima hasilnya',
   complete: 'diselesaikan', archive: 'diarsipkan', forward: 'diteruskan ke Sekda',
   reject: 'ditolak',
@@ -185,8 +188,14 @@ router.post('/', requirePermission('leave.create'), async (req, res) => {
   const end = new Date(b.endDate);
   if (end < start) return fail(res, 422, 'endDate harus >= startDate');
 
-  const count = await prisma.leaveRequest.count();
-  const requestNumber = `CUTI-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+  // Nomor berurut per tahun dari nomor terbesar yang ada (tahan terhadap hapus data).
+  const year = new Date().getFullYear();
+  const last = await prisma.leaveRequest.findFirst({
+    where: { requestNumber: { startsWith: `CUTI-${year}-` } },
+    orderBy: { requestNumber: 'desc' },
+  });
+  const seq = last ? Number(last.requestNumber.slice(-4)) + 1 : 1;
+  const requestNumber = `CUTI-${year}-${String(seq).padStart(4, '0')}`;
 
   const r = await prisma.$transaction(async (tx) => {
     const created = await tx.leaveRequest.create({
@@ -289,7 +298,7 @@ router.get('/:id/documents/:docId/download', requirePermission('leave.view'), as
 
 // POST /leave-requests/:id/answer-letter (B1: surat jawaban BKPSDM)
 // Multipart file; docType otomatis SURAT_JAWABAN_BKPSDM. Status tetap.
-// Hanya saat APPROVED/SIGNED, diunggah pelaksana (bukan pemohon).
+// Hanya saat APPROVED/REGISTERED/SUBMITTED_BKPSDMD, diunggah pelaksana (bukan pemohon).
 // (Didefinisikan SEBELUM /:id/:action agar tidak tertangkap action generik.)
 router.post('/:id/answer-letter', requirePermission('leave.document.upload'), (req, res) => {
   upload.single('file')(req as any, res as any, async (err: any) => {
@@ -298,8 +307,8 @@ router.post('/:id/answer-letter', requirePermission('leave.document.upload'), (r
     if (!file) return fail(res, 422, 'file wajib (pdf/jpg/png, max 5MB)');
     const r = await prisma.leaveRequest.findUnique({ where: { id: req.params.id } });
     if (!r) return fail(res, 404, 'Tidak ditemukan');
-    if (!['APPROVED', 'SIGNED'].includes(r.status)) {
-      return fail(res, 409, `Surat jawaban hanya dicatat saat APPROVED/SIGNED (saat ini ${r.status})`);
+    if (!['APPROVED', 'REGISTERED', 'SUBMITTED_BKPSDMD'].includes(r.status)) {
+      return fail(res, 409, `Surat jawaban hanya dicatat saat APPROVED/REGISTERED/SUBMITTED_BKPSDMD (saat ini ${r.status})`);
     }
     if (req.user!.employeeId && r.employeeId === req.user!.employeeId && req.user!.role === 'EMPLOYEE') {
       return fail(res, 403, 'Surat jawaban diunggah pelaksana, bukan pemohon');
@@ -323,7 +332,7 @@ router.post('/:id/answer-letter', requirePermission('leave.document.upload'), (r
 });
 
 // POST /leave-requests/:id/:action
-// (submit/review/verify/revise/postpone/paraf/approve/sign/register/tobkpsdm/receiveresult/complete/archive/forward/reject)
+// (submit/review/verify/revise/postpone/paraf/approve/register/tobkpsdm/receiveresult/complete/archive/forward/reject)
 router.post('/:id/:action', async (req, res) => {
   const { action } = req.params;
   const t = TRANSITIONS[action];
@@ -463,8 +472,8 @@ router.post('/:id/:action', async (req, res) => {
       return fail(res, 422, `Jenis ${lt.name} wajib melampirkan SURAT_DOKTER`);
     }
   }
-  // SIGNED = jawaban BKPSDM sudah dicatat (B1, penghambat alur).
-  if (action === 'sign') {
+  // Hasil BKPSDM diterima + diserahkan ke pegawai hanya bila jawaban sudah dicatat.
+  if (action === 'receiveresult') {
     const ans = await prisma.leaveDocument.count({ where: { leaveRequestId: r.id, docType: 'SURAT_JAWABAN_BKPSDM' } });
     if (!ans) {
       return fail(res, 422, 'Belum ada surat jawaban BKPSDM — catat dulu via POST /leave-requests/:id/answer-letter');

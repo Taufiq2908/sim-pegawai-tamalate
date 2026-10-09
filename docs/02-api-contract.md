@@ -133,11 +133,10 @@ Setiap sukses → 200 dengan objek detail baru (status berubah) + timeline berta
 | POST /leave-requests/:id/revise | leave.verify/review | SUBMITTED (atasan langsung), REVIEWED (Kasubag) | REVISION |
 | POST /leave-requests/:id/postpone | mengikuti wewenang tahap berjalan | SUBMITTED,REVIEWED,VERIFIED,PARAF | POSTPONED (DITANGGUHKAN; ajukan ulang via submit) |
 | POST /leave-requests/:id/paraf | leave.paraf | VERIFIED | PARAF |
-| POST /leave-requests/:id/approve | leave.approve | PARAF (atau VERIFIED khusus pemohon SEKCAM) | APPROVED |
-| POST /leave-requests/:id/sign | leave.sign | APPROVED (wajib sudah ada SURAT_JAWABAN_BKPSDM) | SIGNED |
-| POST /leave-requests/:id/register | leave.register | SIGNED | REGISTERED (staf kecamatan saja) |
+| POST /leave-requests/:id/approve | leave.approve | PARAF (atau VERIFIED khusus pemohon SEKCAM) | APPROVED (= setujui + tandatangani) |
+| POST /leave-requests/:id/register | leave.register | APPROVED | REGISTERED (staf kecamatan saja) |
 | POST /leave-requests/:id/tobkpsdm | leave.register | REGISTERED | SUBMITTED_BKPSDMD (staf kecamatan saja) |
-| POST /leave-requests/:id/receiveresult | leave.register | SUBMITTED_BKPSDMD | COMPLETED (hasil BKPSDMD diterima + diserahkan) |
+| POST /leave-requests/:id/receiveresult | leave.register | SUBMITTED_BKPSDMD (wajib sudah ada SURAT_JAWABAN_BKPSDM) | COMPLETED (hasil BKPSDMD diterima + diserahkan) |
 | POST /leave-requests/:id/complete | leave.sign | FORWARDED (jalur Camat→Sekda) | COMPLETED |
 | POST /leave-requests/:id/archive | leave.register | COMPLETED | ARCHIVED (staf kecamatan saja) |
 | POST /leave-requests/:id/forward | leave.forward | VERIFIED (khusus pemohon CAMAT) | FORWARDED |
@@ -146,6 +145,10 @@ Setiap sukses → 200 dengan objek detail baru (status berubah) + timeline berta
 Pengecualian jabatan: pemohon SEKCAM lompat-paraf (`approve` langsung dari VERIFIED,
 `paraf` ditolak 422); pemohon CAMAT diteruskan ke Sekda via `forward` (bukan `approve`);
 penerusan BKPSDMD/arsip hanya staf kecamatan (403 bila operator kelurahan).
+`availableActions` sadar jabatan pemohon: `forward` disembunyikan kecuali pemohon
+CAMAT; `approve` pada VERIFIED disembunyikan kecuali pemohon SEKCAM; `paraf`
+disembunyikan untuk pemohon SEKCAM; `review` disembunyikan bila melewati REVIEWED;
+`verify` pada SUBMITTED disembunyikan bila masih menunggu REVIEWED.
 
 Contoh:
 ```http
@@ -163,8 +166,10 @@ Frontend wajib: disable tombol setelah klik, tampilkan `availableActions` ulang 
 
 ```text
 POST /leave-requests/:id/answer-letter (multipart file) → catat SURAT_JAWABAN_BKPSDM (B1)
-  perm leave.document.upload; hanya APPROVED/SIGNED; pengunggah = pelaksana (bukan pemohon);
-  status tidak berubah; sign mensyaratkan dokumen ini ada.
+  perm leave.document.upload; hanya APPROVED/REGISTERED/SUBMITTED_BKPSDMD;
+  pengunggah = pelaksana (bukan pemohon); status tidak berubah;
+  receiveresult mensyaratkan dokumen ini ada. Unduh surat pengantar = link
+  dokumen biasa, tanpa ubah status.
 DELETE /leave-requests/:id → hapus DRAFT milik sendiri (409 bila bukan DRAFT).
 GET /leave-requests?leaveType=&unit=&startFrom=&to=&q= → q mencari nama/NIP/nomor.
 GET /employees/:id/supervisor → { direct, chain[], note } (B3; chain = nama+NIP+jabatan).
