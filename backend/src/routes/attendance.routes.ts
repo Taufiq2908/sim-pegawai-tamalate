@@ -95,6 +95,7 @@ router.post('/', requirePermission('attendance.manage'), async (req, res) => {
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     status: z.enum(STATUS),
     checkInTime: z.string().regex(/^\d{1,2}:\d{2}$/).optional(),
+    checkOutTime: z.string().regex(/^\d{1,2}:\d{2}$/).optional(),
     note: z.string().max(500).optional(),
   });
   const parsed = schema.safeParse(req.body);
@@ -108,6 +109,7 @@ router.post('/', requirePermission('attendance.manage'), async (req, res) => {
   const needsTime = PRESENCE.includes(b.status);
   if (needsTime && !b.checkInTime) return fail(res, 422, 'checkInTime (HH:MM) wajib untuk HADIR/TERLAMBAT');
   if (!needsTime && b.checkInTime) return fail(res, 422, 'checkInTime hanya untuk HADIR/TERLAMBAT');
+  if (!needsTime && b.checkOutTime) return fail(res, 422, 'checkOutTime hanya untuk HADIR/TERLAMBAT');
 
   const date = parseYMD(b.date)!;
   if (await dayLocked(date)) return fail(res, 409, 'Tanggal tersebut sudah dikunci Kasubag');
@@ -121,6 +123,7 @@ router.post('/', requirePermission('attendance.manage'), async (req, res) => {
       employeeId: b.employeeId,
       date,
       checkInAt: needsTime ? checkInUTC(b.date, b.checkInTime!) : null,
+      checkOutAt: needsTime && b.checkOutTime ? checkInUTC(b.date, b.checkOutTime) : null,
       status: b.status,
       method: 'MANUAL',
       note: b.note,
@@ -139,6 +142,7 @@ router.patch('/:id', requirePermission('attendance.manage'), async (req, res) =>
   const schema = z.object({
     status: z.enum(STATUS).optional(),
     checkInTime: z.string().regex(/^\d{1,2}:\d{2}$/).optional().nullable(),
+    checkOutTime: z.string().regex(/^\d{1,2}:\d{2}$/).optional().nullable(),
     note: z.string().max(500).optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
@@ -154,12 +158,21 @@ router.patch('/:id', requirePermission('attendance.manage'), async (req, res) =>
   } else {
     checkInAt = null;
   }
+  let checkOutAt: Date | null | undefined;
+  if (needsTime) {
+    if (b.checkOutTime !== undefined) {
+      checkOutAt = b.checkOutTime ? checkInUTC(cur.date.toISOString().slice(0, 10), b.checkOutTime) : null;
+    }
+  } else {
+    checkOutAt = null;
+  }
 
   const updated = await prisma.attendance.update({
     where: { id: cur.id },
     data: {
       status: finalStatus,
       ...(checkInAt !== undefined ? { checkInAt } : {}),
+      ...(checkOutAt !== undefined ? { checkOutAt } : {}),
       ...(b.note !== undefined ? { note: b.note } : {}),
     },
     include: includeEmp,

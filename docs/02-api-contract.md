@@ -185,7 +185,8 @@ Jam (WITA, semua status kepegawaian): masuk ≤ `APEL_DEADLINE_TIME` (08:00) →
 pulang minimal `CHECKOUT_TIME_WEEKDAY` (16:00), Jumat `CHECKOUT_TIME_FRIDAY` (16:30).
 
 ### POST /attendances/check-in
-Perm: `attendance.checkin`. Body `{}`. → 201 `{ record, serverTime, deadline, late }`, 409 bila sudah presensi.
+Perm: `attendance.checkin` (semua role berpegawai: EMPLOYEE, VERIFIER, SUPERVISOR, LEADER).
+Body `{}`. → 201 `{ record, serverTime, deadline, late }`, 409 bila sudah presensi.
 
 ### POST /attendances/check-out
 Perm: `attendance.checkin`. Wajib sudah check-in; 409 bila sudah pulang.
@@ -198,7 +199,7 @@ Status: `HADIR|TERLAMBAT|IZIN|SAKIT|DL|ALPA` (`ALPA`=TK; `DL`=Dinas Luar,
 memaafkan kedua sesi seperti IZIN/SAKIT).
 ```json
 { "employeeId": "uuid", "date": "2026-10-06", "status": "SAKIT", "note": "demam" }
-// HADIR/TERLAMBAT wajib + "checkInTime": "07:05"
+// HADIR/TERLAMBAT wajib + "checkInTime": "07:05" (opsional + "checkOutTime": "16:05" untuk backdate pulang)
 ```
 
 ### PATCH /attendances/:id

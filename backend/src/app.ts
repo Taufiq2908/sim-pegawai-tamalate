@@ -1,4 +1,5 @@
 import express from 'express';
+import 'express-async-errors'; // rejection async → error middleware (anti-crash, lihat bawah)
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -42,7 +43,15 @@ export function createApp() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: any, _req: any, res: any, _next: any) => {
     console.error(err);
+    if (res.headersSent) return;
     return res.status(500).json({ success: false, message: 'Internal server error', data: null, meta: null, errors: null });
   });
   return app;
 }
+
+// Pengaman lapis terakhir: satu query DB gagal (mis. timeout Supabase di WiFi
+// kantor) TIDAK boleh membunuh proses. Error async sudah diteruskan ke
+// middleware 500 via express-async-errors; handler ini hanya me-log.
+process.on('unhandledRejection', (reason) => {
+  console.error('unhandledRejection (proses tetap hidup):', reason);
+});

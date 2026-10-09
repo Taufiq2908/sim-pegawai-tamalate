@@ -56,11 +56,11 @@ const PERMS = [
 
 const ROLE_MAP: Record<string, string[]> = {
   // VERIFIER basis = operator (Staf Kepegawaian/Arsip). Pemeriksa (Kasubag) via GRANT per user.
-  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'letter.archive', 'kgb.view', 'kgb.document.upload', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel'],
+  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'letter.archive', 'kgb.view', 'kgb.document.upload', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel'],
   // SUPERVISOR = atasan langsung (Kasi, Lurah, Seklur): melihat + pertimbangan.
   // Tanpa verify/approve/sign/dispose/complete/manage. Kasubag = SUPERVISOR + GRANT di bawah.
-  SUPERVISOR: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.review', 'leave.document.upload', 'attendance.view', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.review', 'kgb.document.upload'],
-  LEADER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'leave.paraf', 'leave.approve', 'leave.reject', 'leave.forward', 'attendance.view', 'attendance.summary', 'attendance.forward', 'letter.view', 'letter.dispose', 'letter.followup', 'letter.complete', 'letter.paraf', 'kgb.view', 'kgb.paraf', 'kgb.approve', 'kgb.reject', 'outgoing.view'],
+  SUPERVISOR: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.review', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.review', 'kgb.document.upload'],
+  LEADER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'leave.paraf', 'leave.approve', 'leave.reject', 'leave.forward', 'attendance.view', 'attendance.checkin', 'attendance.summary', 'attendance.forward', 'letter.view', 'letter.dispose', 'letter.followup', 'letter.complete', 'letter.paraf', 'kgb.view', 'kgb.paraf', 'kgb.approve', 'kgb.reject', 'outgoing.view'],
   EMPLOYEE: ['auth.me', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.create', 'kgb.submit', 'kgb.document.upload'],
 };
 
@@ -223,6 +223,8 @@ async function main() {
   }
 
   await mkUser('superadmin', 'Admin123!', 'SUPER_ADMIN', 'ADMIN', 'EMP-000', 'Super Admin', [], [], { nip: '198001012005011001', joinDate: '2005-01-10', rank: 'IV/a' });
+  // Super Admin = akun teknis, bukan peserta apel → kecualikan dari presensi/rekap.
+  await prisma.employee.update({ where: { employeeNumber: 'EMP-000' }, data: { isActive: false } });
   // Staf Kepegawaian = operator (murni administrasi, tanpa hak verifikasi).
   await mkUser('verifier1', 'Verifier123!', 'VERIFIER', 'STAF_KEPEGAWAIAN', 'EMP-001', 'Staf Kepegawaian', [], [], { nip: '199203032020121002', joinDate: '2020-12-01', rank: 'III/a' });
   // Kasubag Umum & Kepegawaian = SUPERVISOR + GRANT pemeriksa (verifikasi + teruskan).
@@ -230,7 +232,7 @@ async function main() {
   // Kasi = atasan langsung (SUPERVISOR murni, hanya pertimbangan).
   await mkUser('kasi1', 'Kasi123!', 'SUPERVISOR', 'KASI', 'EMP-007', 'Kasi Pemerintahan', [], [], { nip: '199001012015021008', joinDate: '2015-02-10', rank: 'III/c' });
   await mkUser('sekcam1', 'Sekcam123!', 'LEADER', 'SEKCAM', 'EMP-002', 'Sekcam Satu', ['leave.approve', 'leave.sign'], [], { nip: '198205102008011004', joinDate: '2008-01-20', rank: 'IV/a' });
-  await mkUser('camat1', 'Camat123!', 'LEADER', 'CAMAT', 'EMP-003', 'Camat Satu', ['leave.verify'], ['leave.approve', 'leave.sign'], { nip: '197809122003121005', joinDate: '2003-12-01', rank: 'IV/b' });
+  await mkUser('camat1', 'Camat123!', 'LEADER', 'CAMAT', 'EMP-003', 'Muh. Aril Syahbani K, S.IP', ['leave.verify'], ['leave.approve', 'leave.sign'], { nip: '198804152007011001', joinDate: '2007-01-15', rank: 'IV/b' });
   await mkUser('pegawai1', 'Pegawai123!', 'EMPLOYEE', 'STAF', 'EMP-004', 'Ahmad Pegawai', [], [], { nip: '199501012022031006', joinDate: '2022-03-01', rank: 'III/a' });
   // Pegawai kelurahan (pemohon luar kecamatan — registrasi BKPSDMD tetap oleh staf kecamatan).
   await mkUser('pegawai2', 'Pegawai123!', 'EMPLOYEE', 'STAF', 'EMP-006', 'Budi Kelurahan', [], [], { nip: '199806062024051007', joinDate: '2024-05-10', rank: 'II/c', orgCode: 'KMN' });

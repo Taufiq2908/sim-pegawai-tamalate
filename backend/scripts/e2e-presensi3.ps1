@@ -48,7 +48,9 @@ $g = Post-Json ($base + '/attendances/warning-letters/generate') (Get-H $kas.acc
 $ns1 = (Invoke-RestMethod -Uri ($base + '/notifications/unread-count') -Headers (Get-H $sek.accessToken)).data.unread
 'G2 notif-sekcam-naik: ' + ($ns1 - $ns0)
 $wid = ($g.data | Where-Object { $_.created -eq $true } | Select-Object -First 1).id
-if (-not $wid) { $wid = $g.data[0].id }
+if (-not $wid -and $g.data.Count) { $wid = $g.data[0].id }
+if (-not $wid) { $wl = Invoke-RestMethod -Uri ($base + '/attendances/warning-letters?limit=1') -Headers (Get-H $kas.accessToken); $wid = $wl.data[0].id }
+'G0 surat-uji: ' + $wid
 Post-Json ($base + '/attendances/warning-letters/' + $wid + '/summon') (Get-H $kas.accessToken) @{ scheduledAt = '2026-10-12T02:00:00Z'; note = 'Ruang kasubag' } | Out-Null
 'G3 summon: ok'
 
