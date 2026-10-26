@@ -17,98 +17,98 @@ enum RoleCode {
 
 model OrganizationalUnit {
   id           String               @id @default(uuid()) @db.Uuid
-  code         String               @unique @db.VarChar(20)
-  name         String               @db.VarChar(150)
-  type         String               @db.VarChar(30)
-  parentId     String?              @map("parent_id") @db.Uuid
+  code         String               @unique @map("kode") @db.VarChar(20)
+  name         String               @map("nama") @db.VarChar(150)
+  type         String               @map("tipe") @db.VarChar(30)
+  parentId     String?              @map("id_induk") @db.Uuid
   parent       OrganizationalUnit?  @relation("OrgChildren", fields: [parentId], references: [id])
   children     OrganizationalUnit[] @relation("OrgChildren")
-  leaderUserId String?              @map("leader_user_id") @db.Uuid
-  isActive     Boolean              @default(true) @map("is_active")
-  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime             @updatedAt @map("updated_at") @db.Timestamptz
+  leaderUserId String?              @map("id_pemimpin") @db.Uuid
+  isActive     Boolean              @default(true) @map("aktif")
+  createdAt    DateTime             @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt    DateTime             @updatedAt @map("diperbarui_pada") @db.Timestamptz
   employees    Employee[]
   users        User[]               @relation("UserOrg")
 
-  @@map("organizational_units")
+  @@map("unit_organisasi")
 }
 
 model Role {
   id          String           @id @default(uuid()) @db.Uuid
-  code        RoleCode         @unique
-  name        String           @db.VarChar(100)
-  description String?
-  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  code        RoleCode         @unique @map("kode")
+  name        String           @map("nama") @db.VarChar(100)
+  description String?          @map("deskripsi")
+  createdAt   DateTime         @default(now()) @map("dibuat_pada") @db.Timestamptz
   permissions RolePermission[]
 
-  @@map("roles")
+  @@map("peran")
 }
 
 model Permission {
   id          String                   @id @default(uuid()) @db.Uuid
-  code        String                   @unique @db.VarChar(60)
-  resource    String                   @db.VarChar(30)
-  action      String                   @db.VarChar(30)
-  description String?
+  code        String                   @unique @map("kode") @db.VarChar(60)
+  resource    String                   @map("sumber_daya") @db.VarChar(30)
+  action      String                   @map("aksi") @db.VarChar(30)
+  description String?                  @map("deskripsi")
   roles       RolePermission[]
   overrides   UserPermissionOverride[]
 
-  @@map("permissions")
+  @@map("izin")
 }
 
 model RolePermission {
-  roleId       String     @map("role_id") @db.Uuid
-  permissionId String     @map("permission_id") @db.Uuid
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  roleId       String     @map("id_peran") @db.Uuid
+  permissionId String     @map("id_izin") @db.Uuid
+  createdAt    DateTime   @default(now()) @map("dibuat_pada") @db.Timestamptz
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
-  @@map("role_permissions")
+  @@map("peran_izin")
 }
 
 model Employee {
   id               String             @id @default(uuid()) @db.Uuid
-  nip              String?            @unique @db.VarChar(30)
-  employeeNumber   String             @unique @map("employee_number") @db.VarChar(30)
-  name             String             @db.VarChar(150)
-  gender           String             @db.Char(1)
-  birthPlace       String?            @map("birth_place") @db.VarChar(100)
-  birthDate        DateTime?          @map("birth_date") @db.Date
-  employmentStatus String             @map("employment_status") @db.VarChar(20)
-  position         String             @db.VarChar(50)
-  rank             String?            @db.VarChar(20)
-  orgUnitId        String             @map("org_unit_id") @db.Uuid
+  nip              String?            @unique @map("nip") @db.VarChar(30)
+  employeeNumber   String             @unique @map("nomor_pegawai") @db.VarChar(30)
+  name             String             @map("nama") @db.VarChar(150)
+  gender           String             @map("jenis_kelamin") @db.Char(1)
+  birthPlace       String?            @map("tempat_lahir") @db.VarChar(100)
+  birthDate        DateTime?          @map("tanggal_lahir") @db.Date
+  employmentStatus String             @map("status_kepegawaian") @db.VarChar(20)
+  position         String             @map("jabatan") @db.VarChar(50)
+  rank             String?            @map("golongan") @db.VarChar(20)
+  orgUnitId        String             @map("id_unit") @db.Uuid
   orgUnit          OrganizationalUnit @relation(fields: [orgUnitId], references: [id])
-  phone            String?            @db.VarChar(20)
-  address          String?
-  joinDate         DateTime?          @map("join_date") @db.Date
-  isActive         Boolean            @default(true) @map("is_active")
-  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+  phone            String?            @map("telepon") @db.VarChar(20)
+  address          String?            @map("alamat")
+  joinDate         DateTime?          @map("tanggal_masuk") @db.Date
+  isActive         Boolean            @default(true) @map("aktif")
+  createdAt        DateTime           @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt        DateTime           @updatedAt @map("diperbarui_pada") @db.Timestamptz
   user             User?
   leaveRequests    LeaveRequest[]
   attendances      Attendance[]
   kgbRequests      KgbRequest[]
   warningLetters   WarningLetter[]
 
-  @@map("employees")
+  @@map("pegawai")
 }
 
 model User {
   id            String                   @id @default(uuid()) @db.Uuid
-  username      String                   @unique @db.VarChar(50)
-  passwordHash  String                   @map("password_hash") @db.VarChar(255)
-  employeeId    String?                  @unique @map("employee_id") @db.Uuid
+  username      String                   @unique @map("nama_pengguna") @db.VarChar(50)
+  passwordHash  String                   @map("hash_kata_sandi") @db.VarChar(255)
+  employeeId    String?                  @unique @map("id_pegawai") @db.Uuid
   employee      Employee?                @relation(fields: [employeeId], references: [id])
-  role          RoleCode
-  position      String?                  @db.VarChar(50)
-  orgUnitId     String?                  @map("org_unit_id") @db.Uuid
+  role          RoleCode                 @map("peran")
+  position      String?                  @map("jabatan") @db.VarChar(50)
+  orgUnitId     String?                  @map("id_unit") @db.Uuid
   orgUnit       OrganizationalUnit?      @relation("UserOrg", fields: [orgUnitId], references: [id])
-  isActive      Boolean                  @default(true) @map("is_active")
-  lastLoginAt   DateTime?                @map("last_login_at") @db.Timestamptz
-  createdAt     DateTime                 @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime                 @updatedAt @map("updated_at") @db.Timestamptz
+  isActive      Boolean                  @default(true) @map("aktif")
+  lastLoginAt   DateTime?                @map("login_terakhir_pada") @db.Timestamptz
+  createdAt     DateTime                 @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt     DateTime                 @updatedAt @map("diperbarui_pada") @db.Timestamptz
   overrides     UserPermissionOverride[]
   uploadedDocs  LeaveDocument[]
   actions       LeaveApproval[]          @relation("ActorActions")
@@ -130,423 +130,414 @@ model User {
   createdExpeditions ExpeditionReceipt[] @relation("CreatedExpeditions")
   notifications Notification[]
 
-  @@map("users")
+  @@map("pengguna")
 }
 
 model UserPermissionOverride {
   id           String     @id @default(uuid()) @db.Uuid
-  userId       String     @map("user_id") @db.Uuid
-  permissionId String     @map("permission_id") @db.Uuid
-  effect       String     @db.VarChar(10)
-  reason       String?    @db.VarChar(255)
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  userId       String     @map("id_pengguna") @db.Uuid
+  permissionId String     @map("id_izin") @db.Uuid
+  effect       String     @map("efek") @db.VarChar(10)
+  reason       String?    @map("alasan") @db.VarChar(255)
+  createdAt    DateTime   @default(now()) @map("dibuat_pada") @db.Timestamptz
   user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@unique([userId, permissionId])
-  @@map("user_permission_overrides")
+  @@map("pengguna_izin_override")
 }
 
 model LeaveType {
   id               String         @id @default(uuid()) @db.Uuid
-  code             String         @unique @db.VarChar(30)
-  name             String         @db.VarChar(100)
-  maxDays          Int?           @map("max_days")
-  requiresDocument Boolean        @default(false) @map("requires_document")
-  isActive         Boolean        @default(true) @map("is_active")
+  code             String         @unique @map("kode") @db.VarChar(30)
+  name             String         @map("nama") @db.VarChar(100)
+  maxDays          Int?           @map("maks_hari")
+  requiresDocument Boolean        @default(false) @map("wajib_dokumen")
+  isActive         Boolean        @default(true) @map("aktif")
   requests         LeaveRequest[]
 
-  @@map("leave_types")
+  @@map("jenis_cuti")
 }
 
 model LeaveRequest {
   id                 String          @id @default(uuid()) @db.Uuid
-  requestNumber      String          @unique @map("request_number") @db.VarChar(40)
-  employeeId         String          @map("employee_id") @db.Uuid
+  requestNumber      String          @unique @map("nomor_permohonan") @db.VarChar(40)
+  employeeId         String          @map("id_pegawai") @db.Uuid
   employee           Employee        @relation(fields: [employeeId], references: [id])
-  leaveTypeId        String          @map("leave_type_id") @db.Uuid
+  leaveTypeId        String          @map("id_jenis_cuti") @db.Uuid
   leaveType          LeaveType       @relation(fields: [leaveTypeId], references: [id])
-  startDate          DateTime        @map("start_date") @db.Date
-  endDate            DateTime        @map("end_date") @db.Date
-  totalDays          Int             @map("total_days")
-  reason             String
-  addressDuringLeave String?         @map("address_during_leave") @db.VarChar(255)
-  contactDuringLeave String?         @map("contact_during_leave") @db.VarChar(30)
-  status             String          @default("DRAFT") @db.VarChar(20)
-  submittedAt        DateTime?       @map("submitted_at") @db.Timestamptz
-  currentHolderRole  String?         @map("current_holder_role") @db.VarChar(20)
-  rejectionReason    String?         @map("rejection_reason")
-  revisionNote       String?         @map("revision_note")
-  postponeNote       String?         @map("postpone_note")
-  createdBy          String          @map("created_by") @db.Uuid
+  startDate          DateTime        @map("tanggal_mulai") @db.Date
+  endDate            DateTime        @map("tanggal_selesai") @db.Date
+  totalDays          Int             @map("total_hari")
+  reason             String          @map("alasan")
+  addressDuringLeave String?         @map("alamat_selama_cuti") @db.VarChar(255)
+  contactDuringLeave String?         @map("kontak_selama_cuti") @db.VarChar(30)
+  status             String          @default("DRAFT") @map("status") @db.VarChar(20)
+  submittedAt        DateTime?       @map("diajukan_pada") @db.Timestamptz
+  currentHolderRole  String?         @map("peran_pemegang_saat_ini") @db.VarChar(20)
+  rejectionReason    String?         @map("alasan_penolakan")
+  revisionNote       String?         @map("catatan_revisi")
+  postponeNote       String?         @map("catatan_penangguhan")
+  createdBy          String          @map("dibuat_oleh") @db.Uuid
   creator            User            @relation("CreatedLeaves", fields: [createdBy], references: [id])
-  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt          DateTime        @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt          DateTime        @updatedAt @map("diperbarui_pada") @db.Timestamptz
   documents          LeaveDocument[]
   approvals          LeaveApproval[]
 
   @@index([employeeId, status])
-  @@map("leave_requests")
+  @@map("permohonan_cuti")
 }
 
 model LeaveDocument {
   id             String       @id @default(uuid()) @db.Uuid
-  leaveRequestId String       @map("leave_request_id") @db.Uuid
+  leaveRequestId String       @map("id_permohonan_cuti") @db.Uuid
   leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
-  docType        String       @map("doc_type") @db.VarChar(50)
-  originalName   String       @map("original_name") @db.VarChar(255)
-  storedPath     String       @map("stored_path") @db.VarChar(500)
-  mimeType       String       @map("mime_type") @db.VarChar(100)
-  sizeBytes      Int          @map("size_bytes")
-  uploadedBy     String       @map("uploaded_by") @db.Uuid
+  docType        String       @map("tipe_dokumen") @db.VarChar(50)
+  originalName   String       @map("nama_asli") @db.VarChar(255)
+  storedPath     String       @map("jalur_simpan") @db.VarChar(500)
+  mimeType       String       @map("tipe_mime") @db.VarChar(100)
+  sizeBytes      Int          @map("ukuran_byte")
+  uploadedBy     String       @map("diunggah_oleh") @db.Uuid
   uploader       User         @relation(fields: [uploadedBy], references: [id])
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  createdAt      DateTime     @default(now()) @map("dibuat_pada") @db.Timestamptz
 
-  @@map("leave_documents")
+  @@map("dokumen_cuti")
 }
 
 model LeaveApproval {
   id             String       @id @default(uuid()) @db.Uuid
-  leaveRequestId String       @map("leave_request_id") @db.Uuid
+  leaveRequestId String       @map("id_permohonan_cuti") @db.Uuid
   leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
-  actorUserId    String       @map("actor_user_id") @db.Uuid
+  actorUserId    String       @map("id_aktor") @db.Uuid
   actor          User         @relation("ActorActions", fields: [actorUserId], references: [id])
-  actorRole      String       @map("actor_role") @db.VarChar(20)
-  actorPosition  String?      @map("actor_position") @db.VarChar(50)
-  actorName      String?      @map("actor_name") @db.VarChar(150)
-  actorNip       String?      @map("actor_nip") @db.VarChar(30)
-  fromStatus     String       @map("from_status") @db.VarChar(20)
-  toStatus       String       @map("to_status") @db.VarChar(20)
-  action         String       @db.VarChar(20)
-  note           String?
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  actorRole      String       @map("peran_aktor") @db.VarChar(20)
+  actorPosition  String?      @map("jabatan_aktor") @db.VarChar(50)
+  actorName      String?      @map("nama_aktor") @db.VarChar(150)
+  actorNip       String?      @map("nip_aktor") @db.VarChar(30)
+  fromStatus     String       @map("dari_status") @db.VarChar(20)
+  toStatus       String       @map("ke_status") @db.VarChar(20)
+  action         String       @map("aksi") @db.VarChar(20)
+  note           String?      @map("catatan")
+  createdAt      DateTime     @default(now()) @map("dibuat_pada") @db.Timestamptz
 
   @@index([leaveRequestId])
-  @@map("leave_approvals")
+  @@map("persetujuan_cuti")
 }
 
 model Attendance {
-  id         String   @id @default(uuid()) @db.Uuid
-  employeeId String   @map("employee_id") @db.Uuid
-  employee   Employee @relation(fields: [employeeId], references: [id])
-  date       DateTime @db.Date
-  checkInAt  DateTime? @map("check_in_at") @db.Timestamptz
-  checkOutAt DateTime? @map("check_out_at") @db.Timestamptz
-  status     String   @db.VarChar(20)
-  method     String   @db.VarChar(20)
-  note       String?
-  recordedBy String   @map("recorded_by") @db.Uuid
-  recorder   User     @relation("RecordedAttendances", fields: [recordedBy], references: [id])
-  // Jejak koreksi: setiap PATCH oleh operator/Kasubag mencatat siapa & kapan.
-  correctedBy String?  @map("corrected_by") @db.Uuid
-  corrector   User?    @relation("CorrectedAttendances", fields: [correctedBy], references: [id])
-  correctedAt DateTime? @map("corrected_at") @db.Timestamptz
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  id           String   @id @default(uuid()) @db.Uuid
+  employeeId   String   @map("id_pegawai") @db.Uuid
+  employee     Employee @relation(fields: [employeeId], references: [id])
+  date         DateTime @map("tanggal") @db.Date
+  checkInAt    DateTime? @map("masuk_pada") @db.Timestamptz
+  checkOutAt   DateTime? @map("pulang_pada") @db.Timestamptz
+  status       String   @map("status") @db.VarChar(20)
+  method       String   @map("metode") @db.VarChar(20)
+  note         String?  @map("catatan")
+  recordedBy   String   @map("dicatat_oleh") @db.Uuid
+  recorder     User     @relation("RecordedAttendances", fields: [recordedBy], references: [id])
+  correctedBy  String?  @map("dikoreksi_oleh") @db.Uuid
+  corrector    User?    @relation("CorrectedAttendances", fields: [correctedBy], references: [id])
+  correctedAt  DateTime? @map("dikoreksi_pada") @db.Timestamptz
+  createdAt    DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("diperbarui_pada") @db.Timestamptz
 
   @@unique([employeeId, date])
   @@index([date])
-  @@map("attendances")
+  @@map("presensi")
 }
 
 model WarningLetter {
-  id           String   @id @default(uuid()) @db.Uuid
-  letterNumber String   @unique @map("letter_number") @db.VarChar(40)
-  employeeId   String   @map("employee_id") @db.Uuid
-  employee     Employee @relation(fields: [employeeId], references: [id])
-  weekStart    DateTime @map("week_start") @db.Date
-  weekEnd      DateTime @map("week_end") @db.Date
-  absenceCount Int      @map("absence_count")
-  content      String
-  summonScheduledAt DateTime? @map("summon_scheduled_at") @db.Timestamptz
-  summonNote   String?  @map("summon_note")
-  coachingResult String? @map("coaching_result")
-  coachingFollowUp String @default("NONE") @map("coaching_follow_up") @db.VarChar(20)
-  coachedAt    DateTime? @map("coached_at") @db.Timestamptz
-  // Eskalasi Sekcam → Camat (forward) + instruksi tindak lanjut Camat.
-  forwardBy    String?   @map("forward_by") @db.Uuid
-  forwardAt    DateTime? @map("forward_at") @db.Timestamptz
-  forwardNote  String?   @map("forward_note")
-  instructedBy String?   @map("instructed_by") @db.Uuid
-  instructedAt DateTime? @map("instructed_at") @db.Timestamptz
-  instruction  String?   @map("instruction")
-  createdBy    String   @map("created_by") @db.Uuid
-  creator      User     @relation("CreatedWarnings", fields: [createdBy], references: [id])
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id               String   @id @default(uuid()) @db.Uuid
+  letterNumber     String   @unique @map("nomor_surat_teguran") @db.VarChar(40)
+  employeeId       String   @map("id_pegawai") @db.Uuid
+  employee         Employee @relation(fields: [employeeId], references: [id])
+  weekStart        DateTime @map("awal_minggu") @db.Date
+  weekEnd          DateTime @map("akhir_minggu") @db.Date
+  absenceCount     Int      @map("jumlah_tanpa_keterangan")
+  content          String   @map("isi")
+  summonScheduledAt DateTime? @map("dijadwalkan_panggilan_pada") @db.Timestamptz
+  summonNote       String?  @map("catatan_panggilan")
+  coachingResult    String? @map("hasil_pembinaan")
+  coachingFollowUp String   @default("NONE") @map("tindak_lanjut_pembinaan") @db.VarChar(20)
+  coachedAt        DateTime? @map("dibina_pada") @db.Timestamptz
+  forwardBy        String?   @map("diteruskan_oleh") @db.Uuid
+  forwardAt        DateTime? @map("diteruskan_pada") @db.Timestamptz
+  forwardNote      String?   @map("catatan_penerusan")
+  instructedBy     String?   @map("diinstruksikan_oleh") @db.Uuid
+  instructedAt     DateTime? @map("diinstruksikan_pada") @db.Timestamptz
+  instruction      String?   @map("instruksi")
+  createdBy        String   @map("dibuat_oleh") @db.Uuid
+  creator          User     @relation("CreatedWarnings", fields: [createdBy], references: [id])
+  createdAt        DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
 
   @@unique([employeeId, weekStart])
-  @@map("warning_letters")
+  @@map("surat_teguran")
 }
 
-// Kunci harian apel: setelah Kasubag "Simpan & Validasi", catatan tanggal
-// tersebut terkunci (tidak bisa check-in/out, input manual, atau koreksi)
-// dan pegawai tanpa catatan dimaterialisasi sebagai ALPA (=TK).
-model AttendanceLock {
-  date     DateTime @id @db.Date
-  lockedBy String   @map("locked_by") @db.Uuid
-  note     String?
-  lockedAt DateTime @default(now()) @map("locked_at") @db.Timestamptz
-
-  @@map("attendance_locks")
-}
 model AttendanceSessionPhoto {
   id           String   @id @default(uuid()) @db.Uuid
-  date         DateTime @db.Date
-  session      String   @db.VarChar(10) // PAGI|SORE
-  originalName String   @map("original_name") @db.VarChar(255)
-  storedPath   String   @map("stored_path") @db.VarChar(500)
-  mimeType     String   @map("mime_type") @db.VarChar(100)
-  sizeBytes    Int      @map("size_bytes")
-  uploadedBy   String   @map("uploaded_by") @db.Uuid
+  date         DateTime @map("tanggal") @db.Date
+  session      String   @map("sesi") @db.VarChar(10)
+  originalName String   @map("nama_asli") @db.VarChar(255)
+  storedPath   String   @map("jalur_simpan") @db.VarChar(500)
+  mimeType     String   @map("tipe_mime") @db.VarChar(100)
+  sizeBytes    Int      @map("ukuran_byte")
+  uploadedBy   String   @map("diunggah_oleh") @db.Uuid
   uploader     User     @relation(fields: [uploadedBy], references: [id])
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdAt    DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
 
   @@unique([date, session])
-  @@map("attendance_session_photos")
+  @@map("foto_apel")
+}
+
+model AttendanceLock {
+  date     DateTime @id @map("tanggal") @db.Date
+  lockedBy String   @map("dikunci_oleh") @db.Uuid
+  note     String?  @map("catatan")
+  lockedAt DateTime @default(now()) @map("dikunci_pada") @db.Timestamptz
+
+  @@map("kunci_presensi")
 }
 
 model KgbRequest {
   id               String   @id @default(uuid()) @db.Uuid
-  requestNumber    String   @unique @map("request_number") @db.VarChar(40)
-  employeeId       String   @map("employee_id") @db.Uuid
+  requestNumber    String   @unique @map("nomor_permohonan") @db.VarChar(40)
+  employeeId       String   @map("id_pegawai") @db.Uuid
   employee         Employee @relation(fields: [employeeId], references: [id])
-  oldRank          String   @map("old_rank") @db.VarChar(20)
-  newRank          String   @map("new_rank") @db.VarChar(20)
-  oldSalary        Int      @map("old_salary")
-  newSalary        Int      @map("new_salary")
-  effectiveDate    DateTime @map("effective_date") @db.Date
-  note             String?
-  status           String   @default("DRAFT") @db.VarChar(20)
-  submittedAt      DateTime? @map("submitted_at") @db.Timestamptz
-  currentHolderRole String?  @map("current_holder_role") @db.VarChar(20)
-  rejectionReason  String?  @map("rejection_reason")
-  revisionNote     String?  @map("revision_note")
-  createdBy        String   @map("created_by") @db.Uuid
+  oldRank          String   @map("golongan_lama") @db.VarChar(20)
+  newRank          String   @map("golongan_baru") @db.VarChar(20)
+  oldSalary        Int      @map("gaji_lama")
+  newSalary        Int      @map("gaji_baru")
+  effectiveDate    DateTime @map("tanggal_berlaku") @db.Date
+  note             String?  @map("catatan")
+  status           String   @default("DRAFT") @map("status") @db.VarChar(20)
+  submittedAt      DateTime? @map("diajukan_pada") @db.Timestamptz
+  currentHolderRole String?  @map("peran_pemegang_saat_ini") @db.VarChar(20)
+  rejectionReason  String?  @map("alasan_penolakan")
+  revisionNote     String?  @map("catatan_revisi")
+  createdBy        String   @map("dibuat_oleh") @db.Uuid
   creator          User     @relation("CreatedKgb", fields: [createdBy], references: [id])
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt        DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("diperbarui_pada") @db.Timestamptz
   documents        KgbDocument[]
   approvals        KgbApproval[]
 
   @@index([employeeId, status])
-  @@map("kgb_requests")
+  @@map("permohonan_kgb")
 }
 
 model KgbDocument {
   id           String     @id @default(uuid()) @db.Uuid
-  kgbRequestId String     @map("kgb_request_id") @db.Uuid
+  kgbRequestId String     @map("id_permohonan_kgb") @db.Uuid
   kgbRequest   KgbRequest @relation(fields: [kgbRequestId], references: [id], onDelete: Cascade)
-  docType      String     @map("doc_type") @db.VarChar(50)
-  originalName String     @map("original_name") @db.VarChar(255)
-  storedPath   String     @map("stored_path") @db.VarChar(500)
-  mimeType     String     @map("mime_type") @db.VarChar(100)
-  sizeBytes    Int        @map("size_bytes")
-  uploadedBy   String     @map("uploaded_by") @db.Uuid
+  docType      String     @map("tipe_dokumen") @db.VarChar(50)
+  originalName String     @map("nama_asli") @db.VarChar(255)
+  storedPath   String     @map("jalur_simpan") @db.VarChar(500)
+  mimeType     String     @map("tipe_mime") @db.VarChar(100)
+  sizeBytes    Int        @map("ukuran_byte")
+  uploadedBy   String     @map("diunggah_oleh") @db.Uuid
   uploader     User       @relation(fields: [uploadedBy], references: [id])
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  createdAt    DateTime   @default(now()) @map("dibuat_pada") @db.Timestamptz
 
-  @@map("kgb_documents")
+  @@map("dokumen_kgb")
 }
 
 model KgbApproval {
   id            String     @id @default(uuid()) @db.Uuid
-  kgbRequestId  String     @map("kgb_request_id") @db.Uuid
+  kgbRequestId  String     @map("id_permohonan_kgb") @db.Uuid
   kgbRequest    KgbRequest @relation(fields: [kgbRequestId], references: [id], onDelete: Cascade)
-  actorUserId   String     @map("actor_user_id") @db.Uuid
+  actorUserId   String     @map("id_aktor") @db.Uuid
   actor         User       @relation("KgbActorActions", fields: [actorUserId], references: [id])
-  actorRole     String     @map("actor_role") @db.VarChar(20)
-  actorPosition String?    @map("actor_position") @db.VarChar(50)
-  fromStatus    String     @map("from_status") @db.VarChar(20)
-  toStatus      String     @map("to_status") @db.VarChar(20)
-  action        String     @db.VarChar(20)
-  note          String?
-  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  actorRole     String     @map("peran_aktor") @db.VarChar(20)
+  actorPosition String?    @map("jabatan_aktor") @db.VarChar(50)
+  fromStatus    String     @map("dari_status") @db.VarChar(20)
+  toStatus      String     @map("ke_status") @db.VarChar(20)
+  action        String     @map("aksi") @db.VarChar(20)
+  note          String?    @map("catatan")
+  createdAt     DateTime   @default(now()) @map("dibuat_pada") @db.Timestamptz
 
   @@index([kgbRequestId])
-  @@map("kgb_approvals")
+  @@map("persetujuan_kgb")
 }
 
 model IncomingLetter {
   id             String   @id @default(uuid()) @db.Uuid
-  agendaNumber   String   @unique @map("agenda_number") @db.VarChar(40)
-  letterNumber   String   @map("letter_number") @db.VarChar(100)
-  sender         String   @db.VarChar(200)
-  subject        String
-  summary        String?  // ringkasan isi (lembar disposisi)
-  letterDate     DateTime @map("letter_date") @db.Date
-  receivedDate   DateTime @map("received_date") @db.Date
-  resolutionDate DateTime? @map("resolution_date") @db.Date // tanggal penyelesaian
-  distributedAt  DateTime? @map("distributed_at") @db.Timestamptz // distribusi pertama (disposisi)
-  priority       String   @default("BIASA") @db.VarChar(20)
-  secrecy        String   @default("B") @db.VarChar(5) // SR/R/B (sifat surat)
-  addressedTo    String?  @map("addressed_to") @db.VarChar(200) // instansi yang ditujukan
-  pic            String?  @db.VarChar(150) // penanggung jawab
-  remarks        String?  // ket (buku agenda)
-  classificationId String? @map("classification_id") @db.Uuid
+  agendaNumber   String   @unique @map("nomor_agenda") @db.VarChar(40)
+  letterNumber   String   @map("nomor_surat") @db.VarChar(100)
+  sender         String   @map("pengirim") @db.VarChar(200)
+  subject        String   @map("perihal")
+  summary        String?  @map("ringkasan")
+  letterDate     DateTime @map("tanggal_surat") @db.Date
+  receivedDate   DateTime @map("tanggal_diterima") @db.Date
+  resolutionDate DateTime? @map("tanggal_penyelesaian") @db.Date
+  distributedAt  DateTime? @map("didistribusikan_pada") @db.Timestamptz
+  priority       String   @default("BIASA") @map("prioritas") @db.VarChar(20)
+  secrecy        String   @default("B") @map("sifat") @db.VarChar(5)
+  addressedTo    String?  @map("ditujukan_kepada") @db.VarChar(200)
+  pic            String?  @map("penanggung_jawab") @db.VarChar(150)
+  remarks        String?  @map("keterangan")
+  classificationId String? @map("id_klasifikasi") @db.Uuid
   classification ArchiveClassification? @relation(fields: [classificationId], references: [id])
-  status         String   @default("RECEIVED") @db.VarChar(20)
-  completionNote String?  @map("completion_note")
-  completedAt    DateTime? @map("completed_at") @db.Timestamptz
-  archivedAt     DateTime? @map("archived_at") @db.Timestamptz
-  createdBy      String   @map("created_by") @db.Uuid
+  status         String   @default("RECEIVED") @map("status") @db.VarChar(20)
+  completionNote String?  @map("catatan_penyelesaian")
+  completedAt    DateTime? @map("selesai_pada") @db.Timestamptz
+  archivedAt     DateTime? @map("diarsipkan_pada") @db.Timestamptz
+  createdBy      String   @map("dibuat_oleh") @db.Uuid
   creator        User     @relation("CreatedLetters", fields: [createdBy], references: [id])
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt      DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("diperbarui_pada") @db.Timestamptz
   documents      LetterDocument[]
   dispositions   LetterDisposition[]
   expeditions    ExpeditionReceipt[]
 
   @@index([status])
-  @@map("incoming_letters")
+  @@map("surat_masuk")
 }
 
 model LetterDisposition {
   id           String   @id @default(uuid()) @db.Uuid
-  letterId     String   @map("letter_id") @db.Uuid
+  letterId     String   @map("id_surat") @db.Uuid
   letter       IncomingLetter @relation(fields: [letterId], references: [id], onDelete: Cascade)
-  fromUserId   String   @map("from_user_id") @db.Uuid
+  fromUserId   String   @map("id_pengirim") @db.Uuid
   fromUser     User     @relation("SentDispositions", fields: [fromUserId], references: [id])
-  toUserId     String   @map("to_user_id") @db.Uuid
+  toUserId     String   @map("id_penerima") @db.Uuid
   toUser       User     @relation("ReceivedDispositions", fields: [toUserId], references: [id])
-  instruction  String
-  deadline     DateTime? @db.Date
-  status       String   @default("PENDING") @db.VarChar(20)
-  responseNote String?  @map("response_note")
-  respondedAt  DateTime? @map("responded_at") @db.Timestamptz
-  targetCode   String?  @map("target_code") @db.VarChar(30) // 1 dari 9 tujuan disposisi
-  targetName   String?  @map("target_name") @db.VarChar(150) // snapshot nama tujuan
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  instruction  String   @map("instruksi")
+  deadline     DateTime? @map("batas_waktu") @db.Date
+  status       String   @default("PENDING") @map("status") @db.VarChar(20)
+  responseNote String?  @map("catatan_tanggapan")
+  respondedAt  DateTime? @map("ditanggapi_pada") @db.Timestamptz
+  targetCode   String?  @map("kode_tujuan") @db.VarChar(30)
+  targetName   String?  @map("nama_tujuan") @db.VarChar(150)
+  createdAt    DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
 
   @@index([letterId])
-  @@map("letter_dispositions")
+  @@map("disposisi_surat")
 }
 
 model LetterDocument {
   id           String   @id @default(uuid()) @db.Uuid
-  letterId     String   @map("letter_id") @db.Uuid
+  letterId     String   @map("id_surat") @db.Uuid
   letter       IncomingLetter @relation(fields: [letterId], references: [id], onDelete: Cascade)
-  originalName String   @map("original_name") @db.VarChar(255)
-  storedPath   String   @map("stored_path") @db.VarChar(500)
-  mimeType     String   @map("mime_type") @db.VarChar(100)
-  sizeBytes    Int      @map("size_bytes")
-  uploadedBy   String   @map("uploaded_by") @db.Uuid
+  originalName String   @map("nama_asli") @db.VarChar(255)
+  storedPath   String   @map("jalur_simpan") @db.VarChar(500)
+  mimeType     String   @map("tipe_mime") @db.VarChar(100)
+  sizeBytes    Int      @map("ukuran_byte")
+  uploadedBy   String   @map("diunggah_oleh") @db.Uuid
   uploader     User     @relation(fields: [uploadedBy], references: [id])
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdAt    DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
 
-  @@map("letter_documents")
+  @@map("dokumen_surat_masuk")
 }
 
-// Kode klasifikasi arsip (Permendagri 83/2022 + SE Sekda Makassar).
 model ArchiveClassification {
   id        String   @id @default(uuid()) @db.Uuid
-  code      String   @unique @db.VarChar(30)
-  name      String   @db.VarChar(255)
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  code      String   @unique @map("kode") @db.VarChar(30)
+  name      String   @map("nama") @db.VarChar(255)
+  isActive  Boolean  @default(true) @map("aktif")
+  createdAt DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
   incoming  IncomingLetter[]
   outgoing  OutgoingLetter[]
 
-  @@map("archive_classifications")
+  @@map("klasifikasi_arsip")
 }
 
-// 9 tujuan disposisi tetap Kecamatan Tamalate.
 model DispositionTarget {
   id        String   @id @default(uuid()) @db.Uuid
-  code      String   @unique @db.VarChar(30)
-  name      String   @db.VarChar(150)
-  sortOrder Int      @default(0) @map("sort_order")
-  isActive  Boolean  @default(true) @map("is_active")
+  code      String   @unique @map("kode") @db.VarChar(30)
+  name      String   @map("nama") @db.VarChar(150)
+  sortOrder Int      @default(0) @map("urutan")
+  isActive  Boolean  @default(true) @map("aktif")
 
-  @@map("disposition_targets")
+  @@map("tujuan_disposisi")
 }
 
 model OutgoingLetter {
   id               String   @id @default(uuid()) @db.Uuid
-  letterNumber     String   @unique @map("letter_number") @db.VarChar(150) // format lengkap SE
-  sequenceNumber   Int      @map("sequence_number")
-  year             Int
-  classificationId String   @map("classification_id") @db.Uuid
+  letterNumber     String   @unique @map("nomor_surat") @db.VarChar(150)
+  sequenceNumber   Int      @map("nomor_urut")
+  year             Int      @map("tahun")
+  classificationId String   @map("id_klasifikasi") @db.Uuid
   classification   ArchiveClassification @relation(fields: [classificationId], references: [id])
-  subject          String
-  recipient        String?  @db.VarChar(200) // tujuan (wajib saat ISSUED)
-  letterDate       DateTime @map("letter_date") @db.Date // tanggal surat (boleh < tanggal catat)
-  priority         String   @default("BIASA") @db.VarChar(20)
-  secrecy          String   @default("B") @db.VarChar(5)
-  signerName       String?  @map("signer_name") @db.VarChar(150) // pejabat penandatangan
-  status           String   @default("ISSUED") @db.VarChar(20) // RESERVED|ISSUED|CANCELLED
-  reservationReason String? @map("reservation_reason")
-  cancelReason     String?  @map("cancel_reason")
-  reservedBy       String?  @map("reserved_by") @db.Uuid
+  subject          String   @map("perihal")
+  recipient        String?  @map("penerima") @db.VarChar(200)
+  letterDate       DateTime @map("tanggal_surat") @db.Date
+  priority         String   @default("BIASA") @map("prioritas") @db.VarChar(20)
+  secrecy          String   @default("B") @map("sifat") @db.VarChar(5)
+  signerName       String?  @map("nama_penandatangan") @db.VarChar(150)
+  status           String   @default("ISSUED") @map("status") @db.VarChar(20)
+  reservationReason String? @map("alasan_reservasi")
+  cancelReason     String?  @map("alasan_pembatalan")
+  reservedBy       String?  @map("dipesan_oleh") @db.Uuid
   reserver         User?    @relation("ReservedOutgoing", fields: [reservedBy], references: [id])
-  reservedAt       DateTime? @map("reserved_at") @db.Timestamptz
-  issuedAt         DateTime? @map("issued_at") @db.Timestamptz
-  cancelledAt      DateTime? @map("cancelled_at") @db.Timestamptz
-  createdBy        String   @map("created_by") @db.Uuid
+  reservedAt       DateTime? @map("dipesan_pada") @db.Timestamptz
+  issuedAt         DateTime? @map("diterbitkan_pada") @db.Timestamptz
+  cancelledAt      DateTime? @map("dibatalkan_pada") @db.Timestamptz
+  createdBy        String   @map("dibuat_oleh") @db.Uuid
   creator          User     @relation("CreatedOutgoing", fields: [createdBy], references: [id])
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz // tanggal pencatatan
-  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt        DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("diperbarui_pada") @db.Timestamptz
   documents        OutgoingDocument[]
 
   @@unique([year, sequenceNumber])
   @@index([status])
-  @@map("outgoing_letters")
+  @@map("surat_keluar")
 }
 
 model OutgoingDocument {
   id           String         @id @default(uuid()) @db.Uuid
-  letterId     String         @map("letter_id") @db.Uuid
+  letterId     String         @map("id_surat") @db.Uuid
   letter       OutgoingLetter @relation(fields: [letterId], references: [id], onDelete: Cascade)
-  originalName String         @map("original_name") @db.VarChar(255)
-  storedPath   String         @map("stored_path") @db.VarChar(500)
-  mimeType     String         @map("mime_type") @db.VarChar(100)
-  sizeBytes    Int            @map("size_bytes")
-  uploadedBy   String         @map("uploaded_by") @db.Uuid
+  originalName String         @map("nama_asli") @db.VarChar(255)
+  storedPath   String         @map("jalur_simpan") @db.VarChar(500)
+  mimeType     String         @map("tipe_mime") @db.VarChar(100)
+  sizeBytes    Int            @map("ukuran_byte")
+  uploadedBy   String         @map("diunggah_oleh") @db.Uuid
   uploader     User           @relation(fields: [uploadedBy], references: [id])
-  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  createdAt    DateTime       @default(now()) @map("dibuat_pada") @db.Timestamptz
 
-  @@map("outgoing_documents")
+  @@map("dokumen_surat_keluar")
 }
 
-// Sequence nomor surat keluar per tahun (sumber nomor urut).
 model NumberingSequence {
-  year       Int      @id
-  lastNumber Int      @default(0) @map("last_number")
-  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  year       Int      @id @map("tahun")
+  lastNumber Int      @default(0) @map("nomor_terakhir")
+  updatedAt  DateTime @updatedAt @map("diperbarui_pada") @db.Timestamptz
 
-  @@map("numbering_sequences")
+  @@map("urutan_penomoran")
 }
 
-// Buku ekspedisi: tanda terima penyerahan surat masuk.
 model ExpeditionReceipt {
   id             String   @id @default(uuid()) @db.Uuid
-  regNumber      String   @unique @map("reg_number") @db.VarChar(40)
-  letterId       String   @map("letter_id") @db.Uuid
+  regNumber      String   @unique @map("nomor_registrasi") @db.VarChar(40)
+  letterId       String   @map("id_surat") @db.Uuid
   letter         IncomingLetter @relation(fields: [letterId], references: [id], onDelete: Cascade)
-  receiptDate    DateTime @map("receipt_date") @db.Date // tanggal hari ini
-  receiverName   String   @map("receiver_name") @db.VarChar(150) // penerima surat
-  signatureName  String?  @map("signature_name") @db.VarChar(150) // paraf
-  note           String?
-  createdBy      String   @map("created_by") @db.Uuid
+  receiptDate    DateTime @map("tanggal_tanda_terima") @db.Date
+  receiverName   String   @map("nama_penerima") @db.VarChar(150)
+  signatureName  String?  @map("nama_tanda_tangan") @db.VarChar(150)
+  note           String?  @map("catatan")
+  createdBy      String   @map("dibuat_oleh") @db.Uuid
   creator        User     @relation("CreatedExpeditions", fields: [createdBy], references: [id])
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdAt      DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
 
-  @@map("expedition_receipts")
+  @@map("tanda_terima_ekspedisi")
 }
 
-// Notifikasi dalam aplikasi (mis. disposisi baru untuk penerima).
 model Notification {
   id            String   @id @default(uuid()) @db.Uuid
-  userId        String   @map("user_id") @db.Uuid
+  userId        String   @map("id_pengguna") @db.Uuid
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type          String   @db.VarChar(30) // DISPOSITION
-  title         String   @db.VarChar(255)
-  body          String?
-  referenceType String?  @map("reference_type") @db.VarChar(50)
-  referenceId   String?  @map("reference_id") @db.Uuid
-  isRead        Boolean  @default(false) @map("is_read")
-  readAt        DateTime? @map("read_at") @db.Timestamptz
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  type          String   @map("tipe") @db.VarChar(30)
+  title         String   @map("judul") @db.VarChar(255)
+  body          String?  @map("isi")
+  referenceType String?  @map("tipe_referensi") @db.VarChar(50)
+  referenceId   String?  @map("id_referensi") @db.Uuid
+  isRead        Boolean  @default(false) @map("sudah_dibaca")
+  readAt        DateTime? @map("dibaca_pada") @db.Timestamptz
+  createdAt     DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
 
   @@index([userId, isRead])
-  @@map("notifications")
+  @@map("notifikasi")
 }
