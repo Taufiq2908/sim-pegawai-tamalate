@@ -39,6 +39,7 @@ const PERMS = [
   ['kgb.approve', 'kgb', 'approve'],
   ['kgb.reject', 'kgb', 'reject'],
   ['kgb.review', 'kgb', 'review'],
+  ['kgb.register', 'kgb', 'register'],
   ['kgb.document.upload', 'kgb', 'document.upload'],
   ['leave.forward', 'leave', 'forward'],
   ['leave.review', 'leave', 'review'],
@@ -56,7 +57,7 @@ const PERMS = [
 
 const ROLE_MAP: Record<string, string[]> = {
   // VERIFIER basis = operator (Staf Kepegawaian/Arsip). Pemeriksa (Kasubag) via GRANT per user.
-  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'letter.archive', 'kgb.view', 'kgb.document.upload', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel'],
+  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'letter.archive', 'kgb.view', 'kgb.document.upload', 'kgb.register', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel'],
   // SUPERVISOR = atasan langsung (Kasi, Lurah, Seklur): melihat + pertimbangan.
   // Tanpa verify/approve/sign/dispose/complete/manage. Kasubag = SUPERVISOR + GRANT di bawah.
   SUPERVISOR: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.review', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.review', 'kgb.document.upload'],
@@ -66,7 +67,7 @@ const ROLE_MAP: Record<string, string[]> = {
 
 // Hak pemeriksa Kasubag (di-GRANT ke user position KASUBAG): verifikasi cuti/KGB
 // + rekap + input/koreksi presensi + foto apel (attendance.manage).
-const KASUBAG_GRANTS = ['leave.verify', 'leave.revise', 'leave.reject', 'leave.forward', 'attendance.summary', 'attendance.manage', 'kgb.verify', 'kgb.revise', 'kgb.reject'];
+const KASUBAG_GRANTS = ['leave.verify', 'leave.revise', 'leave.reject', 'leave.forward', 'attendance.summary', 'attendance.manage', 'kgb.verify', 'kgb.revise', 'kgb.reject', 'kgb.register'];
 
 async function main() {
   for (const [code, resource, action] of PERMS) {

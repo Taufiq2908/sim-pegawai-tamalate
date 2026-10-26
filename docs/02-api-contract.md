@@ -312,11 +312,17 @@ POST /kgb-requests {oldRank, newRank, oldSalary, newSalary, effectiveDate, note?
 PATCH /kgb-requests/:id                        (DRAFT/REVISION, pemilik)
 POST /kgb-requests/:id/documents (multipart)   docType: SK_TERAKHIR|SKP|KP4|LAINNYA
 GET  /kgb-requests/:id/documents/:docId/download
-POST /kgb-requests/:id/submit|verify|revise|paraf|approve|reject|complete {note?}
-GET  /kgb-requests?status=&q=   → detail berisi availableActions + timeline
+POST /kgb-requests/:id/submit|verify|revise|paraf|approve|reject {note?}
+POST /kgb-requests/:id/register {note}          APPROVED → REGISTERED (catat no. surat keluar; staf kecamatan)
+POST /kgb-requests/:id/tobkpsdm {note?}         REGISTERED → SUBMITTED_BKPSDMD (kirim ke BKD)
+POST /kgb-requests/:id/complete {note?}         SUBMITTED_BKPSDMD → COMPLETED (hasil diterima)
+POST /kgb-requests/:id/archive                  COMPLETED → ARCHIVED (staf kecamatan)
+GET  /kgb-requests?status=&q=   → detail berisi availableActions + timeline + camat
+GET  /kgb-requests/monitoring   → daftar pegawai + KGB terakhir (step 1 SOP)
+DELETE /kgb-requests/:id        → hapus DRAFT milik sendiri
 ```
 
-Aturan khusus: `newSalary > oldSalary` (422 bila tidak), tanpa tahap SIGNED.
+Aturan khusus: `newSalary > oldSalary` (422 bila tidak). Ekor (register→archive) hanya staf kecamatan. `register` mensyaratkan `note` (nomor surat keluar). `complete` mensyaratkan sudah dikirim (SUBMITTED_BKPSDMD). Step 7-9 SOP terintegrasi dengan buku agenda surat keluar + buku ekspedisi (operator mencatat manual via endpoint surat yang ada). Detail menyertakan field `camat` ({name, nip, position}).
 
 ## 7. Master & User (untuk dropdown & admin)
 
