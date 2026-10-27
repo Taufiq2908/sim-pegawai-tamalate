@@ -150,6 +150,14 @@ export default function CutiDetailPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-bold">{detail.requestNumber}</h1>
                 <StatusBadge status={detail.status} />
+                <a
+                  href={`/cuti/${detail.id}/pengajuan`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-auto rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-paper"
+                >
+                  Surat pengajuan (cetak)
+                </a>
               </div>
               <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                 <div><dt className="text-muted">Pegawai</dt><dd className="font-medium">{detail.employee?.name}</dd></div>

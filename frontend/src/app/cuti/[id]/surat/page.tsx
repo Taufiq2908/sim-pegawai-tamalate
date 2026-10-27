@@ -148,8 +148,9 @@ export default function SuratPengantarCutiPage() {
   const atasanJabatan = JABATAN_ID[actorPosition(atasanEntry?.actor)] ?? "";
   const atasanTime = atasanEntry ? new Date(atasanEntry.createdAt).toLocaleString("id-ID") : "";
   const camatUsername = (approveEntry?.actor ?? "").split(" ")[0] || null;
-  const camatName = approveEntry?.actorName || "MUH. ARIL SYAHBANI K, S.IP";
-  const camatNip = approveEntry?.actorNip || "198804152007011001";
+  // Prioritas: snapshot penandatangan di timeline → Camat aktif dari backend → cadangan lama.
+  const camatName = approveEntry?.actorName || detail.camat?.name || "MUH. ARIL SYAHBANI K, S.IP";
+  const camatNip = approveEntry?.actorNip || detail.camat?.nip || "198804152007011001";
   const camatTime = approveEntry ? new Date(approveEntry.createdAt).toLocaleString("id-ID") : "";
 
   const check = (on: boolean) => (on ? "✓" : "");
@@ -184,6 +185,12 @@ export default function SuratPengantarCutiPage() {
         <button onClick={() => window.history.back()} className="text-sm font-semibold text-slate-600 hover:text-slate-900">
           ← Kembali
         </button>
+        <a
+          href={`/cuti/${detail.id}/pengajuan`}
+          className="rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium text-slate-700 hover:bg-paper"
+        >
+          Surat pengajuan
+        </a>
         <button onClick={() => window.print()} className="ml-auto rounded-lg bg-brand-900 px-4 py-2 text-sm font-semibold text-white">
           Cetak surat pengantar
         </button>

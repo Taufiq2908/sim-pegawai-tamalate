@@ -32,6 +32,21 @@ export default function SuratKeluarBaruPage() {
       .catch(() => {});
   }, []);
 
+  // Prefill dari modul lain (mis. Surat pengantar KGB) lewat query string.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const subject = p.get("subject");
+    const recipient = p.get("recipient");
+    const signerName = p.get("signerName");
+    if (!subject && !recipient && !signerName) return;
+    setForm((f) => ({
+      ...f,
+      ...(subject ? { subject } : {}),
+      ...(recipient ? { recipient } : {}),
+      ...(signerName ? { signerName } : {}),
+    }));
+  }, []);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");

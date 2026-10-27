@@ -12,10 +12,14 @@ const FILTERS: Array<{ value: "" | KgbStatus; label: string }> = [
   { value: "", label: "Semua" },
   { value: "DRAFT", label: "Draft" },
   { value: "SUBMITTED", label: "Diajukan" },
+  { value: "REVISION", label: "Perlu perbaikan" },
   { value: "VERIFIED", label: "Terverifikasi" },
   { value: "PARAF", label: "Paraf" },
   { value: "APPROVED", label: "Disetujui" },
+  { value: "REGISTERED", label: "Diregistrasi" },
+  { value: "SUBMITTED_BKPSDMD", label: "Ke BKPSDM" },
   { value: "COMPLETED", label: "Selesai" },
+  { value: "ARCHIVED", label: "Diarsipkan" },
   { value: "REJECTED", label: "Ditolak" },
 ];
 
@@ -59,8 +63,14 @@ export default function KgbListPage() {
     <AppShell>
       <div className="flex flex-wrap items-center gap-2">
         <Link
+          href="/kgb/monitoring"
+          className="ml-auto rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
+        >
+          Monitoring KGB
+        </Link>
+        <Link
           href="/kgb/baru"
-          className="ml-auto rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
+          className="rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
         >
           + Ajukan KGB
         </Link>

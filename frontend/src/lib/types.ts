@@ -131,6 +131,7 @@ export interface LeaveDetail extends Omit<LeaveItem, "employee" | "leaveType"> {
   rejectionReason: string | null;
   postponeNote?: string | null;
   supervisor?: SupervisorInfo | null;
+  camat?: { name: string; nip: string | null; position: string | null } | null;
   documents: LeaveDocument[];
   timeline: LeaveTimelineEntry[];
   availableActions: string[];
@@ -275,7 +276,8 @@ export interface OutgoingLetter {
 
 export type KgbStatus =
   | "DRAFT" | "SUBMITTED" | "REVISION" | "VERIFIED"
-  | "PARAF" | "APPROVED" | "COMPLETED" | "REJECTED";
+  | "PARAF" | "APPROVED" | "REGISTERED" | "SUBMITTED_BKPSDMD"
+  | "COMPLETED" | "ARCHIVED" | "REJECTED";
 
 export interface KgbItem {
   id: string;
@@ -293,9 +295,29 @@ export interface KgbDetail extends KgbItem {
   note: string | null;
   revisionNote: string | null;
   rejectionReason: string | null;
+  camat?: { name: string; nip: string | null; position: string | null } | null;
   documents: LeaveDocument[];
   timeline: LeaveTimelineEntry[];
   availableActions: string[];
+}
+
+export interface KgbMonitoringItem {
+  employee: {
+    id: string;
+    nip: string | null;
+    name: string;
+    position: string;
+    rank: string | null;
+    orgUnit: string;
+  };
+  lastKgb: {
+    id: string;
+    requestNumber: string;
+    oldRank: string;
+    newRank: string;
+    effectiveDate: string;
+    status: KgbStatus;
+  } | null;
 }
 
 export interface NotificationItem {

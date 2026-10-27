@@ -41,6 +41,8 @@ function initials(name?: string | null) {
 
 const TITLES: Array<[RegExp, string]> = [
   [/^\/cuti\/baru$/, "Pengajuan Cuti Baru"],
+  [/^\/cuti\/[^/]+\/pengajuan$/, "Surat Pengajuan Cuti"],
+  [/^\/cuti\/[^/]+\/surat$/, "Surat Pengantar Cuti"],
   [/^\/cuti\/.+$/, "Detail Pengajuan Cuti"],
   [/^\/cuti$/, "Pengajuan Cuti"],
   [/^\/presensi\/teguran/, "Surat Teguran"],
@@ -53,6 +55,8 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/surat-keluar\/baru$/, "Surat Keluar Baru"],
   [/^\/surat-keluar/, "Surat Keluar & Penomoran"],
   [/^\/kgb\/baru$/, "Pengajuan KGB Baru"],
+  [/^\/kgb\/monitoring$/, "Monitoring KGB"],
+  [/^\/kgb\/[^/]+\/surat$/, "Surat Pengantar KGB"],
   [/^\/kgb\/.+$/, "Detail Pengajuan KGB"],
   [/^\/kgb$/, "Kenaikan Gaji Berkala"],
   [/^\/notifikasi$/, "Notifikasi"],
