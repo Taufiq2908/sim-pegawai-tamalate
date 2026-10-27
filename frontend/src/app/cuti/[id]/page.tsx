@@ -63,7 +63,7 @@ export default function CutiDetailPage() {
     // Pertimbangan atasan & keputusan Camat lewat halaman surat:
     // tanda tangan dulu, baru status diperbarui.
     if ((action === "review" || action === "approve") && detail) {
-      router.push(`/cuti/${detail.id}/surat?act=${action}`);
+      router.push(`/cuti/${detail.id}/pengajuan?act=${action}`);
       return;
     }
     if (NOTE_REQUIRED.includes(action) && !note.trim()) {
@@ -128,6 +128,18 @@ export default function CutiDetailPage() {
     ["APPROVED", "REGISTERED", "SUBMITTED_BKPSDMD"].includes(detail.status) &&
     hasPermission("leave.document.upload") &&
     !(user?.role === "EMPLOYEE" && isOwner);
+  // Surat pengantar mulai relevan setelah verifikasi Kasubag; tetap pratinjau
+  // sampai Camat menyetujui. Formulir pengajuan selalu bisa dicetak.
+  const showPengantar =
+    !!detail &&
+    ["VERIFIED", "PARAF", "APPROVED", "SIGNED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(
+      detail.status,
+    );
+  const pengantarFinal =
+    !!detail &&
+    ["APPROVED", "SIGNED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(
+      detail.status,
+    );
 
   return (
     <AppShell>
@@ -150,14 +162,30 @@ export default function CutiDetailPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-bold">{detail.requestNumber}</h1>
                 <StatusBadge status={detail.status} />
-                <a
-                  href={`/cuti/${detail.id}/pengajuan`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ml-auto rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-paper"
-                >
-                  Surat pengajuan (cetak)
-                </a>
+                <div className="ml-auto flex flex-wrap gap-2">
+                  {showPengantar ? (
+                    <a
+                      href={`/cuti/${detail.id}/surat`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
+                        pengantarFinal
+                          ? "bg-brand-900 text-white hover:bg-brand-800"
+                          : "border border-line bg-surface hover:bg-paper"
+                      }`}
+                    >
+                      {pengantarFinal ? "Surat pengantar (cetak)" : "Surat pengantar (pratinjau)"}
+                    </a>
+                  ) : null}
+                  <a
+                    href={`/cuti/${detail.id}/pengajuan`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-paper"
+                  >
+                    Surat pengajuan (cetak)
+                  </a>
+                </div>
               </div>
               <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                 <div><dt className="text-muted">Pegawai</dt><dd className="font-medium">{detail.employee?.name}</dd></div>
@@ -244,12 +272,13 @@ export default function CutiDetailPage() {
               )}
             </div>
 
-            {["APPROVED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(detail.status) && hasPermission("leave.register") ? (
+            {showPengantar && hasPermission("leave.register") ? (
               <div className="rounded-lg border border-line bg-surface p-5">
                 <h2 className="font-semibold">Surat pengantar ke BKPSDM</h2>
                 <p className="mt-1 text-sm text-muted">
-                  Unduh/cetak surat pengantar sesuai formulir resmi, teruskan ke BKPSDM di luar sistem.
-                  Setelah surat jawaban diterima, catat di bawah lalu lanjutkan alur.
+                  {pengantarFinal
+                    ? "Cetak surat pengantar resmi, lalu teruskan ke BKPSDM di luar sistem. Setelah surat jawaban diterima, catat di bawah dan lanjutkan alur."
+                    : "Pratinjau surat pengantar tersedia. Surat menjadi final setelah disetujui dan ditandatangani Camat."}
                 </p>
                 <a
                   href={`/cuti/${detail.id}/surat`}
@@ -257,7 +286,7 @@ export default function CutiDetailPage() {
                   rel="noreferrer"
                   className="mt-2 inline-block rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:bg-paper"
                 >
-                  Buka surat pengantar (cetak)
+                  {pengantarFinal ? "Buka surat pengantar (cetak)" : "Buka pratinjau surat pengantar"}
                 </a>
                 {canAnswer ? (
                   <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">

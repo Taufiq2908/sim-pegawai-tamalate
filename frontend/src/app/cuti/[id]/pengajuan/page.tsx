@@ -4,6 +4,8 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { loadSignature } from "@/lib/signature";
+import { SignaturePad } from "@/components/signature";
+import { toast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
 import type { LeaveDetail } from "@/lib/types";
 import { ErrorBox, Skeleton } from "@/components/ui";
@@ -15,20 +17,29 @@ function fmtID(iso?: string | null): string {
   return d.toLocaleDateString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-");
 }
 
-function fmtLong(iso?: string | null): string {
-  if (!iso) return "................";
-  const d = new Date(iso);
-  if (isNaN(+d)) return iso;
-  return d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+const JENIS: Array<{ code: string; label: string }> = [
+  { code: "TAHUNAN", label: "1. Cuti Tahunan" },
+  { code: "BESAR", label: "2. Cuti Besar" },
+  { code: "SAKIT", label: "3. Cuti sakit" },
+  { code: "MELAHIRKAN", label: "4. Cuti Melahirkan" },
+  { code: "ALASAN_PENTING", label: "5. Cuti Karena Alasan Penting" },
+  { code: "DILUAR_TANGGUNGAN", label: "6. Cuti Di Luar Tanggungan Negara" },
+];
+
+function actorPosition(actor?: string | null): string {
+  const m = /\((?:[^/]*\/)?([^)]+)\)/.exec(actor ?? "");
+  return (m?.[1] ?? "").trim();
 }
 
-interface LeaveHistoryRow {
-  id?: string;
-  year: string;
-  leaveType?: { name: string } | null;
-  days: number;
-  status: string;
-}
+const JABATAN_ID: Record<string, string> = {
+  SEKCAM: "Sekretaris Camat",
+  CAMAT: "Camat",
+  LURAH: "Lurah",
+  KASI: "Kepala Seksi",
+  KASUBAG: "Kasubag Umum & Kepegawaian",
+  VERIFIKATOR: "Verifikator",
+  STAF: "Staf",
+};
 
 interface Balance {
   year: number;
@@ -37,15 +48,35 @@ interface Balance {
   remaining: number;
 }
 
-export default function SuratPengajuanCutiPage() {
+export default function SuratPengantarCutiPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const [detail, setDetail] = useState<LeaveDetail | null>(null);
-  const [history, setHistory] = useState<LeaveHistoryRow[]>([]);
-  const [balance, setBalance] = useState<Balance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [history, setHistory] = useState<Array<{ year: string; type: string; days: number; status: string }>>([]);
+  const [balance, setBalance] = useState<Balance | null>(null);
   const [logoOk, setLogoOk] = useState(true);
+  const [sigTick, setSigTick] = useState(0);
+  const [signAct, setSignAct] = useState<string | null>(null);
+  const [signNote, setSignNote] = useState("");
+  const [signing, setSigning] = useState(false);
+  // Tanda tangan dummy per penandatangan — dihitung dari detail bila sudah ada.
+  const atasanSig = useMemo(() => {
+    const tl = detail?.timeline ?? [];
+    const entry = tl.find((t) => t.action === "REVIEW") ?? tl.find((t) => t.action === "PARAF");
+    if (!entry || !user?.username) return null;
+    const isActor =
+      user.employee?.name === entry.actorName ||
+      (!!user.position && user.position === actorPosition(entry.actor));
+    return isActor ? loadSignature(user.username) : null;
+  }, [sigTick, detail?.id, user?.username, user?.employee?.name, user?.position]);
+  const camatSig = useMemo(() => {
+    const entry = (detail?.timeline ?? []).find((t) => t.action === "APPROVE");
+    if (!entry || !user?.username) return null;
+    const isCamat = user.position === "CAMAT" || user.employee?.name === entry.actorName;
+    return isCamat ? loadSignature(user.username) : null;
+  }, [sigTick, detail?.id, user?.username, user?.position, user?.employee?.name]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,14 +84,18 @@ export default function SuratPengajuanCutiPage() {
     try {
       const { data } = await apiFetch<LeaveDetail>(`/leave-requests/${id}`);
       setDetail(data);
-
+      // Riwayat cuti pemohon dari endpoint resmi (best-effort; sembunyikan bila gagal).
       try {
-        const h = await apiFetch<LeaveHistoryRow[]>(`/employees/${data.employeeId}/leave-history`);
-        setHistory((Array.isArray(h.data) ? h.data : []).filter((r) => r.id !== data.id));
+        const h = await apiFetch<Array<{ year: string; leaveType: { name: string }; days: number; status: string }>>(
+          `/employees/${data.employeeId}/leave-history`,
+        );
+        const rows = (Array.isArray(h.data) ? h.data : [])
+          .filter((r) => (r as unknown as { id: string }).id !== data.id)
+          .map((r) => ({ year: r.year, type: r.leaveType?.name ?? "—", days: r.days, status: r.status }));
+        setHistory(rows);
       } catch {
         setHistory([]);
       }
-
       try {
         const b = await apiFetch<Balance>(`/employees/${data.employeeId}/leave-balance`);
         setBalance(b.data);
@@ -76,10 +111,9 @@ export default function SuratPengajuanCutiPage() {
 
   useEffect(() => {
     void load();
+    const act = new URLSearchParams(window.location.search).get("act");
+    if (act === "review" || act === "approve") setSignAct(act);
   }, [load]);
-
-  const isOwner = !!user?.employee && !!detail && user.employee.id === detail.employeeId;
-  const signature = useMemo(() => (isOwner && user?.username ? loadSignature(user.username) : null), [isOwner, user?.username, detail?.id]);
 
   if (loading) {
     return (
@@ -106,21 +140,75 @@ export default function SuratPengajuanCutiPage() {
     orgUnit?: { name: string } | null;
   };
   const masaKerja = (() => {
-    if (!emp.joinDate) return "................";
+    if (!emp.joinDate) return "";
     const start = new Date(emp.joinDate.slice(0, 10) + "T00:00:00");
     const now = new Date();
     const months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
-    if (isNaN(months) || months < 0) return "................";
+    if (isNaN(months) || months < 0) return "";
     return `${Math.floor(months / 12)} tahun ${months % 12} bulan`;
   })();
+  const isOwner = user?.employee?.id === detail.employee?.id;
+  const unitKerja =
+    emp.orgUnit?.name ??
+    (isOwner ? user?.orgUnit?.name : null) ??
+    "..............................";
+  const code = detail.leaveType?.code;
+  const viiSetuju = ["PARAF", "APPROVED", "SIGNED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED", "FORWARDED"].includes(detail.status);
+  const viiTolak = detail.status === "REJECTED";
+  const viiiSetuju = ["APPROVED", "SIGNED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(detail.status);
+  const viiiTolak = detail.status === "REJECTED";
+  const findEntry = (action: string) => (detail.timeline ?? []).find((t) => t.action === action);
+  const reviewEntry = findEntry("REVIEW");
+  const parafEntry = findEntry("PARAF");
+  const approveEntry = findEntry("APPROVE");
+  const atasanEntry = reviewEntry ?? parafEntry;
+  // Bila belum ada snapshot pertimbangan, pakai atasan langsung dari backend.
+  const supervisorDirect = detail.supervisor?.direct ?? null;
+  const atasanUsername =
+    (atasanEntry?.actor ?? "").split(" ")[0] || supervisorDirect?.username || null;
+  const atasanName = atasanEntry?.actorName || supervisorDirect?.name || "";
+  const atasanNip = atasanEntry?.actorNip || supervisorDirect?.nip || "";
+  const atasanJabatan =
+    JABATAN_ID[actorPosition(atasanEntry?.actor)] ||
+    JABATAN_ID[supervisorDirect?.position ?? ""] ||
+    supervisorDirect?.position ||
+    "";
+  const atasanTime = atasanEntry ? new Date(atasanEntry.createdAt).toLocaleString("id-ID") : "";
+  const camatUsername = (approveEntry?.actor ?? "").split(" ")[0] || null;
+  // Prioritas: snapshot penandatangan di timeline → Camat aktif dari backend → cadangan lama.
+  const camatName = approveEntry?.actorName || detail.camat?.name || "MUH. ARIL SYAHBANI K, S.IP";
+  const camatNip = approveEntry?.actorNip || detail.camat?.nip || "198804152007011001";
+  const camatTime = approveEntry ? new Date(approveEntry.createdAt).toLocaleString("id-ID") : "";
 
-  const todayID = fmtLong(new Date().toISOString());
-  const cell = "border border-black px-2 py-1 align-top";
-  const label = `${cell} w-1/4 bg-black/[0.03] font-semibold`;
+  const check = (on: boolean) => (on ? "✓" : "");
+
+  async function confirmSign() {
+    if (!signAct || !detail) return;
+    if (!loadSignature(user?.username)) {
+      toast.error("Gambar tanda tangan dulu pada panel di bawah.");
+      return;
+    }
+    setSigning(true);
+    try {
+      await apiFetch(`/leave-requests/${detail.id}/${signAct}`, {
+        method: "POST",
+        body: JSON.stringify({ note: signNote.trim() || undefined }),
+      });
+      toast.success("Ditandatangani dan diteruskan.");
+      window.location.href = `/cuti/${detail.id}`;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal memproses");
+    } finally {
+      setSigning(false);
+    }
+  }
+
+  const cell = "border border-black px-2 py-1";
+  const todayID = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
 
   return (
     <main className="bg-white font-serif text-black">
-      <div className="no-print mx-auto flex max-w-3xl flex-wrap items-center gap-2 px-6 py-4 font-sans">
+      <div className="no-print mx-auto flex max-w-3xl items-center gap-2 px-6 py-4 font-sans">
         <button onClick={() => window.history.back()} className="text-sm font-semibold text-slate-600 hover:text-slate-900">
           ← Kembali
         </button>
@@ -128,21 +216,75 @@ export default function SuratPengajuanCutiPage() {
           href={`/cuti/${detail.id}/surat`}
           className="rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium text-slate-700 hover:bg-paper"
         >
-          Surat pengantar BKPSDM
+          Surat pengantar
         </a>
         <button onClick={() => window.print()} className="ml-auto rounded-lg bg-brand-900 px-4 py-2 text-sm font-semibold text-white">
           Cetak surat pengajuan
         </button>
       </div>
 
-      <div className="print-full mx-auto max-w-3xl px-6 pb-10 text-[13px] leading-relaxed">
+      {signAct && detail?.availableActions?.includes(signAct) ? (
+        <div className="no-print mx-auto mb-4 max-w-3xl rounded-lg border border-warn-700/30 bg-warn-100 px-4 py-3 font-sans">
+          <p className="text-sm font-semibold">
+            {signAct === "review" ? "Pertimbangan & tanda tangan atasan langsung" : "Persetujuan & tanda tangan Camat"}
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            Gambar tanda tangan di bawah, lalu tekan tombol konfirmasi — status baru diperbarui
+            dan diteruskan setelah itu.
+          </p>
+          <div className="mt-2">
+            {user?.username ? (
+              <SignaturePad username={user.username} onSaved={() => setSigTick((n) => n + 1)} />
+            ) : null}
+          </div>
+          <input
+            value={signNote}
+            onChange={(e) => setSignNote(e.target.value)}
+            placeholder="Catatan (opsional)"
+            className="mt-2 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none"
+          />
+          <button
+            disabled={signing}
+            onClick={() => void confirmSign()}
+            className="mt-2 w-full rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {signing ? "Memproses…" : "Sudah tandatangan — teruskan"}
+          </button>
+        </div>
+      ) : null}
+
+      <details className="no-print mx-auto mb-4 max-w-3xl rounded-lg border border-dashed border-line bg-paper px-4 py-3 font-sans">        <summary className="cursor-pointer text-sm font-semibold">
+          Tanda tangan elektronik saya (dummy — tersimpan di browser ini saja)
+        </summary>
+        <p className="mt-1 text-xs text-muted">
+          Gambar di bawah, lalu cetak surat: gambar muncul di blok penandatangan yang aksinya
+          Anda lakukan (login sebagai akun tersebut di browser ini).
+          Versi produksi membutuhkan penyimpanan server (docs/06 B11).
+        </p>
+        <div className="mt-2">
+          {user?.username ? (
+            <SignaturePad username={user.username} onSaved={() => setSigTick((n) => n + 1)} />
+          ) : (
+            <p className="text-sm text-muted">Login dulu untuk membuat tanda tangan.</p>
+          )}
+        </div>
+      </details>
+
+      <div className="print-full mx-auto max-w-3xl px-6 pb-10 text-[13px] leading-snug">
         {/* KOP */}
         <div className="flex items-center gap-3">
           {logoOk ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src="/logo-tamalate.png" alt="Logo" className="h-20 w-20 shrink-0 object-contain" onError={() => setLogoOk(false)} />
+            <img
+              src="/logo-tamalate.png"
+              alt="Logo"
+              className="h-20 w-20 shrink-0 object-contain"
+              onError={() => setLogoOk(false)}
+            />
           ) : (
-            <div className="flex h-20 w-20 shrink-0 items-center justify-center border border-black text-center text-[10px] font-sans">LOGO</div>
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center border border-black text-center text-[10px] font-sans">
+              LOGO
+            </div>
           )}
           <div className="flex-1 text-center">
             <p className="text-base font-bold">PEMERINTAH KOTA MAKASSAR</p>
@@ -155,68 +297,141 @@ export default function SuratPengajuanCutiPage() {
         <div className="mt-1 border-t-[3px] border-black" />
         <div className="mt-[2px] border-t border-black" />
 
-        <div className="mt-5 text-center">
-          <p className="text-base font-bold underline">SURAT PERMOHONAN CUTI</p>
-          <p className="text-xs">Nomor: {detail.requestNumber}</p>
-        </div>
-
-        <div className="mt-4 flex justify-end">
+        {/* TUJUAN */}
+        <div className="mt-2 flex justify-end">
           <div>
             <p>Makassar, {todayID}</p>
             <p className="mt-2">Kepada</p>
             <p className="font-bold">Yth. Camat Tamalate</p>
-            <p>di -</p>
-            <p className="ml-6">Makassar</p>
+            <p>Di -</p>
+            <p className="ml-8">Makassar</p>
           </div>
         </div>
 
-        <p className="mt-4">Dengan hormat,</p>
-        <p className="mt-1">
+        <div className="mt-3 text-center">
+          <p className="text-base font-bold underline">SURAT PERMOHONAN CUTI</p>
+          <p className="text-xs">Nomor: {detail.requestNumber}</p>
+        </div>
+
+        <p className="mt-2">
           Yang bertanda tangan di bawah ini mengajukan permohonan cuti dengan data sebagai berikut:
         </p>
 
-        <table className="mt-2 w-full border-collapse">
+        {/* I */}
+        <table className="mt-3 w-full border-collapse">
           <tbody>
-            <tr><td className={label}>Nama</td><td className={cell} colSpan={3}>{emp.name}</td></tr>
+            <tr><td colSpan={4} className={`${cell} font-bold`}>I. DATA PEGAWAI</td></tr>
             <tr>
-              <td className={label}>NIP</td><td className={cell}>{emp.nip ?? "................"}</td>
-              <td className={label}>Pangkat/Golongan</td><td className={cell}>{emp.rank ?? "................"}</td>
+              <td className={`${cell} w-1/4`}>Nama</td><td className={cell}>{emp.name}</td>
+              <td className={`${cell} w-1/6`}>NIP</td><td className={cell}>{emp.nip ?? ""}</td>
             </tr>
             <tr>
-              <td className={label}>Jabatan</td><td className={cell}>{emp.position ?? "................"}</td>
-              <td className={label}>Unit Kerja</td><td className={cell}>{emp.orgUnit?.name ?? "Kecamatan Tamalate"}</td>
-            </tr>
-            <tr><td className={label}>Masa Kerja</td><td className={cell} colSpan={3}>{masaKerja}</td></tr>
-            <tr><td className={label}>Jenis Cuti</td><td className={cell} colSpan={3}>{detail.leaveType?.name ?? detail.leaveType?.code}</td></tr>
-            <tr>
-              <td className={label}>Lama Cuti</td><td className={cell}>{detail.totalDays} hari</td>
-              <td className={label}>Periode</td><td className={cell}>{fmtID(detail.startDate)} s.d. {fmtID(detail.endDate)}</td>
-            </tr>
-            <tr><td className={label}>Alasan Cuti</td><td className={cell} colSpan={3}>{detail.reason}</td></tr>
-            <tr>
-              <td className={label}>Alamat Selama Cuti</td><td className={cell} colSpan={3}>{detail.addressDuringLeave ?? "................"}</td>
+              <td className={cell}>Jabatan</td><td className={cell}>{emp.position ?? ""}</td>
+              <td className={cell}>Masa Kerja</td><td className={cell}>{masaKerja}</td>
             </tr>
             <tr>
-              <td className={label}>Telepon/HP</td><td className={cell} colSpan={3}>{detail.contactDuringLeave ?? "................"}</td>
+              <td className={cell}>Unit Kerja</td><td colSpan={3} className={cell}>{unitKerja}</td>
             </tr>
           </tbody>
         </table>
 
-        <p className="mt-3">
-          Selama menjalankan cuti, saya akan berada pada alamat tersebut di atas dan dapat dihubungi
-          melalui nomor telepon yang tercantum. Saya bersedia mematuhi ketentuan peraturan
-          kepegawaian yang berlaku.
-        </p>
+        {/* II */}
+        <table className="mt-2 w-full border-collapse">
+          <tbody>
+            <tr><td colSpan={4} className={`${cell} font-bold`}>II. JENIS CUTI YANG DIAMBIL</td></tr>
+            {[0, 2, 4].map((i) => (
+              <tr key={i}>
+                <td className={`${cell} w-2/5`}>{JENIS[i].label}</td>
+                <td className={`${cell} w-1/10 text-center font-bold`}>{check(code === JENIS[i].code)}</td>
+                <td className={`${cell} w-2/5`}>{JENIS[i + 1].label}</td>
+                <td className={`${cell} text-center font-bold`}>{check(code === JENIS[i + 1].code)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
-        <div className="mt-4">
-          <p className="font-bold">A. Sisa Cuti Tahunan</p>
+        {/* III */}
+        <table className="mt-2 w-full border-collapse">
+          <tbody>
+            <tr><td className={`${cell} font-bold`}>III. ALASAN CUTI</td></tr>
+            <tr><td className={`${cell} min-h-8`}>{detail.reason}</td></tr>
+          </tbody>
+        </table>
+
+        {/* IV */}
+        <table className="mt-2 w-full border-collapse">
+          <tbody>
+            <tr><td colSpan={6} className={`${cell} font-bold`}>IV. LAMA CUTI</td></tr>
+            <tr>
+              <td className={`${cell} w-1/6`}>Selama</td>
+              <td className={`${cell} w-1/6 font-bold`}>{detail.totalDays} hari</td>
+              <td className={`${cell} w-1/6`}>Mulai Tanggal</td>
+              <td className={`${cell} w-1/6`}>{fmtID(detail.startDate)}</td>
+              <td className={`${cell} w-1/12 text-center`}>s/d</td>
+              <td className={cell}>{fmtID(detail.endDate)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* V */}
+        <table className="mt-2 w-full border-collapse">
+          <tbody>
+            <tr><td colSpan={4} className={`${cell} font-bold`}>V. CATATAN CUTI</td></tr>
+            <tr>
+              <td className={`${cell} w-1/4 font-bold`}>1. CUTI TAHUNAN</td>
+              <td className={cell} />
+              <td className={`${cell} w-1/4 font-bold`}>2. CUTI BESAR</td>
+              <td className={cell} />
+            </tr>
+            <tr>
+              <td className={`${cell} text-xs`}>Tahun&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Sisa&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Keterangan</td>
+              <td className={cell} />
+              <td className={`${cell} font-bold`}>3. CUTI SAKIT</td>
+              <td className={cell} />
+            </tr>
+            <tr>
+              <td className={cell}>&nbsp;</td>
+              <td className={cell} />
+              <td className={`${cell} font-bold`}>4. CUTI MELAHIRKAN</td>
+              <td className={cell} />
+            </tr>
+            <tr>
+              <td className={cell}>&nbsp;</td>
+              <td className={cell} />
+              <td className={`${cell} font-bold`}>5. CUTI KARENA ALASAN PENTING</td>
+              <td className={cell} />
+            </tr>
+            <tr>
+              <td className={cell}>&nbsp;</td>
+              <td className={cell} />
+              <td className={`${cell} font-bold`}>6. CUTI DILUAR TANGGUNGAN NEGARA</td>
+              <td className={cell} />
+            </tr>
+          </tbody>
+        </table>
+
+        {/* VI */}
+        <table className="mt-2 w-full border-collapse">
+          <tbody>
+            <tr><td colSpan={4} className={`${cell} font-bold`}>VI. ALAMAT SELAMA MENJALANKAN CUTI</td></tr>
+            <tr>
+              <td className={`${cell} w-3/5`}>{detail.addressDuringLeave ?? ""}</td>
+              <td className={`${cell} w-1/6 text-center`}>Telp</td>
+              <td className={cell}>{detail.contactDuringLeave ?? ""}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* LAMPIRAN SISTEM — data bantu, bukan mengubah layout formulir resmi */}
+        <div className="mt-2">
+          <p className="font-bold">LAMPIRAN — SISA CUTI TAHUNAN (dari sistem)</p>
           <table className="mt-1 w-full border-collapse">
             <tbody>
               <tr>
-                <td className={`${cell} font-semibold`}>Tahun</td>
-                <td className={`${cell} font-semibold`}>Hak</td>
-                <td className={`${cell} font-semibold`}>Terpakai</td>
-                <td className={`${cell} font-semibold`}>Sisa</td>
+                <td className={`${cell} font-bold`}>Tahun</td>
+                <td className={`${cell} font-bold`}>Hak</td>
+                <td className={`${cell} font-bold`}>Terpakai</td>
+                <td className={`${cell} font-bold`}>Sisa</td>
               </tr>
               <tr>
                 <td className={cell}>{balance?.year ?? new Date().getFullYear()}</td>
@@ -226,53 +441,99 @@ export default function SuratPengajuanCutiPage() {
               </tr>
             </tbody>
           </table>
-          <p className="mt-1 text-[11px] italic">
-            Angka bersumber dari sistem kepegawaian (cuti tahunan berstatus disetujui ke atas).
-          </p>
         </div>
 
-        <div className="mt-4">
-          <p className="font-bold">B. Riwayat Cuti</p>
-          {history.length ? (
+        {history.length > 0 ? (
+          <div className="mt-2">
+            <p className="font-bold">LAMPIRAN — RIWAYAT CUTI PEGAWAI (dari sistem)</p>
             <table className="mt-1 w-full border-collapse">
               <tbody>
                 <tr>
-                  <td className={`${cell} font-semibold`}>Tahun</td>
-                  <td className={`${cell} font-semibold`}>Jenis</td>
-                  <td className={`${cell} font-semibold`}>Durasi</td>
-                  <td className={`${cell} font-semibold`}>Status</td>
+                  <td className={`${cell} font-bold`}>Tahun</td>
+                  <td className={`${cell} font-bold`}>Jenis</td>
+                  <td className={`${cell} font-bold`}>Durasi</td>
+                  <td className={`${cell} font-bold`}>Status</td>
                 </tr>
                 {history.map((h, i) => (
-                  <tr key={h.id ?? i}>
+                  <tr key={i}>
                     <td className={cell}>{h.year}</td>
-                    <td className={cell}>{h.leaveType?.name ?? "—"}</td>
+                    <td className={cell}>{h.type}</td>
                     <td className={cell}>{h.days} hari</td>
                     <td className={cell}>{h.status}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          ) : (
-            <p className="mt-1">Belum ada riwayat cuti tercatat.</p>
-          )}
-        </div>
-
-        <p className="mt-4">
-          Demikian permohonan ini saya sampaikan. Atas pertimbangan dan persetujuan Bapak, saya
-          ucapkan terima kasih.
-        </p>
-
-        <div className="mt-6 flex justify-end">
+          </div>
+        ) : null}
+        <div className="flex justify-end">
           <div className="w-64 text-center">
-            <p className="font-bold italic">Hormat saya,</p>
-            {signature ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={signature} alt="Tanda tangan pemohon" className="mx-auto h-16 object-contain" />
-            ) : (
-              <div className="h-16" />
-            )}
+            <p className="mt-1 font-bold italic">Hormat Saya,</p>
+            <div className="h-16" />
             <p className="font-bold underline">{emp.name}</p>
             <p>Nip. {emp.nip ?? "................"}</p>
+          </div>
+        </div>
+
+        {/* VII */}
+        <table className="mt-2 w-full border-collapse">
+          <tbody>
+            <tr><td colSpan={4} className={`${cell} text-center font-bold`}>VII. PERTIMBANGAN ATASAN LANGSUNG</td></tr>
+            <tr className="text-center italic">
+              <td className={cell}>DISETUJUI {check(viiSetuju)}</td>
+              <td className={cell}>PERUBAHAN</td>
+              <td className={cell}>DITANGGUHKAN</td>
+              <td className={cell}>TIDAK DISETUJUI {check(viiTolak)}</td>
+            </tr>
+            <tr>
+              <td colSpan={3} className={`${cell} h-10 font-bold`}>
+                {atasanSig ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={atasanSig} alt="Tanda tangan atasan" className="h-12 object-contain" />
+                ) : (
+                  atasanName
+                )}
+              </td>
+              <td className={`${cell} text-center font-bold`}>Jabatan<br />{atasanJabatan}</td>
+            </tr>
+            <tr>
+              <td colSpan={3} className={cell}>
+                {atasanSig && atasanTime ? (
+                  <span className="text-[11px]">Ditandatangani secara elektronik oleh {atasanName} pada {atasanTime} (dummy, browser ini).</span>
+                ) : null}
+              </td>
+              <td className={`${cell} text-center`}>Nip. {atasanNip || "................"}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* VIII */}
+        <table className="mt-2 w-full border-collapse">
+          <tbody>
+            <tr><td colSpan={4} className={`${cell} text-center font-bold`}>VIII. KEPUTUSAN PEJABAT YANG BERWENANG MEMBERIKAN CUTI</td></tr>
+            <tr className="text-center italic">
+              <td className={cell}>DISETUJUI {check(viiiSetuju)}</td>
+              <td className={cell}>PERUBAHAN</td>
+              <td className={cell}>DITANGGUHKAN</td>
+              <td className={cell}>TIDAK DISETUJUI {check(viiiTolak)}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div className="flex justify-end">
+          <div className="w-72 border border-black p-2 text-center">
+            <p className="font-bold">Camat Tamalate</p>
+            {camatSig ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={camatSig} alt="Tanda tangan camat" className="mx-auto h-14 object-contain" />
+            ) : (
+              <div className="h-14" />
+            )}
+            <p className="font-bold underline">{camatName}</p>
+            <p>Pangkat : Pembina</p>
+            <p>Nip. {camatNip}</p>
+            {camatSig && camatTime ? (
+              <p className="mt-1 text-[11px]">Ditandatangani secara elektronik pada {camatTime} (dummy, browser ini).</p>
+            ) : null}
           </div>
         </div>
       </div>

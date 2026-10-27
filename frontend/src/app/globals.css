@@ -64,9 +64,9 @@ h2 {
   background-clip: content-box;
 }
 
-/* Kertas F4 (215 × 330 mm) — ukuran naskah dinas kecamatan. */
+/* A4 — standar surat resmi dan formulir cetak. */
 @page {
-  size: 215mm 330mm;
+  size: A4;
   margin: 1cm;
 }
 
