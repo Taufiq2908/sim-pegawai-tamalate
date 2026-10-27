@@ -142,10 +142,17 @@ export default function SuratPengantarCutiPage() {
   const parafEntry = findEntry("PARAF");
   const approveEntry = findEntry("APPROVE");
   const atasanEntry = reviewEntry ?? parafEntry;
-  const atasanUsername = (atasanEntry?.actor ?? "").split(" ")[0] || null;
-  const atasanName = atasanEntry?.actorName ?? "";
-  const atasanNip = atasanEntry?.actorNip ?? "";
-  const atasanJabatan = JABATAN_ID[actorPosition(atasanEntry?.actor)] ?? "";
+  // Bila belum ada snapshot pertimbangan, pakai atasan langsung dari backend.
+  const supervisorDirect = detail.supervisor?.direct ?? null;
+  const atasanUsername =
+    (atasanEntry?.actor ?? "").split(" ")[0] || supervisorDirect?.username || null;
+  const atasanName = atasanEntry?.actorName || supervisorDirect?.name || "";
+  const atasanNip = atasanEntry?.actorNip || supervisorDirect?.nip || "";
+  const atasanJabatan =
+    JABATAN_ID[actorPosition(atasanEntry?.actor)] ||
+    JABATAN_ID[supervisorDirect?.position ?? ""] ||
+    supervisorDirect?.position ||
+    "";
   const atasanTime = atasanEntry ? new Date(atasanEntry.createdAt).toLocaleString("id-ID") : "";
   const camatUsername = (approveEntry?.actor ?? "").split(" ")[0] || null;
   // Prioritas: snapshot penandatangan di timeline → Camat aktif dari backend → cadangan lama.
@@ -243,7 +250,7 @@ export default function SuratPengantarCutiPage() {
         </div>
       </details>
 
-      <div className="mx-auto max-w-3xl px-6 pb-10 text-[13px] leading-snug">
+      <div className="print-full mx-auto max-w-3xl px-6 pb-10 text-[13px] leading-snug">
         {/* KOP */}
         <div className="flex items-center gap-3">
           {logoOk ? (

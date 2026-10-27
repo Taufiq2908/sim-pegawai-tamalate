@@ -135,7 +135,7 @@ export default function SuratPengajuanCutiPage() {
         </button>
       </div>
 
-      <div className="mx-auto max-w-3xl px-6 pb-10 text-[13px] leading-relaxed">
+      <div className="print-full mx-auto max-w-3xl px-6 pb-10 text-[13px] leading-relaxed">
         {/* KOP */}
         <div className="flex items-center gap-3">
           {logoOk ? (

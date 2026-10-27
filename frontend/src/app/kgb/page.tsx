@@ -63,8 +63,14 @@ export default function KgbListPage() {
     <AppShell>
       <div className="flex flex-wrap items-center gap-2">
         <Link
-          href="/kgb/monitoring"
+          href="/kgb/register-book"
           className="ml-auto rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
+        >
+          Buku register
+        </Link>
+        <Link
+          href="/kgb/monitoring"
+          className="rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
         >
           Monitoring KGB
         </Link>

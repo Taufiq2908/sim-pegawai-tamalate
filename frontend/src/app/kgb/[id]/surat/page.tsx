@@ -87,7 +87,7 @@ export default function SuratPengantarKgbPage() {
         </button>
       </div>
 
-      <div className="mx-auto max-w-3xl px-6 pb-10 text-[13px] leading-relaxed">
+      <div className="print-full mx-auto max-w-3xl px-6 pb-10 text-[13px] leading-relaxed">
         {/* KOP */}
         <div className="flex items-center gap-3">
           {logoOk ? (
@@ -120,14 +120,15 @@ export default function SuratPengantarKgbPage() {
           <p>Kepada</p>
           <p className="font-bold">Yth. Kepala Badan Kepegawaian dan Pengembangan</p>
           <p className="font-bold">SDM Daerah Kota Makassar</p>
+          <p className="font-bold">Cq. Bidang Mutasi</p>
           <p>di -</p>
           <p className="ml-6">Makassar</p>
         </div>
 
         <p className="mt-4">Dengan hormat,</p>
         <p className="mt-1">
-          Bersama ini kami sampaikan usulan kenaikan gaji berkala Pegawai Negeri Sipil di
-          lingkungan Kecamatan Tamalate dengan data sebagai berikut:
+          Bersama ini kami sampaikan berkas usulan Kenaikan Gaji Berkala Pegawai Negeri Sipil
+          di lingkungan Kecamatan Tamalate dengan data sebagai berikut:
         </p>
 
         <table className="mt-2 w-full border-collapse">
@@ -153,6 +154,33 @@ export default function SuratPengantarKgbPage() {
           </tbody>
         </table>
 
+        <table className="mt-3 w-full border-collapse">
+          <colgroup>
+            <col style={{ width: "5%" }} />
+            <col style={{ width: "45%" }} />
+            <col style={{ width: "15%" }} />
+            <col style={{ width: "35%" }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <td className={`${cell} text-center font-semibold`}>No</td>
+              <td className={`${cell} text-center font-semibold`}>Jenis Dokumen</td>
+              <td className={`${cell} text-center font-semibold`}>Banyaknya</td>
+              <td className={`${cell} text-center font-semibold`}>Keterangan</td>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className={`${cell} text-center`}>1</td>
+              <td className={cell}>
+                Berkas usulan KGB a.n. {emp?.name}, NIP {emp?.nip ?? "—"}, {emp?.position ?? "—"}
+              </td>
+              <td className={`${cell} text-center`}>1 (Satu) Berkas</td>
+              <td className={cell}>Dikirim dengan hormat untuk bahan seperlunya</td>
+            </tr>
+          </tbody>
+        </table>
+
         <p className="mt-3">
           Usulan ini disampaikan berdasarkan ketentuan peraturan kepegawaian yang berlaku. Kami
           mohon kiranya dapat diproses lebih lanjut. Atas perhatian dan kerja samanya, kami
@@ -169,6 +197,7 @@ export default function SuratPengantarKgbPage() {
               <div className="h-16" />
             )}
             <p className="font-bold underline">{detail.camat?.name ?? "................"}</p>
+            <p>Pangkat : Pembina</p>
             <p>Nip. {detail.camat?.nip ?? "................"}</p>
             {camatSig && approveEntry ? (
               <p className="mt-1 text-[11px]">

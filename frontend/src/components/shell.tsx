@@ -56,6 +56,7 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/surat-keluar/, "Surat Keluar & Penomoran"],
   [/^\/kgb\/baru$/, "Pengajuan KGB Baru"],
   [/^\/kgb\/monitoring$/, "Monitoring KGB"],
+  [/^\/kgb\/register-book$/, "Buku Register KGB"],
   [/^\/kgb\/[^/]+\/surat$/, "Surat Pengantar KGB"],
   [/^\/kgb\/.+$/, "Detail Pengajuan KGB"],
   [/^\/kgb$/, "Kenaikan Gaji Berkala"],

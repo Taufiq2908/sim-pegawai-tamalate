@@ -64,18 +64,48 @@ h2 {
   background-clip: content-box;
 }
 
+/* Kertas F4 (215 × 330 mm) — ukuran naskah dinas kecamatan. */
+@page {
+  size: 215mm 330mm;
+  margin: 1cm;
+}
+
 @media print {
   header,
   aside,
   nav,
+  footer,
   .no-print {
     display: none !important;
+  }
+  html,
+  body {
+    width: auto !important;
+    background: #fff !important;
   }
   main {
     max-width: none !important;
     padding: 0 !important;
+    margin: 0 !important;
   }
-  body {
-    background: #fff;
+  .print-full {
+    max-width: none !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  table {
+    page-break-inside: auto;
+  }
+  tr,
+  td,
+  th {
+    page-break-inside: avoid;
+  }
+  thead {
+    display: table-header-group;
+  }
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
   }
 }

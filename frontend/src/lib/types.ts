@@ -318,6 +318,37 @@ export interface KgbMonitoringItem {
     effectiveDate: string;
     status: KgbStatus;
   } | null;
+  nextKgbDate: string | null;
+  monthsUntil: number | null;
+  dueSoon: boolean;
+  requiredDocs: string[];
+}
+
+export interface KgbRegisterBookRow {
+  tglSk: string;
+  nama: string;
+  nip: string | null;
+  gol: string;
+  pangkat: string;
+  jabatan: string;
+  unitKerja: string;
+  lama: {
+    nomorSk: string;
+    tanggalSk: string;
+    tglMulai: string;
+    masaKerja: string;
+    tahun: number;
+    golMasaKerja: string;
+    gajiPokok: number;
+  };
+  baru: {
+    tglMulai: string;
+    kgbYad: string;
+    masaKerja: string;
+    tahun: number;
+    golMasaKerja: string;
+    gajiPokok: number;
+  };
 }
 
 export interface NotificationItem {
