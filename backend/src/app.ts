@@ -9,6 +9,7 @@ import attendanceRoutes from './routes/attendance.routes';
 import letterRoutes from './routes/letter.routes';
 import kgbRoutes from './routes/kgb.routes';
 import outgoingRoutes from './routes/outgoing.routes';
+import archiveRoutes from './routes/archive.routes';
 import notificationRoutes from './routes/notification.routes';
 import employeeRoutes from './routes/employee.routes';
 import userRoutes from './routes/user.routes';
@@ -34,6 +35,7 @@ export function createApp() {
   app.use('/api/v1/letters', letterRoutes);
   app.use('/api/v1/kgb-requests', kgbRoutes);
   app.use('/api/v1/outgoing-letters', outgoingRoutes);
+  app.use('/api/v1/archives', archiveRoutes);
   app.use('/api/v1/notifications', notificationRoutes);
   app.use('/api/v1/employees', employeeRoutes);
   app.use('/api/v1/users', userRoutes);

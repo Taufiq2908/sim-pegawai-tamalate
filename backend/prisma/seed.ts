@@ -54,15 +54,19 @@ const PERMS = [
   ['outgoing.reserve', 'outgoing', 'reserve'],
   ['outgoing.issue', 'outgoing', 'issue'],
   ['outgoing.cancel', 'outgoing', 'cancel'],
+  ['archive.view', 'archive', 'view'],
+  ['archive.create', 'archive', 'create'],
+  ['archive.update', 'archive', 'update'],
+  ['archive.sign', 'archive', 'sign'],
 ] as const;
 
 const ROLE_MAP: Record<string, string[]> = {
   // VERIFIER basis = operator (Staf Kepegawaian/Arsip). Pemeriksa (Kasubag) via GRANT per user.
-  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'letter.archive', 'kgb.view', 'kgb.document.upload', 'kgb.register', 'kgb.remind', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel'],
+  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'letter.archive', 'kgb.view', 'kgb.document.upload', 'kgb.register', 'kgb.remind', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel', 'archive.view', 'archive.create', 'archive.update'],
   // SUPERVISOR = atasan langsung (Kasi, Lurah, Seklur): melihat + pertimbangan.
   // Tanpa verify/approve/sign/dispose/complete/manage. Kasubag = SUPERVISOR + GRANT di bawah.
-  SUPERVISOR: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.review', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.review', 'kgb.document.upload'],
-  LEADER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'leave.paraf', 'leave.approve', 'leave.reject', 'leave.forward', 'attendance.view', 'attendance.checkin', 'attendance.summary', 'attendance.forward', 'letter.view', 'letter.dispose', 'letter.followup', 'letter.complete', 'letter.paraf', 'kgb.view', 'kgb.paraf', 'kgb.approve', 'kgb.reject', 'outgoing.view'],
+  SUPERVISOR: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.review', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.review', 'kgb.document.upload', 'archive.view'],
+  LEADER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'leave.paraf', 'leave.approve', 'leave.reject', 'leave.forward', 'attendance.view', 'attendance.checkin', 'attendance.summary', 'attendance.forward', 'letter.view', 'letter.dispose', 'letter.followup', 'letter.complete', 'letter.paraf', 'kgb.view', 'kgb.paraf', 'kgb.approve', 'kgb.reject', 'outgoing.view', 'archive.view', 'archive.sign'],
   EMPLOYEE: ['auth.me', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.create', 'kgb.submit', 'kgb.document.upload'],
 };
 

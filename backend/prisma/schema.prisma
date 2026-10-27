@@ -129,6 +129,9 @@ model User {
   uploadedOutgoingDocs OutgoingDocument[]
   createdExpeditions ExpeditionReceipt[] @relation("CreatedExpeditions")
   notifications Notification[]
+  createdArchives ArchiveRecord[]      @relation("CreatedArchives")
+  signedArchiveLists ArchiveList[]     @relation("SignedArchiveLists")
+  createdArchiveLists ArchiveList[]    @relation("CreatedArchiveLists")
 
   @@map("pengguna")
 }
@@ -391,6 +394,7 @@ model IncomingLetter {
   documents      LetterDocument[]
   dispositions   LetterDisposition[]
   expeditions    ExpeditionReceipt[]
+  archiveRecord  ArchiveRecord?
 
   @@index([status])
   @@map("surat_masuk")
@@ -440,6 +444,7 @@ model ArchiveClassification {
   createdAt DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
   incoming  IncomingLetter[]
   outgoing  OutgoingLetter[]
+  archives  ArchiveRecord[]
 
   @@map("klasifikasi_arsip")
 }
@@ -480,6 +485,7 @@ model OutgoingLetter {
   createdAt        DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
   updatedAt        DateTime @updatedAt @map("diperbarui_pada") @db.Timestamptz
   documents        OutgoingDocument[]
+  archiveRecord    ArchiveRecord?
 
   @@unique([year, sequenceNumber])
   @@index([status])
@@ -499,6 +505,62 @@ model OutgoingDocument {
   createdAt    DateTime       @default(now()) @map("dibuat_pada") @db.Timestamptz
 
   @@map("dokumen_surat_keluar")
+}
+
+model ArchiveRecord {
+  id               String   @id @default(uuid()) @db.Uuid
+  archiveNumber    String   @unique @map("nomor_arsip") @db.VarChar(50)
+  sourceType       String   @map("jenis_sumber") @db.VarChar(20)
+  incomingLetterId String?  @unique @map("id_surat_masuk") @db.Uuid
+  incomingLetter   IncomingLetter? @relation(fields: [incomingLetterId], references: [id], onDelete: SetNull)
+  outgoingLetterId String?  @unique @map("id_surat_keluar") @db.Uuid
+  outgoingLetter   OutgoingLetter? @relation(fields: [outgoingLetterId], references: [id], onDelete: SetNull)
+  classificationId String?  @map("id_klasifikasi") @db.Uuid
+  classification   ArchiveClassification? @relation(fields: [classificationId], references: [id])
+  code             String   @map("kode_arsip") @db.VarChar(100)
+  bundleCode       String?  @map("kode_berkas") @db.VarChar(100)
+  title            String   @map("uraian") @db.VarChar(500)
+  documentNumber   String?  @map("nomor_dokumen") @db.VarChar(150)
+  documentDate     DateTime? @map("tanggal_dokumen") @db.Date
+  archiveDate      DateTime @map("tanggal_arsip") @db.Date
+  category         String   @default("AKTIF") @map("kategori") @db.VarChar(20)
+  location         String   @default("LEMARI_ARSIP") @map("lokasi_simpan") @db.VarChar(30)
+  retentionUntil   DateTime? @map("retensi_sampai") @db.Date
+  notes            String?  @map("keterangan")
+  listId           String?  @map("id_daftar_arsip") @db.Uuid
+  list             ArchiveList? @relation(fields: [listId], references: [id], onDelete: SetNull)
+  createdBy        String   @map("dibuat_oleh") @db.Uuid
+  creator          User     @relation("CreatedArchives", fields: [createdBy], references: [id])
+  createdAt        DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("diperbarui_pada") @db.Timestamptz
+
+  @@index([sourceType, category])
+  @@index([listId])
+  @@index([archiveDate])
+  @@map("arsip")
+}
+
+model ArchiveList {
+  id             String   @id @default(uuid()) @db.Uuid
+  listNumber     String   @unique @map("nomor_daftar") @db.VarChar(50)
+  periodStart    DateTime @map("tanggal_mulai") @db.Date
+  periodEnd      DateTime @map("tanggal_akhir") @db.Date
+  status         String   @default("DRAFT") @map("status") @db.VarChar(20)
+  notes          String?  @map("keterangan")
+  signerUserId   String?  @map("id_penandatangan") @db.Uuid
+  signer         User?    @relation("SignedArchiveLists", fields: [signerUserId], references: [id])
+  signerName     String?  @map("nama_penandatangan") @db.VarChar(150)
+  signerNip      String?  @map("nip_penandatangan") @db.VarChar(30)
+  signerPosition String?  @map("jabatan_penandatangan") @db.VarChar(50)
+  signedAt       DateTime? @map("ditandatangani_pada") @db.Timestamptz
+  createdBy      String   @map("dibuat_oleh") @db.Uuid
+  creator        User     @relation("CreatedArchiveLists", fields: [createdBy], references: [id])
+  records        ArchiveRecord[]
+  createdAt      DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("diperbarui_pada") @db.Timestamptz
+
+  @@index([status, periodStart])
+  @@map("daftar_arsip")
 }
 
 model NumberingSequence {

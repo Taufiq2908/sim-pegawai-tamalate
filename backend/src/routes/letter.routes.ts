@@ -8,6 +8,7 @@ import { env } from '../config/env';
 import { authRequired, requirePermission } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
 import { todayYMD, parseYMD } from '../services/attendance.service';
+import { ARCHIVE_CATEGORIES, ArchiveError, createArchiveRecord } from '../services/archive.service';
 import { can } from '../lib/permissions';
 
 const router = Router();
@@ -34,6 +35,9 @@ const includeDetail = {
   dispositions: {
     include: { fromUser: { omit: { passwordHash: true } }, toUser: { omit: { passwordHash: true } } },
     orderBy: { createdAt: 'asc' as const },
+  },
+  archiveRecord: {
+    include: { list: { select: { id: true, listNumber: true, status: true } } },
   },
 };
 
@@ -180,7 +184,12 @@ router.get('/', requirePermission('letter.view'), async (req, res) => {
     prisma.incomingLetter.count({ where }),
     prisma.incomingLetter.findMany({
       where,
-      include: { creator: { omit: { passwordHash: true } }, dispositions: { include: { fromUser: { omit: { passwordHash: true } }, toUser: { omit: { passwordHash: true } } } }, _count: { select: { documents: true } } },
+      include: {
+        creator: { omit: { passwordHash: true } },
+        dispositions: { include: { fromUser: { omit: { passwordHash: true } }, toUser: { omit: { passwordHash: true } } } },
+        _count: { select: { documents: true } },
+        archiveRecord: { select: { id: true, archiveNumber: true, listId: true } },
+      },
       orderBy: { createdAt: 'desc' },
       skip: (p - 1) * l,
       take: l,
@@ -479,16 +488,41 @@ router.post('/:id/complete', requirePermission('letter.complete'), async (req, r
 });
 
 // ---------- POST /letters/:id/archive ----------
+// Mengarsipkan surat sekaligus mencatatnya ke buku arsip (SOP langkah 1).
 router.post('/:id/archive', requirePermission('letter.archive'), async (req, res) => {
-  const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id } });
+  const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id }, include: { archiveRecord: true } });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
   if (l.status !== 'COMPLETED') return fail(res, 409, `Arsip hanya dari COMPLETED (saat ini ${l.status})`);
-  const updated = await prisma.incomingLetter.update({
-    where: { id: l.id },
-    data: { status: 'ARCHIVED', archivedAt: new Date() },
-    include: includeDetail,
-  });
-  return ok(res, toDetail(updated, req.user!.permissions, req.user!.id), 'Surat diarsipkan');
+  if (l.archiveRecord) return fail(res, 409, 'Surat sudah memiliki record arsip');
+
+  const body = z.object({
+    classificationCode: z.string().max(30).optional(),
+    code: z.string().max(100).optional(),
+    bundleCode: z.string().max(100).optional(),
+    category: z.enum(ARCHIVE_CATEGORIES).optional(),
+    archiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    retentionUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    notes: z.string().max(1000).optional(),
+  }).safeParse(req.body ?? {});
+  if (!body.success) return fail(res, 422, 'Validasi gagal', body.error.flatten());
+
+  try {
+    await createArchiveRecord({
+      sourceType: 'INCOMING',
+      sourceId: l.id,
+      actorId: req.user!.id,
+      ...body.data,
+    });
+  } catch (err) {
+    if (err instanceof ArchiveError) return fail(res, err.status, err.message);
+    throw err;
+  }
+  const updated = await prisma.incomingLetter.findUnique({ where: { id: l.id }, include: includeDetail });
+  return ok(
+    res,
+    toDetail(updated!, req.user!.permissions, req.user!.id),
+    'Surat diarsipkan dan dicatat ke buku arsip',
+  );
 });
 
 export default router;

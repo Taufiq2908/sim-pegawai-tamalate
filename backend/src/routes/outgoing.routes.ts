@@ -25,7 +25,14 @@ const upload = multer({
   },
 });
 
-const includeDetail = { creator: { omit: { passwordHash: true } }, classification: true, documents: true };
+const includeDetail = {
+  creator: { omit: { passwordHash: true } },
+  classification: true,
+  documents: true,
+  archiveRecord: {
+    include: { list: { select: { id: true, listNumber: true, status: true } } },
+  },
+};
 
 function notFuture(letterDate: string): boolean {
   return letterDate <= todayYMD();
@@ -267,7 +274,11 @@ router.get('/', requirePermission('outgoing.view'), async (req, res) => {
     prisma.outgoingLetter.count({ where }),
     prisma.outgoingLetter.findMany({
       where,
-      include: { classification: true, creator: { omit: { passwordHash: true } } },
+      include: {
+        classification: true,
+        creator: { omit: { passwordHash: true } },
+        archiveRecord: { select: { id: true, archiveNumber: true, listId: true } },
+      },
       orderBy: [{ year: 'desc' }, { sequenceNumber: 'desc' }],
       skip: (p - 1) * l,
       take: l,
