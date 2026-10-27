@@ -55,7 +55,7 @@ router.get('/register-book', requirePermission('kgb.view'), async (req, res) => 
       nama: emp.name,
       nip: emp.nip,
       gol: k.oldRank,
-      pangkat: k.oldRank,
+      pangkat: k.newRank,  // baru: pakai newRank untuk pangkat
       jabatan: emp.position,
       unitKerja: emp.orgUnit?.name ?? '-',
       lama: {
@@ -102,7 +102,8 @@ router.get('/monitoring', requirePermission('kgb.view'), async (req, res) => {
   const items = employees.map((e) => {
     const last = byEmp[e.id];
     let baseDate: Date | null = null;
-    if (last && last.status === 'COMPLETED') {
+    // ARCHIVED dianggap sama seperti COMPLETED: kelakungan sudah selesai
+    if (last && (last.status === 'COMPLETED' || last.status === 'ARCHIVED')) {
       baseDate = new Date(last.effectiveDate);
     } else if (e.joinDate) {
       baseDate = new Date(e.joinDate);
