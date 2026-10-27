@@ -13,7 +13,7 @@ import { can } from '../lib/permissions';
 const router = Router();
 router.use(authRequired);
 
-const LETTER_STATUS = ['RECEIVED', 'DISPOSED', 'COMPLETED', 'ARCHIVED'] as const;
+const LETTER_STATUS = ['RECEIVED', 'PARAF', 'DISPOSED', 'COMPLETED', 'ARCHIVED'] as const;
 const PRIORITY = ['BIASA', 'SEGERA', 'SANGAT_SEGERA'] as const;
 const MAX_LETTER_BYTES = 10_000_000;
 

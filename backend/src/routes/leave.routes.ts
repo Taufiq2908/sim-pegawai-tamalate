@@ -244,6 +244,7 @@ router.patch('/:id', requirePermission('leave.create'), async (req, res) => {
   if (!['DRAFT', 'REVISION'].includes(r.status)) return fail(res, 409, `Hanya DRAFT/REVISION yang bisa diubah (saat ini ${r.status})`);
   if (req.user!.role === 'EMPLOYEE' && r.employeeId !== req.user!.employeeId) return fail(res, 403, 'Bukan milikmu');
   const schema = z.object({
+    leaveTypeCode: z.string().min(1).optional(),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     reason: z.string().min(5).optional(),
@@ -252,12 +253,25 @@ router.patch('/:id', requirePermission('leave.create'), async (req, res) => {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+  const { leaveTypeCode, ...rest } = parsed.data;
+  let leaveTypeId: string | undefined;
+  if (leaveTypeCode) {
+    const leaveType = await prisma.leaveType.findUnique({ where: { code: leaveTypeCode } });
+    if (!leaveType || !leaveType.isActive) return fail(res, 422, 'Jenis cuti tidak valid');
+    leaveTypeId = leaveType.id;
+  }
   const start = parsed.data.startDate ? new Date(parsed.data.startDate) : r.startDate;
   const end = parsed.data.endDate ? new Date(parsed.data.endDate) : r.endDate;
   if (end < start) return fail(res, 422, 'endDate harus >= startDate');
   const updated = await prisma.leaveRequest.update({
     where: { id: r.id },
-    data: { ...parsed.data, startDate: start, endDate: end, totalDays: calcDays(start, end) },
+    data: {
+      ...rest,
+      ...(leaveTypeId ? { leaveTypeId } : {}),
+      startDate: start,
+      endDate: end,
+      totalDays: calcDays(start, end),
+    },
     include: includeDetail,
   });
   return ok(res, await toDetail(updated, req.user!.permissions));

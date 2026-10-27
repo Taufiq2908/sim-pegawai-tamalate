@@ -55,3 +55,31 @@ export const KGB_REQUIRED_DOCS = [
 // Interval KGB standar: setiap 2 tahun (regulasi KGB).
 export const KGB_INTERVAL_YEARS = 2;
 export const KGB_REMINDER_MONTHS = 3; // notifikasi 3 bulan sebelum jatuh tempo
+// Reminder masih dikirim untuk KGB yang terlambat, maksimal 12 bulan ke belakang.
+// Di luar itu data dianggap sudah tidak relevan (mis. pegawai sudah pensiun/pindah).
+export const KGB_OVERDUE_MONTHS = 12;
+
+/** Selisih bulan kalender (bukan hari), konsisten dengan monitoring/reminder. */
+export function monthsBetween(from: Date, to: Date): number {
+  return (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+}
+
+export interface KgbSchedule {
+  nextKgbDate: string; // YYYY-MM-DD
+  monthsUntil: number;
+  dueSoon: boolean;
+  isOverdue: boolean;
+}
+
+/** Jatuh tempo KGB = basis (KGB final terakhir / tanggal masuk) + 2 tahun. */
+export function computeKgbSchedule(baseDate: Date, now = new Date()): KgbSchedule {
+  const next = new Date(baseDate);
+  next.setFullYear(next.getFullYear() + KGB_INTERVAL_YEARS);
+  const monthsUntil = monthsBetween(now, next);
+  return {
+    nextKgbDate: next.toISOString().slice(0, 10),
+    monthsUntil,
+    dueSoon: monthsUntil >= 0 && monthsUntil <= KGB_REMINDER_MONTHS,
+    isOverdue: monthsUntil < 0,
+  };
+}

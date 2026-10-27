@@ -111,6 +111,7 @@ Validasi 422: tanggal terbalik, reason kosong, leaveType tidak aktif.
 
 ### PATCH /leave-requests/:id
 Hanya saat DRAFT/REVISION dan hanya pemilik. Body sama seperti create (parsial boleh).
+Mengganti jenis cuti: kirim `leaveTypeCode`; backend memvalidasi jenis aktif dan meng-update `leaveTypeId`.
 
 ### POST /leave-requests/:id/documents (multipart)
 Perm: `leave.document.upload`. Hanya DRAFT/REVISION + pemilik (atau verifier nambah? v1: tidak).
@@ -319,18 +320,22 @@ POST /kgb-requests/:id/complete {note?}         SUBMITTED_BKPSDMD → COMPLETED 
 POST /kgb-requests/:id/archive                  COMPLETED → ARCHIVED (staf kecamatan)
 GET  /kgb-requests?status=&q=   → detail berisi availableActions + timeline + camat
 GET  /kgb-requests/monitoring   → daftar pegawai + KGB terakhir (step 1 SOP)
-  Response menyertakan nextKgbDate, monthsUntil, dueSoon (≤3 bulan), requiredDocs
+  Response menyertakan nextKgbDate, monthsUntil, dueSoon (≤3 bulan), isOverdue, requiredDocs.
+  Basis jatuh tempo = KGB final terakhir (COMPLETED/ARCHIVED) + 2 tahun; bila belum ada, tanggal masuk.
+  Draf/revisi yang belum final tidak menggeser tanggal. Meta: {total, dueSoon, overdue}.
 GET  /kgb-requests/register-book?year= → buku register KGB (step 7 SOP)
   [{tglSk, nama, nip, gol, pangkat, jabatan, unitKerja,
     lama:{nomorSk, tanggalSk, tglMulai, masaKerja, tahun, golMasaKerja, gajiPokok},
     baru:{tglMulai, kgbYad, masaKerja, tahun, golMasaKerja, gajiPokok}]
 POST /kgb-requests/reminders/generate → buat notifikasi pengingat KGB
-  perm kgb.remind; pegawai yang jatuh tempo ≤3 bulan; notifikasi ke pegawai + staf kepegawaian + kasubag
+  perm kgb.remind; pegawai yang jatuh tempo ≤3 bulan ATAU terlambat ≤12 bulan; notifikasi ke pegawai + staf kepegawaian + kasubag.
+  Response per pegawai: {employee, nextKgbDate, monthsUntil, isOverdue, notified}.
   berisi daftar berkas yang harus disiapkan (SK_CPNS_TERAKHIR, SK_PANGKAT_TERAKHIR, SKP_2_TAHUN, KP4, KTP, NPWP, REKENING_GAJI)
 DELETE /kgb-requests/:id        → hapus DRAFT milik sendiri
 ```
 
 Aturan khusus: `newSalary > oldSalary` (422 bila tidak). Ekor (register→archive) hanya staf kecamatan. `register` mensyaratkan `note` (nomor surat keluar). `complete` mensyaratkan sudah dikirim (SUBMITTED_BKPSDMD). Step 7-9 SOP terintegrasi dengan buku agenda surat keluar + buku ekspedisi (operator mencatat manual via endpoint surat yang ada). Detail menyertakan field `camat` ({name, nip, position}).
+Setiap transisi KGB membuat notifikasi `type=KGB`, `referenceType=kgb_request`, `referenceId=<id KGB>` untuk pemegang tahap berikut + pemohon. Buku register memakai nomor/tanggal dari approval REGISTER; kolom `gol`/`pangkat` memakai golongan baru.
 
 ## 7. Master & User (untuk dropdown & admin)
 
