@@ -28,6 +28,10 @@ async function toDetail(r: any, perms: string[]) {
   const supervisor = r.employee
     ? await resolveSupervisor({ position: r.employee.position, orgUnit: r.employee.orgUnit ?? null })
     : null;
+  const camat = await prisma.user.findFirst({
+    where: { position: 'CAMAT', isActive: true },
+    include: { employee: { select: { name: true, nip: true } } },
+  });
   const applicant = r.employee
     ? { position: r.employee.position ?? null, orgType: r.employee.orgUnit?.type ?? null }
     : null;
@@ -35,6 +39,7 @@ async function toDetail(r: any, perms: string[]) {
     ...r,
     availableActions: availableActions(r.status, perms, applicant),
     supervisor,
+    camat: camat ? { name: camat.employee?.name ?? camat.username, nip: camat.employee?.nip ?? null, position: 'CAMAT' } : null,
     documents: (r.documents ?? []).map((d: any) => ({
       id: d.id,
       docType: d.docType,

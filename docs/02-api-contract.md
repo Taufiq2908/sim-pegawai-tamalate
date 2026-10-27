@@ -319,6 +319,14 @@ POST /kgb-requests/:id/complete {note?}         SUBMITTED_BKPSDMD → COMPLETED 
 POST /kgb-requests/:id/archive                  COMPLETED → ARCHIVED (staf kecamatan)
 GET  /kgb-requests?status=&q=   → detail berisi availableActions + timeline + camat
 GET  /kgb-requests/monitoring   → daftar pegawai + KGB terakhir (step 1 SOP)
+  Response menyertakan nextKgbDate, monthsUntil, dueSoon (≤3 bulan), requiredDocs
+GET  /kgb-requests/register-book?year= → buku register KGB (step 7 SOP)
+  [{tglSk, nama, nip, gol, pangkat, jabatan, unitKerja,
+    lama:{nomorSk, tanggalSk, tglMulai, masaKerja, tahun, golMasaKerja, gajiPokok},
+    baru:{tglMulai, kgbYad, masaKerja, tahun, golMasaKerja, gajiPokok}]
+POST /kgb-requests/reminders/generate → buat notifikasi pengingat KGB
+  perm kgb.remind; pegawai yang jatuh tempo ≤3 bulan; notifikasi ke pegawai + staf kepegawaian + kasubag
+  berisi daftar berkas yang harus disiapkan (SK_CPNS_TERAKHIR, SK_PANGKAT_TERAKHIR, SKP_2_TAHUN, KP4, KTP, NPWP, REKENING_GAJI)
 DELETE /kgb-requests/:id        → hapus DRAFT milik sendiri
 ```
 

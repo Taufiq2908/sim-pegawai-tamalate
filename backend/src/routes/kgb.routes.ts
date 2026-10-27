@@ -6,14 +6,193 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
 import { authRequired, requirePermission } from '../middleware/auth';
-import { availableActions, TRANSITIONS } from '../services/kgb.service';
+import { availableActions, KGB_REQUIRED_DOCS, TRANSITIONS } from '../services/kgb.service';
 import { ok, fail } from '../utils/response';
 import { can } from '../lib/permissions';
 import { parseYMD } from '../services/attendance.service';
-import { resolveSupervisor } from '../services/supervisor.service';
 
 const router = Router();
 router.use(authRequired);
+
+// GET /kgb-requests/register-book — buku register KGB (step 7 SOP)
+// Kolom: tglSk, nama, nip, gol, pangkat, jabatan, unitKerja,
+//   lama: {nomorSk, tanggalSk, tglMulai, masaKerja, tahun, golMasaKerja, gajiPokok},
+//   baru: {tglMulai, kgbYad, masaKerja, tahun, golMasaKerja, gajiPokok}
+router.get('/register-book', requirePermission('kgb.view'), async (req, res) => {
+  const { year } = req.query as any;
+  const where: any = {
+    status: { in: ['APPROVED', 'REGISTERED', 'SUBMITTED_BKPSDMD', 'COMPLETED', 'ARCHIVED'] },
+  };
+  if (year) {
+    const y = Number(year);
+    where.effectiveDate = { gte: new Date(`${y}-01-01`), lte: new Date(`${y}-12-31`) };
+  }
+  const items = await prisma.kgbRequest.findMany({
+    where,
+    include: { employee: { include: { orgUnit: true } } },
+    orderBy: { effectiveDate: 'asc' },
+  });
+
+  function masaKerja(joinDate: Date | null, refDate: Date): string {
+    if (!joinDate) return '-';
+    const months = (refDate.getFullYear() - joinDate.getFullYear()) * 12 + (refDate.getMonth() - joinDate.getMonth());
+    if (months < 0) return '-';
+    const y = Math.floor(months / 12);
+    const m = months % 12;
+    return m > 0 ? `${y} Tahun ${m} Bulan` : `${y} Tahun`;
+  }
+
+  const rows = items.map((k) => {
+    const emp = k.employee;
+    const joinDate = emp.joinDate ? new Date(emp.joinDate) : null;
+    const effDate = new Date(k.effectiveDate);
+    const nextKgb = new Date(effDate);
+    nextKgb.setFullYear(nextKgb.getFullYear() + 2);
+    const masaLama = masaKerja(joinDate, effDate);
+    const masaBaru = masaKerja(joinDate, nextKgb);
+    return {
+      tglSk: effDate.toISOString().slice(0, 10),
+      nama: emp.name,
+      nip: emp.nip,
+      gol: k.oldRank,
+      pangkat: k.oldRank,
+      jabatan: emp.position,
+      unitKerja: emp.orgUnit?.name ?? '-',
+      lama: {
+        nomorSk: k.note ?? k.requestNumber,
+        tanggalSk: effDate.toISOString().slice(0, 10),
+        tglMulai: effDate.toISOString().slice(0, 10),
+        masaKerja: masaLama,
+        tahun: effDate.getFullYear(),
+        golMasaKerja: `${k.oldRank} & ${masaLama}`,
+        gajiPokok: k.oldSalary,
+      },
+      baru: {
+        tglMulai: effDate.toISOString().slice(0, 10),
+        kgbYad: nextKgb.toISOString().slice(0, 10),
+        masaKerja: masaBaru,
+        tahun: effDate.getFullYear(),
+        golMasaKerja: `${k.newRank} & ${masaBaru}`,
+        gajiPokok: k.newSalary,
+      },
+    };
+  });
+  return ok(res, rows, 'ok', { total: rows.length });
+});
+
+// GET /kgb-requests/monitoring — daftar pegawai + KGB terakhir (step 1 SOP)
+// + perhitungan jatuh tempo KGB berikutnya (2 tahun dari KGB terakhir / tanggal masuk)
+// + flag dueSoon (≤3 bulan) untuk pemicu pengingat.
+router.get('/monitoring', requirePermission('kgb.view'), async (req, res) => {
+  const employees = await prisma.employee.findMany({
+    where: { isActive: true },
+    include: { orgUnit: true },
+    orderBy: { name: 'asc' },
+  });
+  const lastKgb = await prisma.kgbRequest.findMany({
+    where: { employeeId: { in: employees.map((e) => e.id) } },
+    orderBy: { createdAt: 'desc' },
+    include: { employee: true },
+  });
+  const byEmp: Record<string, any> = {};
+  for (const k of lastKgb) {
+    if (!byEmp[k.employeeId]) byEmp[k.employeeId] = k;
+  }
+  const now = new Date();
+  const items = employees.map((e) => {
+    const last = byEmp[e.id];
+    let baseDate: Date | null = null;
+    if (last && last.status === 'COMPLETED') {
+      baseDate = new Date(last.effectiveDate);
+    } else if (e.joinDate) {
+      baseDate = new Date(e.joinDate);
+    }
+    let nextKgbDate: string | null = null;
+    let monthsUntil: number | null = null;
+    if (baseDate) {
+      const next = new Date(baseDate);
+      next.setFullYear(next.getFullYear() + 2);
+      nextKgbDate = next.toISOString().slice(0, 10);
+      monthsUntil = (next.getFullYear() - now.getFullYear()) * 12 + (next.getMonth() - now.getMonth());
+    }
+    const dueSoon = monthsUntil !== null && monthsUntil >= 0 && monthsUntil <= 3;
+    return {
+      employee: { id: e.id, nip: e.nip, name: e.name, position: e.position, rank: e.rank, orgUnit: e.orgUnit.code },
+      lastKgb: last
+        ? {
+            id: last.id,
+            requestNumber: last.requestNumber,
+            oldRank: last.oldRank,
+            newRank: last.newRank,
+            effectiveDate: last.effectiveDate.toISOString().slice(0, 10),
+            status: last.status,
+          }
+        : null,
+      nextKgbDate,
+      monthsUntil,
+      dueSoon,
+      requiredDocs: dueSoon ? KGB_REQUIRED_DOCS : [],
+    };
+  });
+  return ok(res, items, 'ok', { total: items.length, dueSoon: items.filter((i) => i.dueSoon).length });
+});
+
+// POST /kgb-requests/reminders/generate — buat notifikasi pengingat KGB
+// untuk pegawai yang jatuh tempo ≤3 bulan (ke pegawai + staf kepegawaian + kasubag).
+router.post('/reminders/generate', requirePermission('kgb.remind'), async (req, res) => {
+  const employees = await prisma.employee.findMany({ where: { isActive: true }, include: { orgUnit: true } });
+  const lastKgb = await prisma.kgbRequest.findMany({
+    where: { employeeId: { in: employees.map((e) => e.id) } },
+    orderBy: { createdAt: 'desc' },
+  });
+  const byEmp: Record<string, any> = {};
+  for (const k of lastKgb) {
+    if (!byEmp[k.employeeId]) byEmp[k.employeeId] = k;
+  }
+  const now = new Date();
+  const due: Array<{ employee: any; nextKgbDate: string; monthsUntil: number }> = [];
+  for (const e of employees) {
+    const last = byEmp[e.id];
+    let baseDate: Date | null = null;
+    if (last && last.status === 'COMPLETED') baseDate = new Date(last.effectiveDate);
+    else if (e.joinDate) baseDate = new Date(e.joinDate);
+    if (!baseDate) continue;
+    const next = new Date(baseDate);
+    next.setFullYear(next.getFullYear() + 2);
+    const monthsUntil = (next.getFullYear() - now.getFullYear()) * 12 + (next.getMonth() - now.getMonth());
+    if (monthsUntil >= 0 && monthsUntil <= 3) {
+      due.push({ employee: e, nextKgbDate: next.toISOString().slice(0, 10), monthsUntil });
+    }
+  }
+
+  const result = [];
+  for (const d of due) {
+    const empUser = await prisma.user.findFirst({ where: { employeeId: d.employee.id, isActive: true }, select: { id: true } });
+    const recipients = new Set<string>();
+    if (empUser) recipients.add(empUser.id);
+    // staf kepegawaian (operator)
+    const staf = await prisma.user.findMany({ where: { position: 'STAF_KEPEGAWAIAN', isActive: true }, select: { id: true } });
+    for (const s of staf) recipients.add(s.id);
+    // kasubag
+    const kasubag = await prisma.user.findMany({ where: { position: 'KASUBAG', isActive: true }, select: { id: true } });
+    for (const k of kasubag) recipients.add(k.id);
+
+    const docList = KGB_REQUIRED_DOCS.join(', ');
+    await prisma.notification.createMany({
+      data: [...recipients].map((userId) => ({
+        userId,
+        type: 'KGB_REMINDER',
+        title: `Pengingat KGB: ${d.employee.name}`,
+        body: `KGB pegawai ${d.employee.name} (NIP ${d.employee.nip ?? '-'}) jatuh tempo ${d.nextKgbDate} (${d.monthsUntil} bulan lagi). ` +
+          `Berkas yang perlu disiapkan: ${docList}. Harap segera melengkapi berkas.`,
+        referenceType: 'kgb_reminder',
+        referenceId: null,
+      })),
+    });
+    result.push({ employee: d.employee.name, nextKgbDate: d.nextKgbDate, monthsUntil: d.monthsUntil, notified: recipients.size });
+  }
+  return ok(res, result, `${result.length} pengingat dibuat`);
+});
 
 fs.mkdirSync(env.uploadDir, { recursive: true });
 const upload = multer({
@@ -297,38 +476,6 @@ router.post('/:id/:action', async (req, res) => {
   return ok(res, await toDetail(full, req.user!.permissions), `${action} berhasil`);
 });
 
-// GET /kgb-requests/monitoring — daftar pegawai + KGB terakhir (step 1 SOP)
-router.get('/monitoring', requirePermission('kgb.view'), async (req, res) => {
-  const employees = await prisma.employee.findMany({
-    where: { isActive: true },
-    include: { orgUnit: true },
-    orderBy: { name: 'asc' },
-  });
-  const lastKgb = await prisma.kgbRequest.findMany({
-    where: { employeeId: { in: employees.map((e) => e.id) } },
-    orderBy: { createdAt: 'desc' },
-    include: { employee: true },
-  });
-  const byEmp: Record<string, any> = {};
-  for (const k of lastKgb) {
-    if (!byEmp[k.employeeId]) byEmp[k.employeeId] = k;
-  }
-  const items = employees.map((e) => ({
-    employee: { id: e.id, nip: e.nip, name: e.name, position: e.position, rank: e.rank, orgUnit: e.orgUnit.code },
-    lastKgb: byEmp[e.id]
-      ? {
-          id: byEmp[e.id].id,
-          requestNumber: byEmp[e.id].requestNumber,
-          oldRank: byEmp[e.id].oldRank,
-          newRank: byEmp[e.id].newRank,
-          effectiveDate: byEmp[e.id].effectiveDate.toISOString().slice(0, 10),
-          status: byEmp[e.id].status,
-        }
-      : null,
-  }));
-  return ok(res, items, 'ok', { total: items.length });
-});
-
 // DELETE /kgb-requests/:id — hapus DRAFT milik sendiri
 router.delete('/:id', requirePermission('kgb.view'), async (req, res) => {
   const r = await prisma.kgbRequest.findUnique({ where: { id: req.params.id }, include: { documents: true } });
@@ -347,5 +494,6 @@ router.delete('/:id', requirePermission('kgb.view'), async (req, res) => {
   }
   return ok(res, null, 'Draf dihapus');
 });
+
 
 export default router;

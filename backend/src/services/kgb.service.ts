@@ -40,3 +40,18 @@ export function calcDays(start: Date, end: Date) {
   const ms = end.getTime() - start.getTime();
   return Math.floor(ms / 86400000) + 1;
 }
+
+// Dokumen yang harus disiapkan pegawai untuk usul KGB (step 2 SOP).
+export const KGB_REQUIRED_DOCS = [
+  'SK_CPNS_TERAKHIR',
+  'SK_PANGKAT_TERAKHIR',
+  'SKP_2_TAHUN',
+  'KP4',
+  'KTP',
+  'NPWP',
+  'REKENING_GAJI',
+];
+
+// Interval KGB standar: setiap 2 tahun (regulasi KGB).
+export const KGB_INTERVAL_YEARS = 2;
+export const KGB_REMINDER_MONTHS = 3; // notifikasi 3 bulan sebelum jatuh tempo
