@@ -10,4 +10,5 @@ export const env = {
   apelDeadline: process.env.APEL_DEADLINE_TIME ?? '08:00', // WITA (Asia/Makassar)
   checkoutWeekday: process.env.CHECKOUT_TIME_WEEKDAY ?? '16:00', // Sen-Kam WITA
   checkoutFriday: process.env.CHECKOUT_TIME_FRIDAY ?? '16:30', // Jumat WITA
+  pensionBupAge: Number(process.env.PENSION_BUP_AGE ?? 58), // Batas Usia Pensiun PNS
 };
