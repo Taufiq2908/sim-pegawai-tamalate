@@ -261,42 +261,70 @@ pejabat (Camat/Sekcam/Kasubag), `statusPembinaan` (Menunggu/Diproses/Selesai).
 
 ```text
 POST /letters (JSON, atau multipart + file)          → RECEIVED   (letter.create)
+  field agenda opsional: activityDate, activityStartTime, activityEndTime,
+  activityLocation, assignedUserIds[] (UUID petugas)
 POST /letters/:id/documents (multipart, max 10MB)                 (letter.document.upload)
+GET  /letters/:id/documents/:docId/download                       (letter.view, scope surat)
 POST /letters/:id/dispose {toUserId, instruction, deadline?}      (letter.dispose)
+POST /letters/:id/dispositions {instruction, deadline?, targets[]?, targetCodes[]?, toUserIds[]?}
+  → disposisi massal; satu baris target = {targetCode?, toUserId?, instruction?, deadline?}
+  → targetCodes memakai 9 kode tujuan, backend memetakan ke jabatan (bukan role baru)
+  → setiap penerima mendapat notifikasi DISPOSITION             (letter.dispose)
 POST /letters/dispositions/:dispId/followup {note}   → DONE       (letter.followup, hanya penerima)
 POST /letters/:id/complete {note?}                   → COMPLETED  (letter.complete, wajib semua disposisi DONE)
 POST /letters/:id/archive                            → ARCHIVED   (letter.archive)
+PATCH /letters/:id/agenda {activityDate?, activityStartTime?, activityEndTime?,
+  activityLocation?, assignedUserIds[]?}                            (letter.register)
 GET  /letters?status=&q=                  → scoped: admin/verifier semua, lainnya hanya yang melibatkan dirinya
-GET  /letters/:id                        → detail + dispositions[] + availableActions + canFollowUp per disposisi
+GET  /letters/:id                        → detail + dispositions[] + agendaAssignments[] + availableActions
 GET  /letters/classifications            → kode klasifikasi arsip aktif (letter.view)
-GET  /letters/disposition-targets        → 9 tujuan disposisi tetap (letter.dispose)
+GET  /letters/disposition-targets        → 9 tujuan disposisi + mappedPosition + recipients[] + available (letter.dispose)
+GET  /letters/agenda?date=&from=&to=      → agenda kegiatan; default hari ini (letter.view)
+GET  /letters/agenda/tomorrow             → agenda kegiatan esok hari + assignedStaff[] (letter.view)
+```
 
 ### Buku agenda, lembar disposisi, ekspedisi (format siap tampil)
 
 ```text
-GET /letters/register-book?from=&to=  → [{nomor, instansiDitujukan, noSurat, tanggalSurat, perihal, penanggungJawab, ket}]
+GET /letters/register-book?from=&to=&q=&status=
+  → [{nomor, nomorAgenda, instansiDitujukan, instansiAsal, noSurat, nomorSurat, tanggalSurat,
+      tanggalDiterima, perihal, penanggungJawab, klasifikasi, ket, keterangan, status, petugasAgenda[]}]
 GET /letters/:id/disposition-sheet    → {nomorAgenda, sifatSurat, tanggalPenerimaan, tanggalSurat, tanggalPenyelesaian,
                                           nomorSurat, asalSurat, ringkasanIsi, klasifikasi, disposisi[]}
 POST /letters/:id/expedition {receiverName, signatureName?, note?}  → {regNumber, ...} (letter.expedition)
-GET /letters/expedition-book          → [{tanggalHariIni, nomorRegis, tanggalSurat, penerimaSurat, paraf, asalSurat}]
+GET /letters/expedition-book?from=&to=&q=&letterId=
+  → [{tanggalHariIni, nomorRegis, nomorSurat, tanggalSurat, perihal, penerimaSurat, paraf, asalSurat, catatan}]
 ```
 
-### Surat keluar + reservasi nomor (format `klasifikasi / seq / KT / romawi / tahun`)
+### Surat keluar + reservasi nomor (format `kode surat / seq / KT / romawi / tahun`)
 
 ```text
-POST /outgoing-letters {classificationCode, subject, recipient, letterDate?, priority?, secrecy?, signerName?}
-  → ISSUED langsung, nomor dari sequence tahun berjalan            (outgoing.create)
-POST /outgoing-letters/reserve {classificationCode, letterDate, reason, signerName?}
+POST /outgoing-letters {classificationCode, subject, recipient, letterDate?, priority?, secrecy?,
+  signerName?, letterCode?, destinationNumber?, personInCharge?, remarks?}
+  → JSON atau multipart + file; langsung ISSUED                    (outgoing.create)
+POST /outgoing-letters/reserve {classificationCode, letterDate, reason, signerName?,
+  letterCode?, destinationNumber?, personInCharge?, remarks?}
   → RESERVED, nomor diamankan (letterDate ≤ hari ini)             (outgoing.reserve)
-POST /outgoing-letters/:id/issue {recipient, subject?, ...} → ISSUED, nomor TETAP (outgoing.issue)
+POST /outgoing-letters/:id/issue {recipient, subject?, letterCode?, destinationNumber?,
+  personInCharge?, remarks?, ...} → ISSUED, nomor TETAP           (outgoing.issue)
 POST /outgoing-letters/:id/cancel {reason} → CANCELLED, nomor tidak dipakai ulang (outgoing.cancel)
 POST /outgoing-letters/:id/documents (multipart, 10MB)
+GET  /outgoing-letters/:id/documents/:docId/download            (outgoing.view)
 GET  /outgoing-letters?status=&q=  |  GET /outgoing-letters/:id
-GET  /outgoing-letters/register-book?year= → buku agenda keluar per nomor urut
+GET  /outgoing-letters/register-book?year=&from=&to=&q=&status=
+  → [{nomor, nomorUrut, instansiDituju, nomorTujuan, nomorSurat, tanggalSurat, tanggalCatat,
+      perihal, penanggungJawab, kodeSurat, klasifikasi, penandatangan, ket, status}]
+GET  /outgoing-letters/numbering?year= → status nomor terakhir + buffer backdate
 ```
 
-Aturan: tanggal surat tidak boleh masa depan; tanggal surat boleh < tanggal catat (backdate via reservasi);
+Dokumen pada response surat memakai `downloadUrl`; `storedPath` tidak lagi
+dikirim ke frontend.
+
+Aturan: tanggal surat tidak boleh masa depan; tanggal surat boleh < tanggal catat (backdate);
 CANCELLED terminal; sequence dilindungi UNIQUE(year, sequence_number).
+Buffer backdate: saat tanggal surat berganti, 3 nomor setelah nomor terakhir tanggal lama
+dikunci untuk surat menyusul; tanggal baru mulai setelah 3 nomor tersebut. Buffer habis → 409.
+Nomor tahun baru dimulai dari 1 (sequence tahunan).
 
 ### Notifikasi (milik sendiri, cukup login)
 
@@ -304,7 +332,6 @@ CANCELLED terminal; sequence dilindungi UNIQUE(year, sequence_number).
 GET /notifications?unread=true  |  GET /notifications/unread-count  |  PATCH /notifications/:id/read
 ```
 Disposisi baru otomatis membuat notifikasi untuk penerima.
-```
 
 ## 6. KGB (pola sama seperti cuti, prefix `kgb.`)
 
