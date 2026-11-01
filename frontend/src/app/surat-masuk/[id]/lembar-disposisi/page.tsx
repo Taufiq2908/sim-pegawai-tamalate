@@ -16,6 +16,16 @@ interface Sheet {
   asalSurat: string;
   ringkasanIsi: string | null;
   klasifikasi: string | null;
+  tanggalKegiatan: string | null;
+  waktuMulai: string | null;
+  waktuSelesai: string | null;
+  tempatKegiatan: string | null;
+  petugasAgenda: Array<{
+    id: string;
+    username: string;
+    nama: string;
+    nip: string | null;
+  }>;
   disposisi: Array<{
     nomor: number;
     kepada: string;
@@ -78,6 +88,11 @@ export default function LembarDisposisiPage() {
             <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Klasifikasi</dt><dd className="font-semibold">: {sheet.klasifikasi ?? "-"}</dd></div>
             <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Tgl. Penyelesaian</dt><dd className="font-semibold">: {sheet.tanggalPenyelesaian ?? "-"}</dd></div>
             <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Tgl. Distribusi</dt><dd className="font-semibold">: {sheet.tanggalDistribusi ? new Date(sheet.tanggalDistribusi).toLocaleString("id-ID") : "-"}</dd></div>
+            <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Tgl. Kegiatan</dt><dd className="font-semibold">: {sheet.tanggalKegiatan ?? "-"}</dd></div>
+            <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Waktu Mulai</dt><dd className="font-semibold">: {sheet.waktuMulai ?? "-"}</dd></div>
+            <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Waktu Selesai</dt><dd className="font-semibold">: {sheet.waktuSelesai ?? "-"}</dd></div>
+            <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Tempat Kegiatan</dt><dd className="font-semibold">: {sheet.tempatKegiatan ?? "-"}</dd></div>
+            <div className="sm:col-span-2 flex gap-2"><dt className="w-36 shrink-0 text-muted">Petugas Agenda</dt><dd className="font-semibold">{sheet.petugasAgenda.map((a) => a.nama).join(", ") || "-"}</dd></div>
           </dl>
           <div className="mt-3 border-t pt-2">
             <p className="text-muted">Ringkasan isi:</p>

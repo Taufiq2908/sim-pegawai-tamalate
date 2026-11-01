@@ -31,6 +31,13 @@ const SECTIONS = [
       { href: "/surat-keluar", label: "Surat Keluar", icon: Icons.send, perm: "outgoing.view" },
     ],
   },
+  {
+    title: "Arsip",
+    items: [
+      { href: "/arsip", label: "Buku Arsip", icon: Icons.archive, perm: "archive.view" },
+      { href: "/arsip/daftar", label: "Daftar Arsip", icon: Icons.file, perm: "archive.view" },
+    ],
+  },
 ];
 
 function initials(name?: string | null) {
@@ -43,6 +50,7 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/cuti\/baru$/, "Pengajuan Cuti Baru"],
   [/^\/cuti\/[^/]+\/pengajuan$/, "Surat Pengajuan Cuti"],
   [/^\/cuti\/[^/]+\/surat$/, "Surat Pengantar Cuti"],
+  [/^\/cuti\/[^/]+\/edit$/, "Ubah Pengajuan Cuti"],
   [/^\/cuti\/.+$/, "Detail Pengajuan Cuti"],
   [/^\/cuti$/, "Pengajuan Cuti"],
   [/^\/presensi\/teguran/, "Surat Teguran"],
@@ -58,6 +66,7 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/kgb\/monitoring$/, "Monitoring KGB"],
   [/^\/kgb\/register-book$/, "Buku Register KGB"],
   [/^\/kgb\/[^/]+\/surat$/, "Surat Pengantar KGB"],
+  [/^\/kgb\/[^/]+\/edit$/, "Ubah Pengajuan KGB"],
   [/^\/kgb\/.+$/, "Detail Pengajuan KGB"],
   [/^\/kgb$/, "Kenaikan Gaji Berkala"],
   [/^\/notifikasi$/, "Notifikasi"],

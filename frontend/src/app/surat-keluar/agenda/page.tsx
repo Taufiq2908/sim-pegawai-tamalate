@@ -7,13 +7,17 @@ import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
 
 interface RegisterRow {
   nomor: number;
+  nomorUrut: number;
+  instansiDituju: string;
+  nomorTujuan: string | null;
   nomorSurat: string;
   tanggalSurat: string;
   tanggalCatat: string;
-  tujuan: string;
   perihal: string;
+  penanggungJawab: string | null;
+  kodeSurat: string | null;
   klasifikasi: string;
-  penandatangan: string;
+  ket: string;
   status: string;
 }
 
@@ -60,24 +64,25 @@ export default function RegisterSuratKeluarPage() {
 
       <div className="mt-4">
         {loading ? (
-          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-64 w-full" />
         ) : error ? (
           <ErrorBox message={error} onRetry={load} />
         ) : rows.length === 0 ? (
           <EmptyState title="Tidak ada baris agenda" hint="Ubah tahun." />
         ) : (
           <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-            <table className="w-full min-w-220 text-left text-sm">
+            <table className="w-full min-w-360 text-left text-sm">
               <thead>
                 <tr className="border-b bg-paper text-xs text-muted">
                   <th className="px-3 py-2">No</th>
-                  <th className="px-3 py-2">Nomor surat</th>
-                  <th className="px-3 py-2">Tgl. surat</th>
-                  <th className="px-3 py-2">Tgl. catat</th>
-                  <th className="px-3 py-2">Tujuan</th>
+                  <th className="px-3 py-2">Instansi Dituju</th>
+                  <th className="px-3 py-2">Nomor Tujuan</th>
+                  <th className="px-3 py-2">Nomor Surat</th>
+                  <th className="px-3 py-2">Tgl. Surat</th>
                   <th className="px-3 py-2">Perihal</th>
-                  <th className="px-3 py-2">Klasifikasi</th>
-                  <th className="px-3 py-2">Penandatangan</th>
+                  <th className="px-3 py-2">Penanggung Jawab</th>
+                  <th className="px-3 py-2">Kode Surat</th>
+                  <th className="px-3 py-2">Keterangan</th>
                   <th className="px-3 py-2">Status</th>
                 </tr>
               </thead>
@@ -85,13 +90,14 @@ export default function RegisterSuratKeluarPage() {
                 {rows.map((r) => (
                   <tr key={r.nomor} className="border-b last:border-0">
                     <td className="px-3 py-2">{r.nomor}</td>
-                    <td className="px-3 py-2 font-medium">{r.nomorSurat}</td>
+                    <td className="px-3 py-2">{r.instansiDituju}</td>
+                    <td className="px-3 py-2 font-medium">{r.nomorTujuan ?? "-"}</td>
+                    <td className="px-3 py-2">{r.nomorSurat}</td>
                     <td className="px-3 py-2">{r.tanggalSurat}</td>
-                    <td className="px-3 py-2">{r.tanggalCatat}</td>
-                    <td className="px-3 py-2">{r.tujuan}</td>
                     <td className="px-3 py-2">{r.perihal}</td>
-                    <td className="px-3 py-2">{r.klasifikasi}</td>
-                    <td className="px-3 py-2">{r.penandatangan}</td>
+                    <td className="px-3 py-2">{r.penanggungJawab ?? "-"}</td>
+                    <td className="px-3 py-2">{r.kodeSurat ?? "-"}</td>
+                    <td className="px-3 py-2">{r.ket}</td>
                     <td className="px-3 py-2">{r.status}</td>
                   </tr>
                 ))}

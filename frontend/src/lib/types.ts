@@ -54,7 +54,6 @@ export type LeaveStatus =
   | "VERIFIED"
   | "PARAF"
   | "APPROVED"
-  | "SIGNED"
   | "REGISTERED"
   | "SUBMITTED_BKPSDMD"
   | "FORWARDED"
@@ -98,6 +97,7 @@ export interface LeaveTimelineEntry {
   fromStatus: string;
   toStatus: string;
   actor: string;
+  actorUsername?: string | null;
   actorName?: string | null;
   actorNip?: string | null;
   actorRole?: string | null;
@@ -131,7 +131,9 @@ export interface LeaveDetail extends Omit<LeaveItem, "employee" | "leaveType"> {
   rejectionReason: string | null;
   postponeNote?: string | null;
   supervisor?: SupervisorInfo | null;
-  camat?: { name: string; nip: string | null; position: string | null } | null;
+  camat?: { name: string; nip: string | null; position: string | null; rank?: string | null } | null;
+  submittedAt?: string | null;
+  createdAt?: string | null;
   documents: LeaveDocument[];
   timeline: LeaveTimelineEntry[];
   availableActions: string[];
@@ -257,7 +259,32 @@ export interface IncomingLetter {
   availableActions?: string[];
   dispositions?: Disposition[];
   _count?: { documents: number };
-  documents?: Array<{ id: string; originalName: string; mimeType: string; sizeBytes: number }>;
+  documents?: Array<{ id: string; originalName: string; mimeType: string; sizeBytes: number; downloadUrl: string }>;
+  activityDate?: string | null;
+  activityStartTime?: string | null;
+  activityEndTime?: string | null;
+  activityLocation?: string | null;
+  agendaAssignments?: Array<{
+    id: string;
+    userId: string;
+    note: string | null;
+    user: {
+      id: string;
+      username: string;
+      position: string | null;
+      employee: { name: string; nip: string | null; position?: string | null } | null;
+    };
+  }>;
+  assignedStaff?: Array<{
+    id: string;
+    username: string;
+    name: string;
+    nip: string | null;
+    position: string | null;
+    note: string | null;
+  }>;
+  archiveRecord?: { id: string; archiveNumber: string; listId: string | null } | null;
+  classification?: { code: string; name: string } | null;
 }
 
 export interface OutgoingLetter {
@@ -265,6 +292,12 @@ export interface OutgoingLetter {
   letterNumber: string;
   subject: string;
   recipient: string | null;
+  destinationNumber: string | null;
+  personInCharge: string | null;
+  letterCode: string | null;
+  remarks: string | null;
+  sequenceNumber?: number;
+  year?: number;
   letterDate: string;
   priority: string;
   secrecy: string;
@@ -272,6 +305,8 @@ export interface OutgoingLetter {
   status: "RESERVED" | "ISSUED" | "CANCELLED";
   reservationReason: string | null;
   cancelReason: string | null;
+  documents?: Array<{ id: string; originalName: string; mimeType: string; sizeBytes: number; downloadUrl: string }>;
+  archiveRecord?: { id: string; archiveNumber: string; listId: string | null } | null;
 }
 
 export type KgbStatus =
@@ -295,7 +330,9 @@ export interface KgbDetail extends KgbItem {
   note: string | null;
   revisionNote: string | null;
   rejectionReason: string | null;
-  camat?: { name: string; nip: string | null; position: string | null } | null;
+  submittedAt?: string | null;
+  createdAt?: string | null;
+  camat?: { name: string; nip: string | null; position: string | null; rank?: string | null } | null;
   documents: LeaveDocument[];
   timeline: LeaveTimelineEntry[];
   availableActions: string[];
@@ -321,7 +358,105 @@ export interface KgbMonitoringItem {
   nextKgbDate: string | null;
   monthsUntil: number | null;
   dueSoon: boolean;
+  isOverdue: boolean;
   requiredDocs: string[];
+}
+
+export interface KgbReminderResult {
+  employee: string;
+  nextKgbDate: string;
+  monthsUntil: number;
+  isOverdue: boolean;
+  notified: number;
+}
+
+export type ArchiveSourceType = "INCOMING" | "OUTGOING";
+export type ArchiveCategory = "AKTIF" | "INAKTIF" | "PENTING";
+export type ArchiveLocation = "LEMARI_ARSIP" | "GUDANG_ARSIP" | "LURAH";
+export type ArchiveListStatus = "DRAFT" | "SIGNED";
+
+export interface ArchiveRecord {
+  id: string;
+  archiveNumber: string;
+  sourceType: ArchiveSourceType;
+  incomingLetterId: string | null;
+  outgoingLetterId: string | null;
+  classificationId: string | null;
+  code: string;
+  bundleCode: string | null;
+  title: string;
+  documentNumber: string | null;
+  documentDate: string | null;
+  archiveDate: string;
+  category: ArchiveCategory;
+  location: ArchiveLocation;
+  retentionUntil: string | null;
+  notes: string | null;
+  listId: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  classification?: { id: string; code: string; name: string } | null;
+  incomingLetter?: {
+    id: string;
+    agendaNumber: string;
+    letterNumber: string;
+    subject: string;
+    sender: string;
+    letterDate: string;
+    status: string;
+  } | null;
+  outgoingLetter?: {
+    id: string;
+    letterNumber: string;
+    subject: string;
+    recipient: string;
+    letterDate: string;
+    status: string;
+  } | null;
+  list?: {
+    id: string;
+    listNumber: string;
+    status: ArchiveListStatus;
+    signedAt?: string | null;
+  } | null;
+}
+
+export interface ArchiveList {
+  id: string;
+  listNumber: string;
+  periodStart: string;
+  periodEnd: string;
+  status: ArchiveListStatus;
+  notes: string | null;
+  signerUserId: string | null;
+  signerName: string | null;
+  signerNip: string | null;
+  signerPosition: string | null;
+  signedAt: string | null;
+  createdBy: string;
+  records: ArchiveRecord[];
+}
+
+export interface ArchiveStats {
+  year: number;
+  total: number;
+  unlisted: number;
+  signedLists: number;
+  byCategory: Record<string, number>;
+  bySource: Record<string, number>;
+}
+
+export interface ArchiveCandidate {
+  id: string;
+  sourceType: ArchiveSourceType;
+  agendaNumber: string | null;
+  letterNumber: string;
+  subject: string;
+  party: string;
+  date: string;
+  status: string;
+  classification: { code: string; name: string } | null;
 }
 
 export interface KgbRegisterBookRow {

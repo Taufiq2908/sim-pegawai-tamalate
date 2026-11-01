@@ -68,6 +68,16 @@ export default function NotifikasiPage() {
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm font-semibold">{n.title}</p>
+                  {n.referenceType === "kgb_reminder" ? (
+                    <span className="rounded-full bg-warn-100 px-2 py-0.5 text-xs font-semibold text-warn-700">
+                      Pengingat KGB
+                    </span>
+                  ) : null}
+                  {n.type === "ARCHIVE" ? (
+                    <span className="rounded-full bg-info-100 px-2 py-0.5 text-xs font-semibold text-info-700">
+                      Arsip
+                    </span>
+                  ) : null}
                   {!n.isRead ? (
                     <span className="rounded-full bg-brand-900 px-2 py-0.5 text-xs font-semibold text-white">Baru</span>
                   ) : null}
@@ -85,6 +95,21 @@ export default function NotifikasiPage() {
                   {n.referenceType === "leave_request" && n.referenceId ? (
                     <Link href={`/cuti/${n.referenceId}`} className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
                       Buka pengajuan cuti
+                    </Link>
+                  ) : null}
+                  {(n.referenceType === "kgb_request" || n.referenceType === "KGB") && n.referenceId ? (
+                    <Link href={`/kgb/${n.referenceId}`} className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
+                      Buka pengajuan KGB
+                    </Link>
+                  ) : null}
+                  {n.referenceType === "kgb_reminder" ? (
+                    <Link href="/kgb/monitoring" className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
+                      Buka monitoring KGB
+                    </Link>
+                  ) : null}
+                  {n.referenceType === "archive_list" && n.referenceId ? (
+                    <Link href={`/arsip/daftar/${n.referenceId}`} className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
+                      Buka daftar arsip
                     </Link>
                   ) : null}
                   {n.referenceType === "warning_letter" && n.referenceId ? (
