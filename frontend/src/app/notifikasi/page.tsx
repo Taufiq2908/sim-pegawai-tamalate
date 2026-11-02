@@ -88,7 +88,12 @@ export default function NotifikasiPage() {
                 <p className="mt-1 text-sm text-muted">{n.body}</p>
                 <div className="mt-2 flex gap-2">
                   {n.referenceType === "letter_disposition" ? (
-                    <Link href="/surat-masuk" className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
+                    // referenceId = ID disposisi; halaman detail surat masuk
+                    // me-resolve ke surat induk dan menandai disposisi terkait.
+                    <Link
+                      href={n.referenceId ? `/surat-masuk/${n.referenceId}` : "/surat-masuk"}
+                      className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110"
+                    >
                       Buka surat masuk
                     </Link>
                   ) : null}

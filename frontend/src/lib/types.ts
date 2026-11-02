@@ -496,3 +496,204 @@ export interface NotificationItem {
   isRead: boolean;
   createdAt: string;
 }
+
+export type PensionStatus =
+  | "DRAFT" | "VERIFIED" | "PARAF" | "APPROVED"
+  | "REGISTERED" | "EXPEDITED" | "SENT"
+  | "COMPLETED" | "ARCHIVED" | "REVISION" | "REJECTED";
+
+export type PensionItemStatus = "PENDING" | "VERIFIED" | "REVISION" | "REJECTED";
+
+export type PensionType = "BUP" | "APS" | "UDZUR" | "JANDA" | "DUDA";
+
+export interface PensionChecklistItem {
+  code: string;
+  label: string;
+  uploaded: boolean;
+  documentId: string | null;
+  originalName: string | null;
+  uploadedAt: string | null;
+}
+
+export interface PensionDocument {
+  id: string;
+  docType: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedBy: string;
+  createdAt: string;
+  downloadUrl: string;
+}
+
+export interface PensionItem {
+  id: string;
+  batchId: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNip: string | null;
+  employeeNumber: string;
+  rank: string | null;
+  position: string;
+  orgUnitName: string | null;
+  birthDate: string;
+  retirementDate: string;
+  bupAge: number;
+  yearsOfService: number | null;
+  pensionType: PensionType | string;
+  status: PensionItemStatus;
+  note: string | null;
+  documents: PensionDocument[];
+  documentsChecklist: PensionChecklistItem[];
+  missingDocuments: string[];
+}
+
+export interface PensionBatch {
+  id: string;
+  batchNumber: string;
+  periodYear: number;
+  periodMonth: number | null;
+  bupAge: number;
+  status: PensionStatus;
+  statusLabel: string;
+  note: string | null;
+  outgoingLetterId: string | null;
+  outgoingLetterNumber: string | null;
+  outgoingLetterDate: string | null;
+  agendaNumber: string | null;
+  expeditionNumber: string | null;
+  expeditionDate: string | null;
+  courierName: string | null;
+  receiptNumber: string | null;
+  receiptDate: string | null;
+  receivedBy: string | null;
+  items: PensionItem[];
+  timeline: Array<{
+    action: string;
+    fromStatus: string;
+    toStatus: string;
+    actorName: string | null;
+    actorRole: string;
+    actorPosition: string | null;
+    note: string | null;
+    createdAt: string;
+  }>;
+  availableActions: string[];
+  signers: {
+    camat: { name: string; nip: string | null; position: string } | null;
+    sekcam: { name: string; nip: string | null; position: string } | null;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PensionBupRow {
+  employee: {
+    id: string;
+    nip: string | null;
+    employeeNumber: string;
+    name: string;
+    gender: string;
+    rank: string | null;
+    position: string;
+    employmentStatus: string;
+    orgUnit: { id: string; code: string; name: string } | null;
+  };
+  birthDate: string;
+  age: { years: number; months: number };
+  retirementDate: string;
+  bupAge: number;
+  yearsOfService: number | null;
+  monthsUntil: number;
+  daysUntil: number;
+  existingItem: {
+    id: string;
+    batchId: string;
+    batchNumber: string;
+    batchStatus: PensionStatus;
+    periodYear: number;
+    itemStatus: PensionItemStatus;
+  } | null;
+}
+
+export interface PensionBupMeta {
+  total: number;
+  from: string;
+  to: string;
+  bupAge: number;
+  missingBirthDate: number;
+  alreadyInBatch: number;
+}
+
+export interface PensionRegisterRow {
+  id: string;
+  batchNumber: string;
+  periodYear: number;
+  periodMonth: number | null;
+  periodLabel: string;
+  status: PensionStatus;
+  statusLabel: string;
+  jumlahPegawai: number;
+  pegawai: Array<{
+    name: string;
+    nip: string | null;
+    retirementDate: string | null;
+    status: PensionItemStatus;
+  }>;
+  nomorSurat: string | null;
+  tanggalSurat: string | null;
+  nomorAgenda: string | null;
+  nomorEkspedisi: string | null;
+  tanggalEkspedisi: string | null;
+  nomorTandaTerima: string | null;
+  tanggalTandaTerima: string | null;
+  createdAt: string | null;
+}
+
+export interface PensionNominativeRow {
+  nomor: number;
+  itemId: string;
+  batchId: string;
+  batchNumber: string;
+  periodYear: number;
+  periodMonth: number | null;
+  periodLabel: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNip: string | null;
+  employeeNumber: string;
+  rank: string | null;
+  position: string;
+  orgUnitName: string | null;
+  birthDate: string | null;
+  retirementDate: string | null;
+  bupAge: number;
+  yearsOfService: number | null;
+  pensionType: PensionType | string;
+  itemStatus: PensionItemStatus;
+  batchStatus: PensionStatus;
+  statusLabel: string;
+  documentsChecklist: PensionChecklistItem[];
+  missingDocuments: string[];
+  nomorSurat: string | null;
+  nomorAgenda: string | null;
+  nomorTandaTerima: string | null;
+  tanggalTandaTerima: string | null;
+}
+
+export interface PensionExpeditionRow {
+  id: string;
+  tanggalEkspedisi: string | null;
+  nomorEkspedisi: string | null;
+  nomorSurat: string | null;
+  tujuan: string;
+  penerima: string | null;
+  jumlahPegawai: number;
+  pegawai: Array<{
+    employeeName: string;
+    employeeNip: string | null;
+  }>;
+  status: PensionStatus;
+  statusLabel: string;
+  catatan: string | null;
+}

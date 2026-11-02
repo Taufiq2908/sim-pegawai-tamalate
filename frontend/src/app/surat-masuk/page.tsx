@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
+import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import type { IncomingLetter, LetterStatus, PageMeta } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
@@ -19,6 +20,7 @@ const FILTERS: Array<{ value: "" | LetterStatus; label: string }> = [
 const LIMIT = 10;
 
 export default function SuratMasukListPage() {
+  const { hasPermission } = useAuth();
   const [items, setItems] = useState<IncomingLetter[]>([]);
   const [meta, setMeta] = useState<PageMeta | null>(null);
   const [status, setStatus] = useState("");
@@ -58,14 +60,16 @@ export default function SuratMasukListPage() {
   const totalPages = meta ? Math.max(1, Math.ceil(meta.total / meta.limit)) : 1;
 
   return (
-    <AppShell>
+    <RequirePerm perm="letter.view" label="Surat Masuk">
       <div className="flex flex-wrap items-center gap-2">
-        <Link
-          href="/surat-masuk/baru"
-          className="rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
-        >
-          + Catat surat
-        </Link>
+        {hasPermission("letter.create") ? (
+          <Link
+            href="/surat-masuk/baru"
+            className="rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
+          >
+            + Catat surat
+          </Link>
+        ) : null}
         <Link href="/surat-masuk/agenda" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:bg-paper">
           Buku agenda
         </Link>
@@ -174,6 +178,6 @@ export default function SuratMasukListPage() {
           </>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }

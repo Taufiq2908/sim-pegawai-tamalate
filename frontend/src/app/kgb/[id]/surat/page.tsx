@@ -4,6 +4,9 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { loadSignature } from "@/lib/signature";
+import { actorUsername, formatTanggalSurat, letterDate } from "@/lib/letter";
+import { KopSurat } from "@/components/letter/kop-surat";
+import { SignatureBlock } from "@/components/letter/signature-block";
 import { formatRupiah } from "@/lib/format";
 import type { KgbDetail } from "@/lib/types";
 import { ErrorBox, Skeleton } from "@/components/ui";
@@ -15,19 +18,11 @@ function fmtID(iso?: string | null): string {
   return d.toLocaleDateString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-");
 }
 
-function fmtLong(iso?: string | null): string {
-  if (!iso) return "................";
-  const d = new Date(iso);
-  if (isNaN(+d)) return iso;
-  return d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
-}
-
 export default function SuratPengantarKgbPage() {
   const { id } = useParams<{ id: string }>();
   const [detail, setDetail] = useState<KgbDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [logoOk, setLogoOk] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -65,12 +60,14 @@ export default function SuratPengantarKgbPage() {
   const timeline = detail.timeline ?? [];
   const approveEntry = timeline.find((t) => t.action === "APPROVE");
   const registerEntry = timeline.find((t) => t.action === "REGISTER");
-  const camatUsername = (approveEntry?.actor ?? "").split(" ")[0] || null;
-  const camatSig = camatUsername ? loadSignature(camatUsername) : null;
+  const camatSig = loadSignature(actorUsername(approveEntry));
   // Catatan register kadang berbunyi "Nomor surat keluar: 800/..." — ambil nomornya saja.
   const nomorSurat =
     registerEntry?.note?.trim().replace(/^nomor\s+surat\s+keluar\s*[:\-]\s*/i, "") || detail.requestNumber;
-  const letterDate = registerEntry?.createdAt ?? new Date().toISOString();
+  const letterDateIso =
+    letterDate(registerEntry?.createdAt, approveEntry?.createdAt, detail.submittedAt, detail.createdAt) ??
+    new Date().toISOString();
+  const finalStatus = ["REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(detail.status);
 
   const emp = detail.employee;
   const cell = "border border-black px-2 py-1 align-top";
@@ -87,25 +84,25 @@ export default function SuratPengantarKgbPage() {
         </button>
       </div>
 
-      <div className="print-full mx-auto max-w-3xl px-6 pb-10 text-[13px] leading-relaxed">
-        {/* KOP */}
-        <div className="flex items-center gap-3">
-          {logoOk ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src="/logo-tamalate.png" alt="Logo" className="h-20 w-20 shrink-0 object-contain" onError={() => setLogoOk(false)} />
-          ) : (
-            <div className="flex h-20 w-20 shrink-0 items-center justify-center border border-black text-center text-[10px] font-sans">LOGO</div>
-          )}
-          <div className="flex-1 text-center">
-            <p className="text-base font-bold">PEMERINTAH KOTA MAKASSAR</p>
-            <p className="text-lg font-bold">KECAMATAN TAMALATE</p>
-            <p className="text-xs">Jalan Danau Tanjung Bunga Utara No. 181 Makassar 90224</p>
-            <p className="text-xs">Telp. +62411 - 879 249</p>
-            <p className="text-xs">Email : tamalate.beker22@gmail.com&nbsp;&nbsp;Home page : http://www.kectamalate.com</p>
-          </div>
+      {!finalStatus ? (
+        <div className="no-print mx-auto mb-4 max-w-3xl rounded-lg border border-warn-700/30 bg-warn-100 px-4 py-3 font-sans">
+          <p className="text-sm font-semibold text-warn-700">Pratinjau surat pengantar KGB</p>
+          <p className="mt-0.5 text-xs text-secondary">
+            Surat ini menjadi final setelah KGB diregistrasi dan nomor surat keluar dicatat.
+          </p>
         </div>
-        <div className="mt-1 border-t-[3px] border-black" />
-        <div className="mt-[2px] border-t border-black" />
+      ) : null}
+
+      <div className="print-full relative mx-auto max-w-3xl px-6 pb-10 text-[13px] leading-relaxed">
+        {!finalStatus ? (
+          <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center overflow-hidden opacity-[0.06] print:opacity-[0.10]">
+            <span className="-rotate-[30deg] whitespace-nowrap text-[110px] font-black tracking-widest text-black">
+              PRATINJAU
+            </span>
+          </div>
+        ) : null}
+        {/* KOP */}
+        <KopSurat />
 
         <div className="mt-5 flex justify-between text-xs">
           <div>
@@ -113,7 +110,7 @@ export default function SuratPengantarKgbPage() {
             <p>Lampiran&nbsp;&nbsp;: 1 (satu) berkas</p>
             <p>Perihal&nbsp;&nbsp;: Usulan Kenaikan Gaji Berkala</p>
           </div>
-          <p>Makassar, {fmtLong(letterDate)}</p>
+          <p>Makassar, {formatTanggalSurat(letterDateIso)}</p>
         </div>
 
         <div className="mt-4">
@@ -188,23 +185,14 @@ export default function SuratPengantarKgbPage() {
         </p>
 
         <div className="mt-6 flex justify-end">
-          <div className="w-72 text-center">
-            <p className="font-bold">Camat Tamalate</p>
-            {camatSig ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={camatSig} alt="Tanda tangan Camat" className="mx-auto h-16 object-contain" />
-            ) : (
-              <div className="h-16" />
-            )}
-            <p className="font-bold underline">{detail.camat?.name ?? "................"}</p>
-            <p>Pangkat : Pembina</p>
-            <p>Nip. {detail.camat?.nip ?? "................"}</p>
-            {camatSig && approveEntry ? (
-              <p className="mt-1 text-[11px]">
-                Ditandatangani secara elektronik pada {new Date(approveEntry.createdAt).toLocaleString("id-ID")} (dummy, browser ini).
-              </p>
-            ) : null}
-          </div>
+          <SignatureBlock
+            heading="Camat Tamalate,"
+            name={detail.camat?.name}
+            nip={detail.camat?.nip}
+            rank={detail.camat?.rank}
+            signature={camatSig}
+            signedAt={approveEntry?.createdAt}
+          />
         </div>
       </div>
     </main>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { apiFetch } from "@/lib/api";
 import { formatRupiah } from "@/lib/format";
 import type { KgbRegisterBookRow } from "@/lib/types";
@@ -46,7 +46,7 @@ export default function KgbRegisterBookPage() {
   }, [load, year]);
 
   return (
-    <AppShell>
+    <RequirePerm perm="kgb.view" label="Buku Register KGB">
       <div className="no-print flex flex-wrap items-center gap-2">
         <div>
           <h1 className="text-xl font-bold">Buku Register KGB</h1>
@@ -179,6 +179,6 @@ export default function KgbRegisterBookPage() {
           </>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }

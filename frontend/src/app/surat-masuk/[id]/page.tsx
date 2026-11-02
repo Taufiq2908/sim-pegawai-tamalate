@@ -3,10 +3,11 @@ import { FileButton } from "@/components/form";
 import { toast } from "@/components/toast";
 
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
+import { fileUrl } from "@/lib/file-url";
 import type { IncomingLetter } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
@@ -32,6 +33,45 @@ export default function SuratMasukDetailPage() {
   const [expName, setExpName] = useState("");
   const [expSign, setExpSign] = useState("");
   const [expNote, setExpNote] = useState("");
+  // Deep-link notifikasi disposisi membawa ID disposisi (bukan ID surat).
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const highlightRef = useRef<HTMLLIElement | null>(null);
+
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const d = p.get("disposition");
+    if (d) setHighlightId(d);
+  }, []);
+
+  useEffect(() => {
+    if (highlightId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlightId, detail]);
+
+  /**
+   * URL detail bisa berisi ID disposisi (referenceId notifikasi bulk disposisi).
+   * Resolusi frontend-only: judul notifikasi = "Disposisi baru: {perihal}",
+   * lalu cari surat berdasarkan perihal dan pastikan disposisi ber-ID itu ada.
+   */
+  async function resolveLetterFromDisposition(dispId: string): Promise<string | null> {
+    const { data: notifs } = await apiFetch<
+      Array<{ referenceType: string | null; referenceId: string | null; title: string }>
+    >("/notifications?limit=100");
+    const hit = (Array.isArray(notifs) ? notifs : []).find(
+      (n) => n.referenceType === "letter_disposition" && n.referenceId === dispId,
+    );
+    if (!hit) return null;
+    const subject = hit.title.replace(/^Disposisi baru:\s*/i, "").trim();
+    if (!subject) return null;
+    const { data: letters } = await apiFetch<IncomingLetter[]>(
+      `/letters?q=${encodeURIComponent(subject)}&limit=100`,
+    );
+    const letter = (Array.isArray(letters) ? letters : []).find((l) =>
+      (l.dispositions ?? []).some((d) => d.id === dispId),
+    );
+    return letter?.id ?? null;
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -40,11 +80,21 @@ export default function SuratMasukDetailPage() {
       const { data } = await apiFetch<IncomingLetter>(`/letters/${id}`);
       setDetail(data);
     } catch (err) {
+      try {
+        const letterId = await resolveLetterFromDisposition(id);
+        if (letterId) {
+          router.replace(`/surat-masuk/${letterId}?disposition=${id}`);
+          return;
+        }
+      } catch {
+        /* resolusi gagal — tampilkan error asli */
+      }
       setError(err instanceof Error ? err.message : "Gagal memuat detail");
     } finally {
       setLoading(false);
     }
-  }, [id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, router]);
 
   useEffect(() => {
     void load();
@@ -237,7 +287,13 @@ export default function SuratMasukDetailPage() {
               ) : (
                 <ol className="mt-3 space-y-3">
                   {(detail.dispositions ?? []).map((d) => (
-                    <li key={d.id} className="rounded-lg bg-paper px-3 py-2 text-sm">
+                    <li
+                      key={d.id}
+                      ref={highlightId === d.id ? highlightRef : undefined}
+                      className={`rounded-lg bg-paper px-3 py-2 text-sm ${
+                        highlightId === d.id ? "ring-2 ring-brand-700" : ""
+                      }`}
+                    >
                       <p><b>{d.from.username}</b> → <b>{d.to.username}</b>{d.targetName ? ` (${d.targetName})` : ""} <StatusBadge status={d.status} /></p>
                       <p className="mt-1 text-muted">{d.instruction}</p>
                       {d.deadline ? <p className="text-xs text-muted">Batas: {d.deadline.slice(0, 10)}</p> : null}
@@ -320,7 +376,7 @@ export default function SuratMasukDetailPage() {
                   <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-paper px-3 py-2">
                     <span className="font-semibold">{d.originalName}</span>
                     <span className="text-xs text-muted">{d.mimeType || "berkas"} • {(d.sizeBytes / 1024).toFixed(1)} KB</span>
-                    <a href={`/api${d.downloadUrl}`} className="ml-auto rounded-md border border-line bg-white px-2 py-1 text-[11px] font-medium text-brand-900 hover:bg-paper">Unduh</a>
+                    <a href={fileUrl(d.downloadUrl)} className="ml-auto rounded-md border border-line bg-white px-2 py-1 text-[11px] font-medium text-brand-900 hover:bg-paper">Unduh</a>
                   </li>
                 ))}
                 {(detail.documents ?? []).length === 0 ? (

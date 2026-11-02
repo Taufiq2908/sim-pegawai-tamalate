@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { Field, PasswordInput, SubmitButton } from "@/components/form";
@@ -23,13 +23,24 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [expired, setExpired] = useState(false);
+
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    setExpired(p.get("reason") === "expired");
+  }, []);
+
+  function nextPath(): string {
+    const next = new URLSearchParams(window.location.search).get("next");
+    return next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+  }
 
   async function doLogin(u: string, p: string) {
     setError("");
     setLoading(true);
     try {
       await login(u.trim(), p);
-      router.replace("/");
+      router.replace(nextPath());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login gagal. Periksa username dan kata sandi.");
     } finally {
@@ -77,6 +88,12 @@ export default function LoginPage() {
 
           <h2 className="text-xl font-semibold tracking-tight">Masuk</h2>
           <p className="mt-1 text-sm text-muted">Gunakan akun pegawai Anda untuk melanjutkan.</p>
+
+          {expired ? (
+            <p role="status" className="mt-4 rounded-lg border border-warn-700/30 bg-warn-100 px-3 py-2 text-sm text-warn-700">
+              Sesi Anda berakhir. Silakan masuk kembali; halaman yang Anda buka akan dilanjutkan.
+            </p>
+          ) : null}
 
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
             <Field label="Username">

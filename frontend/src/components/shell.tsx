@@ -38,6 +38,16 @@ const SECTIONS = [
       { href: "/arsip/daftar", label: "Daftar Arsip", icon: Icons.file, perm: "archive.view" },
     ],
   },
+  {
+    title: "Pensiun",
+    items: [
+      { href: "/pensiun", label: "Pensiun PNS", icon: Icons.pension, perm: "pension.view" },
+      { href: "/pensiun/bup", label: "Daftar BUP", icon: Icons.calendar, perm: "pension.view", hideForEmployee: true },
+      { href: "/pensiun/register", label: "Buku Register", icon: Icons.file, perm: "pension.view", hideForEmployee: true },
+      { href: "/pensiun/nominatif", label: "Daftar Nominatif", icon: Icons.grid, perm: "pension.view", hideForEmployee: true },
+      { href: "/pensiun/ekspedisi", label: "Buku Ekspedisi", icon: Icons.send, perm: "pension.view", hideForEmployee: true },
+    ],
+  },
 ];
 
 function initials(name?: string | null) {
@@ -55,9 +65,19 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/cuti$/, "Pengajuan Cuti"],
   [/^\/presensi\/teguran/, "Surat Teguran"],
   [/^\/presensi$/, "Presensi Apel Pagi–Sore"],
+  [/^\/pensiun\/bup$/, "Daftar BUP Pensiun"],
+  [/^\/pensiun\/register$/, "Buku Register Pensiun"],
+  [/^\/pensiun\/nominatif$/, "Daftar Nominatif Pensiun"],
+  [/^\/pensiun\/ekspedisi$/, "Buku Ekspedisi Pensiun"],
+  [/^\/pensiun\/[^/]+\/cetak\/nominatif$/, "Cetak Daftar Nominatif Pensiun"],
+  [/^\/pensiun\/[^/]+\/cetak\/surat$/, "Cetak Surat Usulan Pensiun"],
+  [/^\/pensiun\/[^/]+$/, "Detail Usulan Pensiun"],
+  [/^\/pensiun$/, "Daftar Usulan Pensiun"],
   [/^\/surat-masuk\/agenda$/, "Buku Agenda Surat Masuk"],
   [/^\/surat-masuk\/ekspedisi$/, "Buku Ekspedisi"],
   [/^\/surat-masuk\/baru$/, "Pencatatan Surat Masuk"],
+  [/^\/surat-masuk\/[^/]+\/agenda$/, "Atur Agenda Kegiatan"],
+  [/^\/surat-masuk\/[^/]+\/lembar-disposisi$/, "Lembar Disposisi"],
   [/^\/surat-masuk/, "Surat Masuk & Disposisi"],
   [/^\/surat-keluar\/agenda$/, "Buku Agenda Surat Keluar"],
   [/^\/surat-keluar\/baru$/, "Surat Keluar Baru"],
@@ -108,7 +128,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const displayName = user?.employee?.name ?? user?.username ?? "—";
   const roleLine = `${user?.role ?? ""}${user?.position ? ` • ${user.position}` : ""}`;
   const visible = (items: typeof SECTIONS[number]["items"]) =>
-    loading ? items : items.filter((it) => !it.perm || hasPermission(it.perm));
+    loading
+      ? items
+      : items.filter(
+          (it) =>
+            (!it.perm || hasPermission(it.perm)) &&
+            !(it.hideForEmployee && user?.role === "EMPLOYEE"),
+        );
 
   async function doLogout() {
     await logout();

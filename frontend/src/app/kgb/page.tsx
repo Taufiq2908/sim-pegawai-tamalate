@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
+import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import type { KgbItem, KgbStatus, PageMeta } from "@/lib/types";
 import { formatRupiah } from "@/lib/format";
@@ -26,6 +27,7 @@ const FILTERS: Array<{ value: "" | KgbStatus; label: string }> = [
 const LIMIT = 10;
 
 export default function KgbListPage() {
+  const { hasPermission } = useAuth();
   const [items, setItems] = useState<KgbItem[]>([]);
   const [meta, setMeta] = useState<PageMeta | null>(null);
   const [status, setStatus] = useState("");
@@ -60,7 +62,7 @@ export default function KgbListPage() {
   const totalPages = meta ? Math.max(1, Math.ceil(meta.total / meta.limit)) : 1;
 
   return (
-    <AppShell>
+    <RequirePerm perm="kgb.view" label="KGB">
       <div className="flex flex-wrap items-center gap-2">
         <Link
           href="/kgb/register-book"
@@ -74,12 +76,14 @@ export default function KgbListPage() {
         >
           Monitoring KGB
         </Link>
-        <Link
-          href="/kgb/baru"
-          className="rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
-        >
-          + Ajukan KGB
-        </Link>
+        {hasPermission("kgb.create") ? (
+          <Link
+            href="/kgb/baru"
+            className="rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
+          >
+            + Ajukan KGB
+          </Link>
+        ) : null}
       </div>
 
       <form
@@ -182,6 +186,6 @@ export default function KgbListPage() {
           </>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }

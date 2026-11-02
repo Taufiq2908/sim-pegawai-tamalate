@@ -20,6 +20,10 @@ interface AgendaRow {
   keterangan: string;
   status: string;
   petugasAgenda: string[];
+  activityDate?: string | null;
+  activityStartTime?: string | null;
+  activityEndTime?: string | null;
+  activityLocation?: string | null;
 }
 
 export default function AgendaSuratMasukPage() {
@@ -120,27 +124,37 @@ export default function AgendaSuratMasukPage() {
                 <tr className="border-b bg-paper text-xs text-muted">
                   <th className="px-3 py-2">No</th>
                   <th className="px-3 py-2">Nomor Agenda</th>
+                  <th className="px-3 py-2">Tgl. Kegiatan</th>
+                  <th className="px-3 py-2">Waktu</th>
+                  <th className="px-3 py-2">Tempat</th>
                   <th className="px-3 py-2">Instansi Asal</th>
-                  <th className="px-3 py-2">Tgl. Diterima</th>
-                  <th className="px-3 py-2">Klasifikasi</th>
+                  <th className="px-3 py-2">Perihal</th>
                   <th className="px-3 py-2">Status</th>
                   <th className="px-3 py-2">Petugas Agenda</th>
-                  <th className="px-3 py-2">Keterangan</th>
+                  <th className="px-3 py-2 font-semibold">Keterangan</th>
                 </tr>
               </thead>
               <tbody>
-                {activeRows.map((r) => (
-                  <tr key={r.nomorAgenda ?? r.nomor} className="border-b last:border-0">
-                    <td className="px-3 py-2">{r.nomor}</td>
-                    <td className="px-3 py-2 font-medium">{r.nomorAgenda ?? "-"}</td>
-                    <td className="px-3 py-2">{r.instansiAsal}</td>
-                    <td className="px-3 py-2">{r.tanggalDiterima}</td>
-                    <td className="px-3 py-2">{r.klasifikasi}</td>
-                    <td className="px-3 py-2">{r.status}</td>
-                    <td className="px-3 py-2">{r.petugasAgenda.join(", ") || "-"}</td>
-                    <td className="px-3 py-2 font-medium">{r.ket}</td>
-                  </tr>
-                ))}
+                {activeRows.map((r) => {
+                  const waktu =
+                    r.activityStartTime && r.activityEndTime
+                      ? `${r.activityStartTime} – ${r.activityEndTime}`
+                      : r.activityStartTime || r.activityEndTime || "-";
+                  return (
+                    <tr key={r.nomorAgenda ?? r.nomor} className="border-b last:border-0">
+                      <td className="px-3 py-2">{r.nomor}</td>
+                      <td className="px-3 py-2 font-medium">{r.nomorAgenda ?? "-"}</td>
+                      <td className="px-3 py-2">{r.activityDate ? r.activityDate.slice(0, 10) : r.tanggalDiterima}</td>
+                      <td className="px-3 py-2">{waktu}</td>
+                      <td className="px-3 py-2">{r.activityLocation ?? "-"}</td>
+                      <td className="px-3 py-2">{r.instansiAsal}</td>
+                      <td className="px-3 py-2">{r.perihal}</td>
+                      <td className="px-3 py-2">{r.status}</td>
+                      <td className="px-3 py-2">{r.petugasAgenda.join(", ") || "-"}</td>
+                      <td className="px-3 py-2 font-medium">{r.ket || r.keterangan || "-"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -1,11 +1,14 @@
 "use client";
-import { toast } from "@/components/toast";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
+import { FileButton } from "@/components/form";
+import { toast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiUpload } from "@/lib/api";
+import { fileUrl } from "@/lib/file-url";
 import type { KgbDetail } from "@/lib/types";
 import { EmptyState, ErrorBox, ProcessTrail, Skeleton, StatusBadge } from "@/components/ui";
 import { formatRupiah } from "@/lib/format";
@@ -18,22 +21,39 @@ const ACTION_LABEL: Record<string, string> = {
   approve: "Setujui",
   reject: "Tolak",
   register: "Register",
-  tobkpsdm: "Kirim ke BKD",
+  tobkpsdm: "Teruskan ke BKPSDM",
   complete: "Selesai",
   archive: "Arsip",
 };
 
 const NOTE_REQUIRED = ["revise", "reject", "register"];
 
+const KGB_REQUIRED_DOCS = ["SK_CPNS_TERAKHIR", "SK_PANGKAT_TERAKHIR", "SKP_2_TAHUN"];
+
+const DOC_LABEL: Record<string, string> = {
+  SK_CPNS_TERAKHIR: "SK KGB/CPNS terakhir",
+  SK_PANGKAT_TERAKHIR: "SK kenaikan pangkat terakhir",
+  SKP_2_TAHUN: "SKP 2 tahun terakhir",
+  KP4: "KP4",
+  KTP: "KTP",
+  NPWP: "NPWP",
+  REKENING_GAJI: "Rekening gaji",
+  LAINNYA: "Dokumen lain",
+};
+
+const DOC_OPTIONS = Object.keys(DOC_LABEL);
+
 export default function KgbDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [detail, setDetail] = useState<KgbDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [acting, setActing] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [docType, setDocType] = useState("SK_CPNS_TERAKHIR");
+  const [file, setFile] = useState<File | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,6 +73,18 @@ export default function KgbDetailPage() {
   }, [load]);
 
   async function act(action: string) {
+    if (action === "submit" && detail) {
+      const have = new Set((detail.documents ?? []).map((d) => d.docType));
+      const missing = KGB_REQUIRED_DOCS.filter((code) => !have.has(code));
+      if (missing.length) {
+        toast.error(
+          `Lengkapi berkas wajib sebelum mengajukan: ${missing
+            .map((code) => DOC_LABEL[code] ?? code)
+            .join(", ")}.`,
+        );
+        return;
+      }
+    }
     if (NOTE_REQUIRED.includes(action) && !note.trim()) {
       toast.error(
         action === "register"
@@ -76,8 +108,51 @@ export default function KgbDetailPage() {
     }
   }
 
+  async function uploadDocument() {
+    if (!file) {
+      toast.error("Pilih berkas terlebih dahulu.");
+      return;
+    }
+    setActing("upload");
+    try {
+      const fd = new FormData();
+      fd.append("docType", docType);
+      fd.append("file", file);
+      await apiUpload(`/kgb-requests/${id}/documents`, fd);
+      setFile(null);
+      toast.success("Berkas KGB diunggah.");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unggah berkas gagal");
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function removeDraft() {
+    if (!window.confirm("Hapus draf KGB ini beserta dokumennya?")) return;
+    setActing("delete");
+    try {
+      await apiFetch(`/kgb-requests/${id}`, { method: "DELETE", body: JSON.stringify({}) });
+      toast.success("Draf KGB dihapus.");
+      router.replace("/kgb");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal menghapus draf");
+    } finally {
+      setActing(null);
+    }
+  }
+
+  const isOwner = !!user?.employee && !!detail && user.employee.id === detail.employee?.id;
+  const isDraftEditable = !!detail && ["DRAFT", "REVISION"].includes(detail.status);
+  const canManageDraft =
+    isDraftEditable &&
+    (isOwner || (!!user && user.role !== "EMPLOYEE" && hasPermission("kgb.create")));
+  const canUpload = canManageDraft && hasPermission("kgb.document.upload");
+  const canDelete = !!detail && detail.status === "DRAFT" && (isOwner || user?.role === "SUPER_ADMIN");
+
   return (
-    <AppShell>
+    <RequirePerm perm="kgb.view" label="KGB">
       <button onClick={() => router.back()} className="text-sm font-semibold text-muted hover:text-slate-900">
         ← Kembali
       </button>
@@ -90,17 +165,61 @@ export default function KgbDetailPage() {
           <EmptyState title="Data tidak ditemukan" />
         ) : (
           <div className="space-y-4">
+            {detail.revisionNote ? (
+              <div className="rounded-lg border border-warn-700/30 bg-warn-100 px-4 py-3">
+                <p className="text-sm font-semibold text-warn-700">Perlu perbaikan</p>
+                <p className="mt-0.5 text-sm text-secondary">{detail.revisionNote}</p>
+                {canManageDraft ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Link
+                      href={`/kgb/${detail.id}/edit`}
+                      className="inline-block rounded-lg bg-warn-700 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110"
+                    >
+                      Perbaiki data
+                    </Link>
+                    {canUpload ? (
+                      <a
+                        href="#dokumen-kgb"
+                        className="inline-block rounded-lg border border-warn-700/30 bg-surface px-3 py-1.5 text-sm font-semibold text-warn-700 hover:bg-warn-100"
+                      >
+                        Unggah berkas
+                      </a>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="rounded-lg border border-line bg-surface p-5">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-bold">{detail.requestNumber}</h1>
                 <StatusBadge status={detail.status} />
+                {canManageDraft ? (
+                  <div className="ml-auto flex flex-wrap gap-2">
+                    <Link
+                      href={`/kgb/${detail.id}/edit`}
+                      className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:bg-paper"
+                    >
+                      Edit data
+                    </Link>
+                    {canDelete ? (
+                      <button
+                        disabled={acting !== null}
+                        onClick={() => void removeDraft()}
+                        className="rounded-lg border border-bad-700/30 bg-surface px-3 py-1.5 text-sm font-medium text-bad-700 hover:bg-bad-100 disabled:opacity-50"
+                      >
+                        {acting === "delete" ? "…" : "Hapus draf"}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                 <div><dt className="text-muted">Pegawai</dt><dd className="font-medium">{detail.employee?.name}</dd></div>
                 <div><dt className="text-muted">TMT</dt><dd className="font-medium">{detail.effectiveDate?.slice(0, 10)}</dd></div>
                 <div><dt className="text-muted">Golongan</dt><dd className="font-medium">{detail.oldRank} → {detail.newRank}</dd></div>
                 <div><dt className="text-muted">Gaji</dt><dd className="font-medium">{formatRupiah(detail.oldSalary)} → {formatRupiah(detail.newSalary)}</dd></div>
-                {detail.revisionNote ? <div><dt className="text-muted">Catatan revisi</dt><dd className="font-medium text-warn-700">{detail.revisionNote}</dd></div> : null}
+                {detail.note ? <div className="sm:col-span-2"><dt className="text-muted">Catatan pengajuan</dt><dd className="font-medium">{detail.note}</dd></div> : null}
                 {detail.rejectionReason ? <div><dt className="text-muted">Alasan penolakan</dt><dd className="font-medium text-bad-700">{detail.rejectionReason}</dd></div> : null}
               </dl>
             </div>
@@ -149,7 +268,7 @@ export default function KgbDetailPage() {
 
             {["APPROVED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(detail.status) ? (
               <div className="rounded-lg border border-line bg-surface p-5">
-                <h2 className="font-semibold">Surat pengantar ke BKD</h2>
+                <h2 className="font-semibold">Surat pengantar ke BKPSDM</h2>
                 <p className="mt-1 text-sm text-muted">
                   Cetak surat pengantar usulan KGB, lalu catat nomor surat keluar dan ekspedisinya
                   lewat modul Surat Keluar. Status KGB diperbarui terpisah dengan aksi di atas.
@@ -177,26 +296,65 @@ export default function KgbDetailPage() {
                   ) : null}
                 </div>
                 <p className="mt-2 text-xs text-muted">
-                  Penandatangan: {detail.camat?.name ?? "Camat Tamalate"}
+                  Penandatangan: {detail.camat?.name ?? "................"}
                   {detail.camat?.nip ? ` • NIP ${detail.camat.nip}` : ""}
                 </p>
               </div>
             ) : null}
 
-            <div className="rounded-lg border border-line bg-surface p-5">
+            <div id="dokumen-kgb" className="scroll-mt-4 rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Dokumen ({detail.documents?.length ?? 0})</h2>
               <ul className="mt-2 space-y-2 text-sm">
                 {(detail.documents ?? []).map((d) => (
                   <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-paper px-3 py-2">
                     <span className="font-semibold">{d.originalName}</span>
-                    <span className="text-xs text-muted">({d.docType})</span>
-                    <a href={`/api${d.downloadUrl}`} target="_blank" rel="noreferrer" className="ml-auto rounded-lg bg-brand-900 px-3 py-1 text-xs font-bold text-white hover:brightness-110">
+                    <span className="text-xs text-muted">({DOC_LABEL[d.docType] ?? d.docType})</span>
+                    <a
+                      href={fileUrl(d.downloadUrl)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="ml-auto rounded-lg bg-brand-900 px-3 py-1 text-xs font-bold text-white hover:brightness-110"
+                    >
                       Unduh
                     </a>
                   </li>
                 ))}
                 {(detail.documents ?? []).length === 0 ? <li className="text-muted">Belum ada dokumen.</li> : null}
               </ul>
+
+              {canUpload ? (
+                <div className="mt-3 border-t border-line pt-3">
+                  <p className="text-sm font-semibold">
+                    {detail.status === "REVISION" ? "Unggah berkas perbaikan" : "Lengkapi berkas KGB"}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    Backend belum menyediakan hapus dokumen; unggah ulang berkas pengganti dengan jenis yang sama bila perlu.
+                  </p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_220px_auto] print:block">
+                    <FileButton
+                      hint="PDF/JPG/PNG, maks 5MB"
+                      onSelect={setFile}
+                    />
+                    <select
+                      value={docType}
+                      onChange={(e) => setDocType(e.target.value)}
+                      className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand-700"
+                    >
+                      {DOC_OPTIONS.map((code) => (
+                        <option key={code} value={code}>{DOC_LABEL[code]}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={acting !== null}
+                      onClick={() => void uploadDocument()}
+                      className="rounded-lg bg-brand-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {acting === "upload" ? "Mengunggah…" : "Unggah"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-lg border border-line bg-surface p-5">
@@ -208,7 +366,7 @@ export default function KgbDetailPage() {
                   note: t.note,
                   time: new Date(t.createdAt).toLocaleString("id-ID"),
                   state:
-                    i < arr.length - 1 || ["COMPLETED", "REJECTED"].includes(detail.status)
+                    i < arr.length - 1 || ["COMPLETED", "REJECTED", "ARCHIVED"].includes(detail.status)
                       ? "done"
                       : "now",
                 }))}
@@ -217,6 +375,6 @@ export default function KgbDetailPage() {
           </div>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }

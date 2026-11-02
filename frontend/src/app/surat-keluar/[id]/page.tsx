@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
+import { fileUrl } from "@/lib/file-url";
 import type { OutgoingLetter } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
@@ -191,7 +192,7 @@ export default function SuratKeluarDetailPage() {
                   <li key={d.id} className="flex items-center gap-2 rounded-lg bg-paper px-3 py-2">
                     <span className="font-medium">{d.originalName}</span>
                     <span className="text-xs text-muted">{d.mimeType || "berkas"} • {(d.sizeBytes / 1024).toFixed(1)} KB</span>
-                    <a href={`/api${d.downloadUrl}`} className="ml-auto rounded-md border border-line bg-white px-2 py-1 text-[11px] font-medium text-brand-900 hover:bg-paper">Unduh</a>
+                    <a href={fileUrl(d.downloadUrl)} className="ml-auto rounded-md border border-line bg-white px-2 py-1 text-[11px] font-medium text-brand-900 hover:bg-paper">Unduh</a>
                   </li>
                 ))}
                 {(detail.documents ?? []).length === 0 ? (

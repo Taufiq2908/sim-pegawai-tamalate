@@ -5,6 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { loadSignature } from "@/lib/signature";
 import { useAuth } from "@/lib/auth";
+import { actorUsername, formatTanggalSurat, letterDate } from "@/lib/letter";
+import { KopSurat } from "@/components/letter/kop-surat";
+import { SignatureBlock } from "@/components/letter/signature-block";
 import type { LeaveDetail } from "@/lib/types";
 import { ErrorBox, Skeleton } from "@/components/ui";
 
@@ -17,13 +20,6 @@ function fmtID(iso?: string | null): string {
     .replace(/\//g, "-");
 }
 
-function fmtLong(iso?: string | null): string {
-  if (!iso) return "................";
-  const d = new Date(iso);
-  if (isNaN(+d)) return iso;
-  return d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
-}
-
 /** Cover letter resmi kecamatan — satu baris tabel, bukan formulir isi lengkap. */
 export default function SuratPengantarCutiPage() {
   const { id } = useParams<{ id: string }>();
@@ -31,7 +27,6 @@ export default function SuratPengantarCutiPage() {
   const [detail, setDetail] = useState<LeaveDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [logoOk, setLogoOk] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,16 +55,27 @@ export default function SuratPengantarCutiPage() {
       ?.replace(/^(nomor\s+surat(\s+keluar)?|no\.?)\s*[:=]\s*/i, "")
       .trim() || detail?.requestNumber || "................";
 
-  // Prioritas Camat: snapshot approve → Camat aktif dari backend → cadangan.
-  const camatName = approveEntry?.actorName || detail?.camat?.name || "MUH. ARIL SYAHBANI K, S.IP";
-  const camatNip = approveEntry?.actorNip || detail?.camat?.nip || "198804152007011001";
+  // Penandatangan selalu dari snapshot backend; tanpa nama/NIP hardcode.
+  const camatName = approveEntry?.actorName || detail?.camat?.name || null;
+  const camatNip = approveEntry?.actorNip || detail?.camat?.nip || null;
+  const camatRank = detail?.camat?.rank ?? null;
   const camatSig = useMemo(() => {
-    // Tanda tangan lokal hanya bisa dimuat bila Camat membuka/cetak di browser ini.
-    if (!approveEntry || !user?.username) return null;
-    const isCamat = user.position === "CAMAT" || user.employee?.name === approveEntry.actorName;
-    return isCamat ? loadSignature(user.username) : null;
-  }, [approveEntry, user?.username, user?.position, user?.employee?.name]);
-
+    const byActor = loadSignature(actorUsername(approveEntry));
+    if (byActor) return byActor;
+    const isCamat =
+      user?.position === "CAMAT" ||
+      (!!approveEntry?.actorName && user?.employee?.name === approveEntry.actorName);
+    return isCamat ? loadSignature(user?.username) : null;
+  }, [
+    approveEntry?.createdAt,
+    approveEntry?.actor,
+    approveEntry?.actorName,
+    approveEntry?.actorUsername,
+    user?.username,
+    user?.position,
+    user?.employee?.name,
+  ]);
+  const tanggal = letterDate(registerEntry?.createdAt, approveEntry?.createdAt, detail?.submittedAt, detail?.createdAt) ?? new Date().toISOString();
   if (loading) {
     return (
       <main className="mx-auto max-w-3xl px-6 py-8">
@@ -94,13 +100,11 @@ export default function SuratPengantarCutiPage() {
   };
   const finalStatus = [
     "APPROVED",
-    "SIGNED",
     "REGISTERED",
     "SUBMITTED_BKPSDMD",
     "COMPLETED",
     "ARCHIVED",
   ].includes(detail.status);
-  const tanggal = fmtLong(approveEntry?.createdAt ?? new Date().toISOString());
   const cell = "border border-black px-2 py-1.5 align-top";
 
   return (
@@ -137,35 +141,10 @@ export default function SuratPengantarCutiPage() {
 
       <div className="print-full mx-auto max-w-3xl px-6 pb-10 text-[13px] leading-relaxed">
         {/* KOP */}
-        <div className="flex items-center gap-3">
-          {logoOk ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src="/logo-tamalate.png"
-              alt="Logo"
-              className="h-20 w-20 shrink-0 object-contain"
-              onError={() => setLogoOk(false)}
-            />
-          ) : (
-            <div className="flex h-20 w-20 shrink-0 items-center justify-center border border-black text-center text-[10px] font-sans">
-              LOGO
-            </div>
-          )}
-          <div className="flex-1 text-center">
-            <p className="text-base font-bold">PEMERINTAH KOTA MAKASSAR</p>
-            <p className="text-lg font-bold">KECAMATAN TAMALATE</p>
-            <p className="text-xs">Jalan Danau Tanjung Bunga Utara No. 181 Makassar 90224</p>
-            <p className="text-xs">Telp. +62411 - 879 249</p>
-            <p className="text-xs">
-              Email : tamalate.beker22@gmail.com&nbsp;&nbsp;Home page : http://www.kectamalate.com
-            </p>
-          </div>
-        </div>
-        <div className="mt-1 border-t-[3px] border-black" />
-        <div className="mt-[2px] border-t border-black" />
+        <KopSurat />
 
         <div className="mt-3 flex justify-end">
-          <p>Makassar, {tanggal}</p>
+          <p>Makassar, {formatTanggalSurat(tanggal)}</p>
         </div>
 
         <div className="mt-2">
@@ -227,22 +206,14 @@ export default function SuratPengantarCutiPage() {
         <p className="mt-2">Dikirim dengan hormat untuk bahan seperlunya.</p>
 
         <div className="mt-6 flex justify-end">
-          <div className="w-72 text-center">
-            <p className="font-bold">Camat Tamalate,</p>
-            {camatSig ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={camatSig}
-                alt="Tanda tangan Camat"
-                className="mx-auto h-16 object-contain"
-              />
-            ) : (
-              <div className="h-16" />
-            )}
-            <p className="font-bold underline">{camatName}</p>
-            <p>Pangkat : Pembina</p>
-            <p>Nip. {camatNip}</p>
-          </div>
+          <SignatureBlock
+            heading="Camat Tamalate,"
+            name={camatName}
+            nip={camatNip}
+            rank={camatRank}
+            signature={camatSig}
+            signedAt={approveEntry?.createdAt}
+          />
         </div>
       </div>
     </main>
