@@ -54,7 +54,6 @@ export type LeaveStatus =
   | "VERIFIED"
   | "PARAF"
   | "APPROVED"
-  | "SIGNED"
   | "REGISTERED"
   | "SUBMITTED_BKPSDMD"
   | "FORWARDED"
@@ -98,6 +97,7 @@ export interface LeaveTimelineEntry {
   fromStatus: string;
   toStatus: string;
   actor: string;
+  actorUsername?: string | null;
   actorName?: string | null;
   actorNip?: string | null;
   actorRole?: string | null;
@@ -131,7 +131,9 @@ export interface LeaveDetail extends Omit<LeaveItem, "employee" | "leaveType"> {
   rejectionReason: string | null;
   postponeNote?: string | null;
   supervisor?: SupervisorInfo | null;
-  camat?: { name: string; nip: string | null; position: string | null } | null;
+  camat?: { name: string; nip: string | null; position: string | null; rank?: string | null } | null;
+  submittedAt?: string | null;
+  createdAt?: string | null;
   documents: LeaveDocument[];
   timeline: LeaveTimelineEntry[];
   availableActions: string[];
@@ -257,7 +259,32 @@ export interface IncomingLetter {
   availableActions?: string[];
   dispositions?: Disposition[];
   _count?: { documents: number };
-  documents?: Array<{ id: string; originalName: string; mimeType: string; sizeBytes: number }>;
+  documents?: Array<{ id: string; originalName: string; mimeType: string; sizeBytes: number; downloadUrl: string }>;
+  activityDate?: string | null;
+  activityStartTime?: string | null;
+  activityEndTime?: string | null;
+  activityLocation?: string | null;
+  agendaAssignments?: Array<{
+    id: string;
+    userId: string;
+    note: string | null;
+    user: {
+      id: string;
+      username: string;
+      position: string | null;
+      employee: { name: string; nip: string | null; position?: string | null } | null;
+    };
+  }>;
+  assignedStaff?: Array<{
+    id: string;
+    username: string;
+    name: string;
+    nip: string | null;
+    position: string | null;
+    note: string | null;
+  }>;
+  archiveRecord?: { id: string; archiveNumber: string; listId: string | null } | null;
+  classification?: { code: string; name: string } | null;
 }
 
 export interface OutgoingLetter {
@@ -265,6 +292,12 @@ export interface OutgoingLetter {
   letterNumber: string;
   subject: string;
   recipient: string | null;
+  destinationNumber: string | null;
+  personInCharge: string | null;
+  letterCode: string | null;
+  remarks: string | null;
+  sequenceNumber?: number;
+  year?: number;
   letterDate: string;
   priority: string;
   secrecy: string;
@@ -272,6 +305,8 @@ export interface OutgoingLetter {
   status: "RESERVED" | "ISSUED" | "CANCELLED";
   reservationReason: string | null;
   cancelReason: string | null;
+  documents?: Array<{ id: string; originalName: string; mimeType: string; sizeBytes: number; downloadUrl: string }>;
+  archiveRecord?: { id: string; archiveNumber: string; listId: string | null } | null;
 }
 
 export type KgbStatus =
@@ -295,7 +330,9 @@ export interface KgbDetail extends KgbItem {
   note: string | null;
   revisionNote: string | null;
   rejectionReason: string | null;
-  camat?: { name: string; nip: string | null; position: string | null } | null;
+  submittedAt?: string | null;
+  createdAt?: string | null;
+  camat?: { name: string; nip: string | null; position: string | null; rank?: string | null } | null;
   documents: LeaveDocument[];
   timeline: LeaveTimelineEntry[];
   availableActions: string[];
@@ -321,7 +358,105 @@ export interface KgbMonitoringItem {
   nextKgbDate: string | null;
   monthsUntil: number | null;
   dueSoon: boolean;
+  isOverdue: boolean;
   requiredDocs: string[];
+}
+
+export interface KgbReminderResult {
+  employee: string;
+  nextKgbDate: string;
+  monthsUntil: number;
+  isOverdue: boolean;
+  notified: number;
+}
+
+export type ArchiveSourceType = "INCOMING" | "OUTGOING";
+export type ArchiveCategory = "AKTIF" | "INAKTIF" | "PENTING";
+export type ArchiveLocation = "LEMARI_ARSIP" | "GUDANG_ARSIP" | "LURAH";
+export type ArchiveListStatus = "DRAFT" | "SIGNED";
+
+export interface ArchiveRecord {
+  id: string;
+  archiveNumber: string;
+  sourceType: ArchiveSourceType;
+  incomingLetterId: string | null;
+  outgoingLetterId: string | null;
+  classificationId: string | null;
+  code: string;
+  bundleCode: string | null;
+  title: string;
+  documentNumber: string | null;
+  documentDate: string | null;
+  archiveDate: string;
+  category: ArchiveCategory;
+  location: ArchiveLocation;
+  retentionUntil: string | null;
+  notes: string | null;
+  listId: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  classification?: { id: string; code: string; name: string } | null;
+  incomingLetter?: {
+    id: string;
+    agendaNumber: string;
+    letterNumber: string;
+    subject: string;
+    sender: string;
+    letterDate: string;
+    status: string;
+  } | null;
+  outgoingLetter?: {
+    id: string;
+    letterNumber: string;
+    subject: string;
+    recipient: string;
+    letterDate: string;
+    status: string;
+  } | null;
+  list?: {
+    id: string;
+    listNumber: string;
+    status: ArchiveListStatus;
+    signedAt?: string | null;
+  } | null;
+}
+
+export interface ArchiveList {
+  id: string;
+  listNumber: string;
+  periodStart: string;
+  periodEnd: string;
+  status: ArchiveListStatus;
+  notes: string | null;
+  signerUserId: string | null;
+  signerName: string | null;
+  signerNip: string | null;
+  signerPosition: string | null;
+  signedAt: string | null;
+  createdBy: string;
+  records: ArchiveRecord[];
+}
+
+export interface ArchiveStats {
+  year: number;
+  total: number;
+  unlisted: number;
+  signedLists: number;
+  byCategory: Record<string, number>;
+  bySource: Record<string, number>;
+}
+
+export interface ArchiveCandidate {
+  id: string;
+  sourceType: ArchiveSourceType;
+  agendaNumber: string | null;
+  letterNumber: string;
+  subject: string;
+  party: string;
+  date: string;
+  status: string;
+  classification: { code: string; name: string } | null;
 }
 
 export interface KgbRegisterBookRow {
@@ -360,4 +495,205 @@ export interface NotificationItem {
   referenceId: string | null;
   isRead: boolean;
   createdAt: string;
+}
+
+export type PensionStatus =
+  | "DRAFT" | "VERIFIED" | "PARAF" | "APPROVED"
+  | "REGISTERED" | "EXPEDITED" | "SENT"
+  | "COMPLETED" | "ARCHIVED" | "REVISION" | "REJECTED";
+
+export type PensionItemStatus = "PENDING" | "VERIFIED" | "REVISION" | "REJECTED";
+
+export type PensionType = "BUP" | "APS" | "UDZUR" | "JANDA" | "DUDA";
+
+export interface PensionChecklistItem {
+  code: string;
+  label: string;
+  uploaded: boolean;
+  documentId: string | null;
+  originalName: string | null;
+  uploadedAt: string | null;
+}
+
+export interface PensionDocument {
+  id: string;
+  docType: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedBy: string;
+  createdAt: string;
+  downloadUrl: string;
+}
+
+export interface PensionItem {
+  id: string;
+  batchId: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNip: string | null;
+  employeeNumber: string;
+  rank: string | null;
+  position: string;
+  orgUnitName: string | null;
+  birthDate: string;
+  retirementDate: string;
+  bupAge: number;
+  yearsOfService: number | null;
+  pensionType: PensionType | string;
+  status: PensionItemStatus;
+  note: string | null;
+  documents: PensionDocument[];
+  documentsChecklist: PensionChecklistItem[];
+  missingDocuments: string[];
+}
+
+export interface PensionBatch {
+  id: string;
+  batchNumber: string;
+  periodYear: number;
+  periodMonth: number | null;
+  bupAge: number;
+  status: PensionStatus;
+  statusLabel: string;
+  note: string | null;
+  outgoingLetterId: string | null;
+  outgoingLetterNumber: string | null;
+  outgoingLetterDate: string | null;
+  agendaNumber: string | null;
+  expeditionNumber: string | null;
+  expeditionDate: string | null;
+  courierName: string | null;
+  receiptNumber: string | null;
+  receiptDate: string | null;
+  receivedBy: string | null;
+  items: PensionItem[];
+  timeline: Array<{
+    action: string;
+    fromStatus: string;
+    toStatus: string;
+    actorName: string | null;
+    actorRole: string;
+    actorPosition: string | null;
+    note: string | null;
+    createdAt: string;
+  }>;
+  availableActions: string[];
+  signers: {
+    camat: { name: string; nip: string | null; position: string } | null;
+    sekcam: { name: string; nip: string | null; position: string } | null;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PensionBupRow {
+  employee: {
+    id: string;
+    nip: string | null;
+    employeeNumber: string;
+    name: string;
+    gender: string;
+    rank: string | null;
+    position: string;
+    employmentStatus: string;
+    orgUnit: { id: string; code: string; name: string } | null;
+  };
+  birthDate: string;
+  age: { years: number; months: number };
+  retirementDate: string;
+  bupAge: number;
+  yearsOfService: number | null;
+  monthsUntil: number;
+  daysUntil: number;
+  existingItem: {
+    id: string;
+    batchId: string;
+    batchNumber: string;
+    batchStatus: PensionStatus;
+    periodYear: number;
+    itemStatus: PensionItemStatus;
+  } | null;
+}
+
+export interface PensionBupMeta {
+  total: number;
+  from: string;
+  to: string;
+  bupAge: number;
+  missingBirthDate: number;
+  alreadyInBatch: number;
+}
+
+export interface PensionRegisterRow {
+  id: string;
+  batchNumber: string;
+  periodYear: number;
+  periodMonth: number | null;
+  periodLabel: string;
+  status: PensionStatus;
+  statusLabel: string;
+  jumlahPegawai: number;
+  pegawai: Array<{
+    name: string;
+    nip: string | null;
+    retirementDate: string | null;
+    status: PensionItemStatus;
+  }>;
+  nomorSurat: string | null;
+  tanggalSurat: string | null;
+  nomorAgenda: string | null;
+  nomorEkspedisi: string | null;
+  tanggalEkspedisi: string | null;
+  nomorTandaTerima: string | null;
+  tanggalTandaTerima: string | null;
+  createdAt: string | null;
+}
+
+export interface PensionNominativeRow {
+  nomor: number;
+  itemId: string;
+  batchId: string;
+  batchNumber: string;
+  periodYear: number;
+  periodMonth: number | null;
+  periodLabel: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNip: string | null;
+  employeeNumber: string;
+  rank: string | null;
+  position: string;
+  orgUnitName: string | null;
+  birthDate: string | null;
+  retirementDate: string | null;
+  bupAge: number;
+  yearsOfService: number | null;
+  pensionType: PensionType | string;
+  itemStatus: PensionItemStatus;
+  batchStatus: PensionStatus;
+  statusLabel: string;
+  documentsChecklist: PensionChecklistItem[];
+  missingDocuments: string[];
+  nomorSurat: string | null;
+  nomorAgenda: string | null;
+  nomorTandaTerima: string | null;
+  tanggalTandaTerima: string | null;
+}
+
+export interface PensionExpeditionRow {
+  id: string;
+  tanggalEkspedisi: string | null;
+  nomorEkspedisi: string | null;
+  nomorSurat: string | null;
+  tujuan: string;
+  penerima: string | null;
+  jumlahPegawai: number;
+  pegawai: Array<{
+    employeeName: string;
+    employeeNip: string | null;
+  }>;
+  status: PensionStatus;
+  statusLabel: string;
+  catatan: string | null;
 }

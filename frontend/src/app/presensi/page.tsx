@@ -7,6 +7,7 @@ import Link from "next/link";
 import { AppShell } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
+import { fileUrl } from "@/lib/file-url";
 import type {
   AttendanceRecord,
   AttendanceReportRow,
@@ -716,9 +717,9 @@ export default function PresensiPage() {
         ) : (
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {photos.map((p) => (
-              <a key={p.id} href={`/api${p.photoUrl}`} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg border border-line hover:border-brand-700">
+              <a key={p.id} href={fileUrl(p.photoUrl)} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg border border-line hover:border-brand-700">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/api${p.photoUrl}`} alt={`Apel ${p.session} ${p.date}`} className="h-28 w-full object-cover" loading="lazy" />
+                <img src={fileUrl(p.photoUrl)} alt={`Apel ${p.session} ${p.date}`} className="h-28 w-full object-cover" loading="lazy" />
                 <p className="px-2 py-1 text-xs font-semibold">{p.session} • {String(p.date).slice(0, 10)}</p>
               </a>
             ))}

@@ -1,10 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { AppShell } from "@/components/shell";
+import { useEffect, useState } from "react";
+import { RequirePerm } from "@/components/shell";
+import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
-import { Field, FileButton, SubmitButton } from "@/components/form";
+import type { EmployeeRef } from "@/lib/types";
+import { Field, FileButton } from "@/components/form";
+import { EmployeePicker } from "@/components/employee-picker";
 import { ErrorBox } from "@/components/ui";
 
 const DOKUMEN_WAJIB = [
@@ -22,6 +25,7 @@ const DOKUMEN_OPSIONAL = [
 
 export default function KgbBaruPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [form, setForm] = useState({
     oldRank: "",
     newRank: "",
@@ -31,22 +35,43 @@ export default function KgbBaruPage() {
     note: "",
   });
   const [files, setFiles] = useState<Record<string, File | null>>({});
+  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeRef | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const isEmployee = user?.role === "EMPLOYEE";
+
+  // Deep link dari monitoring: /kgb/baru?employeeId=...
+  useEffect(() => {
+    if (isEmployee || typeof window === "undefined") return;
+    const employeeId = new URLSearchParams(window.location.search).get("employeeId");
+    if (!employeeId) return;
+    apiFetch<EmployeeRef>(`/employees/${employeeId}`)
+      .then(({ data }) => setSelectedEmployee(data))
+      .catch(() => {});
+  }, [isEmployee]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const draftOnly = submitter?.value === "draft";
     setError("");
+    if (!isEmployee && !selectedEmployee && !user?.employee) {
+      setError("Pilih pegawai yang akan diajukan KGB-nya.");
+      return;
+    }
     const oldS = Number(form.oldSalary);
     const newS = Number(form.newSalary);
     if (!(newS > oldS)) {
       setError("Gaji baru harus lebih besar dari gaji lama.");
       return;
     }
-    const kurang = DOKUMEN_WAJIB.filter((d) => !files[d.code]);
-    if (kurang.length) {
-      setError(`Berkas wajib belum lengkap: ${kurang.map((d) => d.label.replace("*", "")).join(", ")}.`);
-      return;
+    if (!draftOnly) {
+      const kurang = DOKUMEN_WAJIB.filter((d) => !files[d.code]);
+      if (kurang.length) {
+        setError(`Berkas wajib belum lengkap: ${kurang.map((d) => d.label.replace("*", "")).join(", ")}.`);
+        return;
+      }
     }
 
     setLoading(true);
@@ -60,6 +85,7 @@ export default function KgbBaruPage() {
           newSalary: newS,
           effectiveDate: form.effectiveDate,
           note: form.note || undefined,
+          employeeId: !isEmployee && selectedEmployee ? selectedEmployee.id : undefined,
         }),
       });
       const id = (data as { id: string }).id;
@@ -73,7 +99,9 @@ export default function KgbBaruPage() {
         await apiUpload(`/kgb-requests/${id}/documents`, fd);
       }
 
-      await apiFetch(`/kgb-requests/${id}/submit`, { method: "POST", body: JSON.stringify({}) });
+      if (!draftOnly) {
+        await apiFetch(`/kgb-requests/${id}/submit`, { method: "POST", body: JSON.stringify({}) });
+      }
       router.replace(`/kgb/${id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal mengajukan KGB");
@@ -88,12 +116,24 @@ export default function KgbBaruPage() {
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
   return (
-    <AppShell>
+    <RequirePerm perm="kgb.create" label="Pengajuan KGB">
       <h1 className="text-xl font-bold">Ajukan KGB</h1>
       <p className="mt-1 text-sm text-muted">
-        Dibuat sebagai DRAFT, berkas diunggah, lalu langsung diajukan.
+        Dapat disimpan sebagai draft atau langsung diajukan setelah berkas wajib lengkap.
       </p>
       <form onSubmit={onSubmit} className="mt-4 max-w-2xl space-y-4 rounded-lg border border-line bg-surface p-5">
+        {!isEmployee ? (
+          <div>
+            <p className="mb-1 text-sm font-medium text-ink">Pegawai yang diajukan</p>
+            <EmployeePicker
+              value={selectedEmployee?.id ?? user?.employee?.id ?? ""}
+              onChange={(_, employee) => setSelectedEmployee(employee)}
+            />
+            <p className="mt-1 text-xs text-muted">
+              Pilih pegawai yang KGB-nya diusulkan. Data dapat diubah selama status masih Draft.
+            </p>
+          </div>
+        ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Golongan lama*">
             <input required value={form.oldRank} onChange={set("oldRank")} placeholder="cth: III/a" className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
@@ -146,8 +186,27 @@ export default function KgbBaruPage() {
         </div>
 
         {error ? <ErrorBox message={error} /> : null}
-        <SubmitButton loading={loading}>Ajukan KGB</SubmitButton>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="submit"
+            name="aksi"
+            value="draft"
+            disabled={loading}
+            className="rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-paper disabled:opacity-50"
+          >
+            {loading ? "Memproses…" : "Simpan draft"}
+          </button>
+          <button
+            type="submit"
+            name="aksi"
+            value="ajukan"
+            disabled={loading}
+            className="flex-1 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+          >
+            {loading ? "Memproses…" : "Ajukan KGB"}
+          </button>
+        </div>
       </form>
-    </AppShell>
+    </RequirePerm>
   );
 }

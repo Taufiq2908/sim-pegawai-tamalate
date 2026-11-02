@@ -111,14 +111,14 @@ export default function DashboardPage() {
       } else if (role === "VERIFIER") {
         setHeading("Operasional hari ini.");
         const [reg, bkpsdm, surat, notif] = await Promise.all([
-          get("/leave-requests?status=SIGNED"),
+          get("/leave-requests?status=APPROVED"),
           get("/leave-requests?status=REGISTERED"),
           get("/letters?status=RECEIVED"),
           unread(),
         ]);
         if (!alive) return;
         setMetrics([
-          M(num(reg), "Cuti", "siap registrasi", "amber", "/cuti?status=SIGNED"),
+          M(num(reg), "Cuti", "siap registrasi", "amber", "/cuti?status=APPROVED"),
           M(num(bkpsdm), "Cuti", "menunggu ke BKPSDM", "amber", "/cuti?status=REGISTERED"),
           M(num(surat), "Surat baru", "belum dicatat", "amber", "/surat-masuk?status=RECEIVED"),
           M(notif, "Notifikasi", "belum dibaca", "blue", "/notifikasi"),

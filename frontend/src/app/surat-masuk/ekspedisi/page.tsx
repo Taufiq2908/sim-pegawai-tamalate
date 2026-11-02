@@ -6,12 +6,17 @@ import { apiFetch } from "@/lib/api";
 import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
 
 interface EkspedisiRow {
+  id: string;
+  letterId: string;
   tanggalHariIni: string;
   nomorRegis: string;
+  nomorSurat: string;
   tanggalSurat: string;
+  perihal: string;
   penerimaSurat: string;
   paraf: string;
   asalSurat: string;
+  catatan: string | null;
 }
 
 export default function EkspedisiPage() {
@@ -50,22 +55,25 @@ export default function EkspedisiPage() {
 
       <div className="mt-4">
         {loading ? (
-          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-64 w-full" />
         ) : error ? (
           <ErrorBox message={error} onRetry={load} />
         ) : rows.length === 0 ? (
           <EmptyState title="Belum ada catatan ekspedisi" hint="Catat dari halaman detail surat." />
         ) : (
           <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-            <table className="w-full min-w-180 text-left text-sm">
+            <table className="w-full min-w-320 text-left text-sm">
               <thead>
                 <tr className="border-b bg-paper text-xs text-muted">
                   <th className="px-3 py-2">Tanggal</th>
                   <th className="px-3 py-2">No. registrasi</th>
-                  <th className="px-3 py-2">Tgl. surat</th>
-                  <th className="px-3 py-2">Penerima</th>
+                  <th className="px-3 py-2">Nomor Surat</th>
+                  <th className="px-3 py-2">Tgl. Surat</th>
+                  <th className="px-3 py-2">Perihal</th>
+                  <th className="px-3 py-2">Penerima Surat</th>
                   <th className="px-3 py-2">Paraf</th>
-                  <th className="px-3 py-2">Asal surat</th>
+                  <th className="px-3 py-2">Asal Surat</th>
+                  <th className="px-3 py-2">Catatan</th>
                 </tr>
               </thead>
               <tbody>
@@ -73,10 +81,13 @@ export default function EkspedisiPage() {
                   <tr key={r.nomorRegis} className="border-b last:border-0">
                     <td className="px-3 py-2">{r.tanggalHariIni}</td>
                     <td className="px-3 py-2 font-medium">{r.nomorRegis}</td>
+                    <td className="px-3 py-2">{r.nomorSurat}</td>
                     <td className="px-3 py-2">{r.tanggalSurat}</td>
+                    <td className="px-3 py-2">{r.perihal}</td>
                     <td className="px-3 py-2">{r.penerimaSurat}</td>
-                    <td className="px-3 py-2">{r.paraf}</td>
+                    <td className="px-3 py-2">{r.paraf ?? "-"}</td>
                     <td className="px-3 py-2">{r.asalSurat}</td>
+                    <td className="px-3 py-2">{r.catatan ?? "-"}</td>
                   </tr>
                 ))}
               </tbody>

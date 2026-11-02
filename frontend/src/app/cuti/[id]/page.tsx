@@ -4,9 +4,10 @@ import { toast } from "@/components/toast";
 
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
+import { fileUrl } from "@/lib/file-url";
 import type { LeaveDetail } from "@/lib/types";
 import { EmptyState, ErrorBox, ProcessTrail, Skeleton, StatusBadge } from "@/components/ui";
 
@@ -28,7 +29,7 @@ const ACTION_LABEL: Record<string, string> = {
   archive: "Arsipkan",
 };
 
-const NOTE_REQUIRED = ["revise", "reject", "forward", "postpone"];
+const NOTE_REQUIRED = ["revise", "reject", "forward", "postpone", "register"];
 
 export default function CutiDetailPage() {
   const params = useParams<{ id: string }>();
@@ -41,6 +42,8 @@ export default function CutiDetailPage() {
   const [acting, setActing] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [answerFile, setAnswerFile] = useState<File | null>(null);
+  const [docType, setDocType] = useState("SK_TERAKHIR");
+  const [docFile, setDocFile] = useState<File | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,8 +69,24 @@ export default function CutiDetailPage() {
       router.push(`/cuti/${detail.id}/pengajuan?act=${action}`);
       return;
     }
+    if (action === "submit" && detail) {
+      const docs = detail.documents ?? [];
+      const hasSk = docs.some((d) => d.docType === "SK_TERAKHIR");
+      if (docs.length < 2 || !hasSk) {
+        toast.error("Ajukan cuti butuh minimal 2 berkas, termasuk SK terakhir. Unggah berkas di bagian Dokumen.");
+        return;
+      }
+      if (detail.leaveType?.requiresDocument && !docs.some((d) => d.docType === "SURAT_DOKTER")) {
+        toast.error("Jenis cuti ini wajib melampirkan surat dokter.");
+        return;
+      }
+    }
     if (NOTE_REQUIRED.includes(action) && !note.trim()) {
-      toast.error("Catatan wajib diisi untuk aksi ini.");
+      toast.error(
+        action === "register"
+          ? "Nomor surat pengantar wajib diisi untuk Registrasi."
+          : "Catatan wajib diisi untuk aksi ini.",
+      );
       return;
     }
     setActing(action);
@@ -105,6 +124,27 @@ export default function CutiDetailPage() {
     }
   }
 
+  async function uploadDraftDocument() {
+    if (!docFile) {
+      toast.error("Pilih berkas terlebih dahulu.");
+      return;
+    }
+    setActing("upload-doc");
+    try {
+      const fd = new FormData();
+      fd.append("docType", docType);
+      fd.append("file", docFile);
+      await apiUpload(`/leave-requests/${id}/documents`, fd);
+      setDocFile(null);
+      toast.success("Berkas perbaikan diunggah.");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unggah berkas gagal");
+    } finally {
+      setActing(null);
+    }
+  }
+
   async function removeDraft() {
     if (!window.confirm("Hapus draf ini permanen?")) return;
     setActing("delete");
@@ -123,6 +163,11 @@ export default function CutiDetailPage() {
   // availableActions dari backend sudah sadar jabatan pemohon (forward hanya Camat,
   // approve-di-VERIFIED hanya Sekcam, dst.) — frontend render apa adanya.
   const visibleActions = detail?.availableActions ?? [];
+  const canManageDraft =
+    !!detail &&
+    ["DRAFT", "REVISION"].includes(detail.status) &&
+    (isOwner || (!!user && user.role !== "EMPLOYEE" && hasPermission("leave.create")));
+  const canUploadDraftDoc = canManageDraft && hasPermission("leave.document.upload");
   const canAnswer =
     !!detail &&
     ["APPROVED", "REGISTERED", "SUBMITTED_BKPSDMD"].includes(detail.status) &&
@@ -132,17 +177,17 @@ export default function CutiDetailPage() {
   // sampai Camat menyetujui. Formulir pengajuan selalu bisa dicetak.
   const showPengantar =
     !!detail &&
-    ["VERIFIED", "PARAF", "APPROVED", "SIGNED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(
+    ["VERIFIED", "PARAF", "APPROVED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(
       detail.status,
     );
   const pengantarFinal =
     !!detail &&
-    ["APPROVED", "SIGNED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(
+    ["APPROVED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(
       detail.status,
     );
 
   return (
-    <AppShell>
+    <RequirePerm perm="leave.view" label="Cuti">
       <button onClick={() => router.back()} className="text-sm font-semibold text-muted hover:text-slate-900">
         ← Kembali
       </button>
@@ -192,11 +237,26 @@ export default function CutiDetailPage() {
                 <div><dt className="text-muted">Jenis cuti</dt><dd className="font-medium">{detail.leaveType?.name}</dd></div>
                 <div><dt className="text-muted">Periode</dt><dd className="font-medium">{detail.startDate?.slice(0,10)} → {detail.endDate?.slice(0,10)} ({detail.totalDays} hari)</dd></div>
                 <div><dt className="text-muted">Alasan</dt><dd className="font-medium">{detail.reason}</dd></div>
-                {detail.revisionNote ? <div><dt className="text-muted">Catatan revisi</dt><dd className="font-medium text-warn-700">{detail.revisionNote}</dd></div> : null}
+                {detail.revisionNote && detail.status !== "REVISION" ? <div><dt className="text-muted">Catatan revisi</dt><dd className="font-medium text-warn-700">{detail.revisionNote}</dd></div> : null}
                 {detail.rejectionReason ? <div><dt className="text-muted">Alasan penolakan</dt><dd className="font-medium text-bad-700">{detail.rejectionReason}</dd></div> : null}
                 {detail.postponeNote ? <div><dt className="text-muted">Catatan penangguhan</dt><dd className="font-medium text-secondary">{detail.postponeNote}</dd></div> : null}
               </dl>
             </div>
+
+            {detail.status === "REVISION" && detail.revisionNote ? (
+              <div className="rounded-lg border border-warn-700/30 bg-warn-100 px-4 py-3">
+                <p className="text-sm font-semibold text-warn-700">Perlu perbaikan</p>
+                <p className="mt-0.5 text-sm text-secondary">{detail.revisionNote}</p>
+                {canUploadDraftDoc ? (
+                  <a
+                    href="#dokumen-cuti"
+                    className="mt-2 inline-block rounded-lg bg-warn-700 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110"
+                  >
+                    Unggah berkas perbaikan
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
 
             {detail.supervisor && (detail.supervisor.direct || detail.supervisor.note) ? (
               <div className="rounded-lg border border-line bg-surface p-5">
@@ -248,7 +308,11 @@ export default function CutiDetailPage() {
                   <textarea
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    placeholder="Catatan (wajib untuk revisi/tolak/tangguhkan/forward, opsional lainnya)"
+                    placeholder={
+                      visibleActions.includes("register")
+                        ? "Nomor surat pengantar (wajib untuk Registrasi), mis. 800/001/KT/XI/2026"
+                        : "Catatan (wajib untuk revisi/tolak/tangguhkan/forward, opsional lainnya)"
+                    }
                     rows={2}
                     className="mt-3 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700"
                   />
@@ -299,7 +363,7 @@ export default function CutiDetailPage() {
               </div>
             ) : null}
 
-            <div className="rounded-lg border border-line bg-surface p-5">
+            <div id="dokumen-cuti" className="scroll-mt-4 rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Dokumen ({detail.documents?.length ?? 0})</h2>
               <ul className="mt-2 space-y-2 text-sm">
                 {(detail.documents ?? []).map((d) => (
@@ -307,7 +371,7 @@ export default function CutiDetailPage() {
                     <span className="font-semibold">{d.originalName}</span>
                     <span className="text-xs text-muted">({d.docType}, {(d.sizeBytes/1024).toFixed(1)} KB)</span>
                     <a
-                      href={`/api${d.downloadUrl}`}
+                      href={fileUrl(d.downloadUrl)}
                       target="_blank"
                       rel="noreferrer"
                       className="ml-auto rounded-lg bg-brand-900 px-3 py-1 text-xs font-bold text-white hover:brightness-110"
@@ -320,6 +384,40 @@ export default function CutiDetailPage() {
                   <li className="text-muted">Belum ada dokumen.</li>
                 ) : null}
               </ul>
+              {canUploadDraftDoc ? (
+                <div className="mt-3 border-t border-line pt-3">
+                  <p className="text-sm font-semibold">
+                    {detail.status === "REVISION" ? "Unggah berkas perbaikan" : "Lengkapi berkas"}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    Wajib minimal 2 berkas, salah satunya SK terakhir. Surat dokter diperlukan untuk cuti sakit.
+                    Backend belum menyediakan hapus dokumen; unggah ulang dengan jenis yang sama bila perlu.
+                  </p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_220px_auto]">
+                    <FileButton hint="PDF/JPG/PNG, maks 5MB" onSelect={setDocFile} />
+                    <select
+                      value={docType}
+                      onChange={(e) => setDocType(e.target.value)}
+                      className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand-700"
+                    >
+                      <option value="SK_TERAKHIR">SK terakhir</option>
+                      <option value="FORM_CUTI">Formulir cuti</option>
+                      <option value="SURAT_CUTI_SEBELUMNYA">Surat cuti sebelumnya</option>
+                      <option value="SURAT_DOKTER">Surat dokter</option>
+                      <option value="KK">Kartu keluarga</option>
+                      <option value="LAINNYA">Dokumen lain</option>
+                    </select>
+                    <button
+                      type="button"
+                      disabled={acting !== null}
+                      onClick={() => void uploadDraftDocument()}
+                      className="rounded-lg bg-brand-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {acting === "upload-doc" ? "Mengunggah…" : "Unggah"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-lg border border-line bg-surface p-5">
@@ -340,6 +438,6 @@ export default function CutiDetailPage() {
           </div>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }

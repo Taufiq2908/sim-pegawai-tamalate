@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/components/toast";
-import type { KgbMonitoringItem } from "@/lib/types";
+import type { KgbMonitoringItem, KgbReminderResult } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
 function fmtDate(iso?: string | null): string {
@@ -24,7 +24,7 @@ function sisaBulan(n: number | null): string {
 }
 
 export default function KgbMonitoringPage() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [items, setItems] = useState<KgbMonitoringItem[]>([]);
   const [q, setQ] = useState("");
   const [hanyaDue, setHanyaDue] = useState(false);
@@ -50,8 +50,10 @@ export default function KgbMonitoringPage() {
   }, [load]);
 
   const needle = q.trim().toLowerCase();
+  const isOverdue = (it: KgbMonitoringItem) => it.isOverdue || (it.monthsUntil ?? 0) < 0;
+  const needsAction = (it: KgbMonitoringItem) => it.dueSoon || isOverdue(it);
   const filtered = items.filter((it) => {
-    if (hanyaDue && !it.dueSoon) return false;
+    if (hanyaDue && !needsAction(it)) return false;
     if (!needle) return true;
     return [it.employee.name, it.employee.nip, it.employee.position, it.employee.orgUnit]
       .filter(Boolean)
@@ -59,19 +61,29 @@ export default function KgbMonitoringPage() {
   });
 
   const dueSoon = items.filter((it) => it.dueSoon);
+  const overdue = items.filter((it) => isOverdue(it));
+  const perluTindakan = items.filter((it) => needsAction(it));
   const sudah = items.filter((it) => it.lastKgb).length;
 
   async function kirimPengingat() {
+    if (
+      !window.confirm(
+        "Kirim pengingat KGB sekarang? Endpoint belum idempoten, jadi klik berulang akan membuat notifikasi ganda.",
+      )
+    ) {
+      return;
+    }
     setReminding(true);
     try {
-      const { data } = await apiFetch<Array<{ employee: string; nextKgbDate: string; monthsUntil: number }>>(
+      const { data } = await apiFetch<KgbReminderResult[]>(
         "/kgb-requests/reminders/generate",
         { method: "POST", body: JSON.stringify({}) },
       );
       const list = Array.isArray(data) ? data : [];
+      const overdueCount = list.filter((r) => r.isOverdue).length;
       toast.success(
         list.length
-          ? `${list.length} pengingat KGB dibuat untuk pegawai yang jatuh tempo.`
+          ? `${list.length} pengingat KGB dibuat${overdueCount ? ` (${overdueCount} terlambat)` : ""}.`
           : "Tidak ada pegawai yang jatuh tempo saat ini.",
       );
       await load();
@@ -82,8 +94,12 @@ export default function KgbMonitoringPage() {
     }
   }
 
+  function docsOf(it: KgbMonitoringItem) {
+    return (it.requiredDocs ?? []).map((code) => code.replaceAll("_", " ").toLowerCase());
+  }
+
   return (
-    <AppShell>
+    <RequirePerm perm="kgb.view" label="Monitoring KGB">
       <div className="flex flex-wrap items-center gap-2">
         <div>
           <h1 className="text-xl font-bold">Monitoring KGB</h1>
@@ -107,16 +123,17 @@ export default function KgbMonitoringPage() {
         </div>
       </div>
 
-      {dueSoon.length ? (
+      {perluTindakan.length ? (
         <div className="mt-3 rounded-lg border border-warn-700/30 bg-warn-100 px-4 py-3">
           <div className="flex flex-wrap items-start gap-2">
             <div>
               <p className="text-sm font-semibold text-warn-700">
-                {dueSoon.length} pegawai akan memasuki masa KGB (≤ 3 bulan).
+                {perluTindakan.length} pegawai perlu ditindaklanjuti
+                {overdue.length ? ` — ${overdue.length} terlambat` : ""}.
               </p>
               <p className="mt-0.5 text-xs text-secondary">
-                Arahkan pegawai melengkapi berkas: SK KGB terakhir, SK kenaikan pangkat terakhir,
-                dan SKP 2 tahun terakhir.
+                {dueSoon.length} akan memasuki masa KGB (≤ 3 bulan), {overdue.length} sudah melewati jatuh tempo.
+                Arahkan pegawai melengkapi SK KGB terakhir, SK kenaikan pangkat terakhir, dan SKP 2 tahun terakhir.
               </p>
             </div>
             {hasPermission("kgb.remind") ? (
@@ -144,7 +161,8 @@ export default function KgbMonitoringPage() {
           Hanya jatuh tempo
         </label>
         <span className="self-center text-sm text-muted">
-          {items.length} pegawai • {sudah} punya KGB • {dueSoon.length} jatuh tempo
+          {items.length} pegawai • {sudah} punya KGB • {dueSoon.length + overdue.length} jatuh tempo
+          {overdue.length ? ` (${overdue.length} terlambat)` : ""}
         </span>
       </div>
 
@@ -156,7 +174,11 @@ export default function KgbMonitoringPage() {
         ) : filtered.length === 0 ? (
           <EmptyState
             title="Tidak ada pegawai yang cocok"
-            hint={hanyaDue ? "Tidak ada pegawai dalam rentang 3 bulan jatuh tempo." : "Ubah kata kunci pencarian."}
+            hint={
+              hanyaDue
+                ? "Tidak ada pegawai yang jatuh tempo atau terlambat."
+                : "Ubah kata kunci pencarian."
+            }
           />
         ) : (
           <div className="overflow-x-auto rounded-lg border border-line bg-surface">
@@ -179,6 +201,14 @@ export default function KgbMonitoringPage() {
                     <td className="px-3 py-2.5">
                       <p className="font-medium">{it.employee.name}</p>
                       <p className="text-xs text-muted">NIP {it.employee.nip ?? "—"}</p>
+                      {user?.role !== "EMPLOYEE" && hasPermission("kgb.create") && needsAction(it) ? (
+                        <Link
+                          href={`/kgb/baru?employeeId=${encodeURIComponent(it.employee.id)}`}
+                          className="mt-1 inline-block text-xs font-semibold text-brand-800 hover:underline"
+                        >
+                          Buatkan KGB
+                        </Link>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2.5 text-muted">
                       {it.employee.position}
@@ -209,6 +239,21 @@ export default function KgbMonitoringPage() {
                             Jatuh tempo ≤ 3 bulan
                           </span>
                         ) : null}
+                        {isOverdue(it) ? (
+                          <span className="rounded bg-bad-100 px-1.5 py-0.5 text-[11px] font-semibold text-bad-700">
+                            Terlambat {Math.abs(it.monthsUntil ?? 0)} bulan
+                          </span>
+                        ) : null}
+                        {needsAction(it) && (it.requiredDocs?.length ?? 0) > 0 ? (
+                          <details className="text-[11px] text-muted">
+                            <summary className="cursor-pointer font-medium text-secondary">Berkas wajib</summary>
+                            <ul className="mt-1 list-disc pl-4">
+                              {docsOf(it).map((doc) => (
+                                <li key={doc}>{doc}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -218,6 +263,6 @@ export default function KgbMonitoringPage() {
           </div>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }

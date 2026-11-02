@@ -2,18 +2,28 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiUpload } from "@/lib/api";
+import { fileUrl } from "@/lib/file-url";
 import type { LeaveDetail, LeaveType } from "@/lib/types";
-import { Field, SubmitButton } from "@/components/form";
+import { Field, FileButton, SubmitButton } from "@/components/form";
 import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
 import { toast } from "@/components/toast";
+
+const DOC_LABEL: Record<string, string> = {
+  SK_TERAKHIR: "SK terakhir",
+  FORM_CUTI: "Formulir cuti",
+  SURAT_CUTI_SEBELUMNYA: "Surat cuti sebelumnya",
+  SURAT_DOKTER: "Surat dokter",
+  KK: "Kartu keluarga",
+  LAINNYA: "Dokumen lain",
+};
 
 export default function CutiEditPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [detail, setDetail] = useState<LeaveDetail | null>(null);
   const [types, setTypes] = useState<LeaveType[]>([]);
   const [form, setForm] = useState({
@@ -27,6 +37,9 @@ export default function CutiEditPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [docType, setDocType] = useState("SK_TERAKHIR");
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,6 +70,7 @@ export default function CutiEditPage() {
 
   const isOwner = !!user?.employee && !!detail && user.employee.id === detail.employee?.id;
   const editable = !!detail && ["DRAFT", "REVISION"].includes(detail.status) && isOwner;
+  const canUploadDoc = editable && hasPermission("leave.document.upload");
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -90,8 +104,30 @@ export default function CutiEditPage() {
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  async function uploadDocument() {
+    if (!docFile) {
+      toast.error("Pilih berkas terlebih dahulu.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("docType", docType);
+      fd.append("file", docFile);
+      await apiUpload(`/leave-requests/${id}/documents`, fd);
+      setDocFile(null);
+      toast.success("Berkas cuti diunggah.");
+      const { data } = await apiFetch<LeaveDetail>(`/leave-requests/${id}`);
+      setDetail(data);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unggah berkas gagal");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
-    <AppShell>
+    <RequirePerm perm="leave.create" label="Ubah Pengajuan Cuti">
       <button onClick={() => router.back()} className="text-sm font-medium text-secondary hover:text-ink">
         ← Kembali
       </button>
@@ -143,10 +179,59 @@ export default function CutiEditPage() {
             </Field>
           </div>
           <p className="text-xs text-muted">Setelah disimpan, ajukan ulang dari halaman detail.</p>
+
+          <section className="rounded-lg border border-line bg-surface p-4">
+            <h2 className="text-sm font-semibold">Dokumen persyaratan</h2>
+            <ul className="mt-2 space-y-2 text-sm">
+              {(detail.documents ?? []).map((d) => (
+                <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-paper px-3 py-2">
+                  <span className="font-medium">{d.originalName}</span>
+                  <span className="text-xs text-muted">({DOC_LABEL[d.docType] ?? d.docType})</span>
+                  <a
+                    href={fileUrl(d.downloadUrl)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-auto text-xs font-semibold text-brand-800 hover:underline"
+                  >
+                    Unduh
+                  </a>
+                </li>
+              ))}
+              {(detail.documents ?? []).length === 0 ? (
+                <li className="text-muted">Belum ada dokumen. Draf tetap bisa disimpan, tetapi belum bisa diajukan.</li>
+              ) : null}
+            </ul>
+            {canUploadDoc ? (
+              <div className="mt-3 grid gap-2 border-t border-line pt-3 sm:grid-cols-[minmax(0,1fr)_220px_auto]">
+                <FileButton hint="PDF/JPG/PNG, maks 5MB" onSelect={setDocFile} />
+                <select
+                  value={docType}
+                  onChange={(e) => setDocType(e.target.value)}
+                  className="rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand-700"
+                >
+                  {Object.entries(DOC_LABEL).map(([code, label]) => (
+                    <option key={code} value={code}>{label}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={uploading}
+                  onClick={() => void uploadDocument()}
+                  className="rounded-lg bg-brand-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {uploading ? "Mengunggah…" : "Unggah"}
+                </button>
+              </div>
+            ) : null}
+            <p className="mt-2 text-xs text-muted">
+              Backend belum menyediakan hapus dokumen. Unggah berkas pengganti dengan jenis yang sama bila ada kesalahan.
+            </p>
+          </section>
+
           {error ? <ErrorBox message={error} /> : null}
           <SubmitButton loading={saving}>Simpan perubahan</SubmitButton>
         </form>
       )}
-    </AppShell>
+    </RequirePerm>
   );
 }

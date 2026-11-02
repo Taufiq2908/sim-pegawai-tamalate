@@ -7,6 +7,18 @@ export interface ApiError extends Error {
   errors?: Record<string, string[]> | null;
 }
 
+/** Sesi habis setelah proxy gagal refresh: kembali ke login tanpa kehilangan tujuan. */
+function redirectToLogin(status: number, path: string) {
+  if (typeof window === "undefined" || status !== 401) return;
+  if (path.startsWith("/auth/")) return;
+  if (window.location.pathname === "/login") return;
+
+  const next = `${window.location.pathname}${window.location.search}`;
+  const params = new URLSearchParams({ reason: "expired" });
+  if (next && next !== "/") params.set("next", next);
+  window.location.assign(`/login?${params.toString()}`);
+}
+
 export async function apiFetch<T>(
   path: string,
   init: RequestInit = {},
@@ -36,6 +48,7 @@ export async function apiFetch<T>(
     ) as ApiError;
     err.status = res.status;
     err.errors = body?.errors ?? null;
+    redirectToLogin(res.status, path);
     throw err;
   }
   return { data: body.data, meta: body.meta, raw: body };
@@ -59,6 +72,7 @@ export async function apiUpload<T>(
     ) as ApiError;
     err.status = res.status;
     err.errors = body?.errors ?? null;
+    redirectToLogin(res.status, path);
     throw err;
   }
   return { data: body.data, meta: body.meta };

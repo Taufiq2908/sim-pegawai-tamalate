@@ -7,6 +7,7 @@ import { loadSignature } from "@/lib/signature";
 import { SignaturePad } from "@/components/signature";
 import { toast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
+import { actorUsername, formatTanggalSurat, letterDate } from "@/lib/letter";
 import type { LeaveDetail } from "@/lib/types";
 import { ErrorBox, Skeleton } from "@/components/ui";
 
@@ -37,6 +38,7 @@ const JABATAN_ID: Record<string, string> = {
   LURAH: "Lurah",
   KASI: "Kepala Seksi",
   KASUBAG: "Kasubag Umum & Kepegawaian",
+  STAF_KEPEGAWAIAN: "Staf Kepegawaian",
   VERIFIKATOR: "Verifikator",
   STAF: "Staf",
 };
@@ -57,26 +59,10 @@ export default function SuratPengantarCutiPage() {
   const [history, setHistory] = useState<Array<{ year: string; type: string; days: number; status: string }>>([]);
   const [balance, setBalance] = useState<Balance | null>(null);
   const [logoOk, setLogoOk] = useState(true);
-  const [sigTick, setSigTick] = useState(0);
+  const [, setSigTick] = useState(0);
   const [signAct, setSignAct] = useState<string | null>(null);
   const [signNote, setSignNote] = useState("");
   const [signing, setSigning] = useState(false);
-  // Tanda tangan dummy per penandatangan — dihitung dari detail bila sudah ada.
-  const atasanSig = useMemo(() => {
-    const tl = detail?.timeline ?? [];
-    const entry = tl.find((t) => t.action === "REVIEW") ?? tl.find((t) => t.action === "PARAF");
-    if (!entry || !user?.username) return null;
-    const isActor =
-      user.employee?.name === entry.actorName ||
-      (!!user.position && user.position === actorPosition(entry.actor));
-    return isActor ? loadSignature(user.username) : null;
-  }, [sigTick, detail?.id, user?.username, user?.employee?.name, user?.position]);
-  const camatSig = useMemo(() => {
-    const entry = (detail?.timeline ?? []).find((t) => t.action === "APPROVE");
-    if (!entry || !user?.username) return null;
-    const isCamat = user.position === "CAMAT" || user.employee?.name === entry.actorName;
-    return isCamat ? loadSignature(user.username) : null;
-  }, [sigTick, detail?.id, user?.username, user?.position, user?.employee?.name]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -153,9 +139,9 @@ export default function SuratPengantarCutiPage() {
     (isOwner ? user?.orgUnit?.name : null) ??
     "..............................";
   const code = detail.leaveType?.code;
-  const viiSetuju = ["PARAF", "APPROVED", "SIGNED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED", "FORWARDED"].includes(detail.status);
+  const viiSetuju = ["PARAF", "APPROVED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED", "FORWARDED"].includes(detail.status);
   const viiTolak = detail.status === "REJECTED";
-  const viiiSetuju = ["APPROVED", "SIGNED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(detail.status);
+  const viiiSetuju = ["APPROVED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(detail.status);
   const viiiTolak = detail.status === "REJECTED";
   const findEntry = (action: string) => (detail.timeline ?? []).find((t) => t.action === action);
   const reviewEntry = findEntry("REVIEW");
@@ -165,7 +151,7 @@ export default function SuratPengantarCutiPage() {
   // Bila belum ada snapshot pertimbangan, pakai atasan langsung dari backend.
   const supervisorDirect = detail.supervisor?.direct ?? null;
   const atasanUsername =
-    (atasanEntry?.actor ?? "").split(" ")[0] || supervisorDirect?.username || null;
+    actorUsername(atasanEntry) || supervisorDirect?.username || null;
   const atasanName = atasanEntry?.actorName || supervisorDirect?.name || "";
   const atasanNip = atasanEntry?.actorNip || supervisorDirect?.nip || "";
   const atasanJabatan =
@@ -174,11 +160,19 @@ export default function SuratPengantarCutiPage() {
     supervisorDirect?.position ||
     "";
   const atasanTime = atasanEntry ? new Date(atasanEntry.createdAt).toLocaleString("id-ID") : "";
-  const camatUsername = (approveEntry?.actor ?? "").split(" ")[0] || null;
-  // Prioritas: snapshot penandatangan di timeline → Camat aktif dari backend → cadangan lama.
-  const camatName = approveEntry?.actorName || detail.camat?.name || "MUH. ARIL SYAHBANI K, S.IP";
-  const camatNip = approveEntry?.actorNip || detail.camat?.nip || "198804152007011001";
+  const camatUsername = actorUsername(approveEntry);
+  // Penandatangan hanya dari snapshot/backend; tanpa nama/NIP hardcode.
+  const camatName = approveEntry?.actorName || detail.camat?.name || "";
+  const camatNip = approveEntry?.actorNip || detail.camat?.nip || "";
   const camatTime = approveEntry ? new Date(approveEntry.createdAt).toLocaleString("id-ID") : "";
+  const atasanSig = loadSignature(atasanUsername);
+  const camatSig =
+    loadSignature(camatUsername) ??
+    (user?.position === "CAMAT" || (!!approveEntry?.actorName && user?.employee?.name === approveEntry.actorName)
+      ? loadSignature(user?.username)
+      : null);
+  const tanggalSurat =
+    letterDate(detail.submittedAt, detail.createdAt) ?? new Date().toISOString();
 
   const check = (on: boolean) => (on ? "✓" : "");
 
@@ -204,7 +198,6 @@ export default function SuratPengantarCutiPage() {
   }
 
   const cell = "border border-black px-2 py-1";
-  const todayID = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
 
   return (
     <main className="bg-white font-serif text-black">
@@ -300,7 +293,7 @@ export default function SuratPengantarCutiPage() {
         {/* TUJUAN */}
         <div className="mt-2 flex justify-end">
           <div>
-            <p>Makassar, {todayID}</p>
+            <p>Makassar, {formatTanggalSurat(tanggalSurat)}</p>
             <p className="mt-2">Kepada</p>
             <p className="font-bold">Yth. Camat Tamalate</p>
             <p>Di -</p>
@@ -528,9 +521,9 @@ export default function SuratPengantarCutiPage() {
             ) : (
               <div className="h-14" />
             )}
-            <p className="font-bold underline">{camatName}</p>
-            <p>Pangkat : Pembina</p>
-            <p>Nip. {camatNip}</p>
+            <p className="font-bold underline">{camatName || "................"}</p>
+            <p>Pangkat : {detail.camat?.rank ?? "................"}</p>
+            <p>Nip. {camatNip || "................"}</p>
             {camatSig && camatTime ? (
               <p className="mt-1 text-[11px]">Ditandatangani secara elektronik pada {camatTime} (dummy, browser ini).</p>
             ) : null}

@@ -9,6 +9,9 @@ function base(path: React.ReactNode, extra?: string) {
 }
 
 export const Icons = {
+  pension: (p: P) => base(<><path d="M19 3H5c-1.1 0-2 0.9-2 2v14c0 1.1 0.9 2 2 2h14c1.1 0 2-0.9 2-2V5c0-1.1-0.9-2-2-2z" /><polyline points="9 18 12 15 15 18" /></>, p.className),
+  archive: (p: P) => base(<><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><rect x="4" y="8" width="16" height="8" rx="1" ry="1" /><path d="M17 10h-4V8h4z" /></>, p.className),
+  file: (p: P) => base(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></>, p.className),
   grid: (p: P) => base(<><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>, p.className),
   calendar: (p: P) => base(<><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></>, p.className),
   clock: (p: P) => base(<><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15.5 13.5" /></>, p.className),
@@ -18,5 +21,4 @@ export const Icons = {
   bell: (p: P) => base(<><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></>, p.className),
   logout: (p: P) => base(<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></>, p.className),
   check: (p: P) => base(<polyline points="20 6 9 17 4 12" />, p.className),
-  file: (p: P) => base(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></>, p.className),
 };

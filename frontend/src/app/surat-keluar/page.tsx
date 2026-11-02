@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
+import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import type { OutgoingLetter, PageMeta } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
@@ -17,6 +18,7 @@ const FILTERS = [
 const LIMIT = 10;
 
 export default function SuratKeluarListPage() {
+  const { hasPermission } = useAuth();
   const [items, setItems] = useState<OutgoingLetter[]>([]);
   const [meta, setMeta] = useState<PageMeta | null>(null);
   const [status, setStatus] = useState("");
@@ -53,12 +55,14 @@ export default function SuratKeluarListPage() {
   return (
     <RequirePerm perm="outgoing.view" label="Surat Keluar">
       <div className="flex flex-wrap items-center gap-2">
-        <Link
-          href="/surat-keluar/baru"
-          className="rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
-        >
-          + Buat surat
-        </Link>
+        {hasPermission("outgoing.create") ? (
+          <Link
+            href="/surat-keluar/baru"
+            className="rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
+          >
+            + Buat surat
+          </Link>
+        ) : null}
         <Link href="/surat-keluar/agenda" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:bg-paper">
           Buku agenda keluar
         </Link>

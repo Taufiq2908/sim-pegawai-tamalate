@@ -2,11 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
-import type { LeaveType } from "@/lib/types";
+import type { EmployeeRef, LeaveType } from "@/lib/types";
 import { Field, FileButton } from "@/components/form";
+import { EmployeePicker } from "@/components/employee-picker";
 import { ErrorBox } from "@/components/ui";
 import { toast } from "@/components/toast";
 
@@ -33,21 +34,24 @@ export default function CutiBaruPage() {
   const [fileSecond, setFileSecond] = useState<File | null>(null);
   const [secondType, setSecondType] = useState("FORM_CUTI");
   const [fileDoctor, setFileDoctor] = useState<File | null>(null);
+  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeRef | null>(null);
   const [balance, setBalance] = useState<{ entitlement: number; used: number; remaining: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const isEmployee = user?.role === "EMPLOYEE";
+  const pegawai = isEmployee || !selectedEmployee ? user?.employee ?? null : selectedEmployee;
   const durasi = useMemo(() => inclusiveDays(form.startDate, form.endDate), [form.startDate, form.endDate]);
   const selectedType = types.find((t) => t.code === form.leaveTypeCode);
   const masaKerja = useMemo(() => {
-    const jd = user?.employee?.joinDate;
+    const jd = pegawai?.joinDate;
     if (!jd) return "—";
     const start = new Date(jd + "T00:00:00");
     const now = new Date();
     let months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
     if (isNaN(months) || months < 0) return "—";
     return `${Math.floor(months / 12)} tahun ${months % 12} bulan`;
-  }, [user?.employee?.joinDate]);
+  }, [pegawai?.joinDate]);
 
   useEffect(() => {
     apiFetch<LeaveType[]>("/leave-types")
@@ -71,17 +75,25 @@ export default function CutiBaruPage() {
 
   async function save(draftOnly: boolean) {
     setError("");
-    if (!fileSk || !fileSecond) {
-      const msg = "Wajib unggah minimal 2 berkas: SK terakhir + 1 dokumen pendukung.";
+    if (!isEmployee && !pegawai?.id) {
+      const msg = "Pilih pegawai yang akan diajukan cutinya.";
       setError(msg);
       toast.error(msg);
       return;
     }
-    if (selectedType?.requiresDocument && !fileDoctor) {
-      const msg = `Jenis ${selectedType.name} wajib melampirkan surat dokter.`;
-      setError(msg);
-      toast.error(msg);
-      return;
+    if (!draftOnly) {
+      if (!fileSk || !fileSecond) {
+        const msg = "Wajib unggah minimal 2 berkas: SK terakhir + 1 dokumen pendukung.";
+        setError(msg);
+        toast.error(msg);
+        return;
+      }
+      if (selectedType?.requiresDocument && !fileDoctor) {
+        const msg = `Jenis ${selectedType.name} wajib melampirkan surat dokter.`;
+        setError(msg);
+        toast.error(msg);
+        return;
+      }
     }
     setLoading(true);
     try {
@@ -94,17 +106,22 @@ export default function CutiBaruPage() {
           reason: form.reason,
           addressDuringLeave: form.addressDuringLeave || undefined,
           contactDuringLeave: form.contactDuringLeave || undefined,
+          employeeId: !isEmployee && selectedEmployee ? selectedEmployee.id : undefined,
         }),
       });
       const id = (data as { id: string }).id;
-      const fd1 = new FormData();
-      fd1.append("docType", "SK_TERAKHIR");
-      fd1.append("file", fileSk);
-      await apiUpload(`/leave-requests/${id}/documents`, fd1);
-      const fd2 = new FormData();
-      fd2.append("docType", secondType);
-      fd2.append("file", fileSecond);
-      await apiUpload(`/leave-requests/${id}/documents`, fd2);
+      if (fileSk) {
+        const fd1 = new FormData();
+        fd1.append("docType", "SK_TERAKHIR");
+        fd1.append("file", fileSk);
+        await apiUpload(`/leave-requests/${id}/documents`, fd1);
+      }
+      if (fileSecond) {
+        const fd2 = new FormData();
+        fd2.append("docType", secondType);
+        fd2.append("file", fileSecond);
+        await apiUpload(`/leave-requests/${id}/documents`, fd2);
+      }
       if (fileDoctor) {
         const fd3 = new FormData();
         fd3.append("docType", "SURAT_DOKTER");
@@ -118,7 +135,7 @@ export default function CutiBaruPage() {
         });
         toast.success("Pengajuan cuti dikirim.");
       } else {
-        toast.success("Draft tersimpan.");
+        toast.success("Draft tersimpan. Lengkapi berkas dari halaman detail sebelum mengajukan.");
       }
       router.replace(`/cuti/${id}`);
     } catch (err) {
@@ -141,20 +158,32 @@ export default function CutiBaruPage() {
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
   return (
-    <AppShell>
+    <RequirePerm perm="leave.create" label="Pengajuan Cuti">
       <h1>Pengajuan cuti</h1>
       <p className="mt-1 text-sm text-muted">Lengkapi data di bawah. Data pegawai diambil dari profil.</p>
 
       <form onSubmit={onSubmit} className="mt-6 max-w-2xl pb-28">
         <section>
           <h2 className="text-xs font-semibold tracking-wider text-muted">DATA PEGAWAI</h2>
+          {!isEmployee ? (
+            <div className="mt-3">
+              <p className="mb-1 text-sm font-medium text-ink">Pegawai yang diajukan</p>
+              <EmployeePicker
+                value={selectedEmployee?.id ?? user?.employee?.id ?? ""}
+                onChange={(_, employee) => setSelectedEmployee(employee)}
+              />
+              <p className="mt-1 text-xs text-muted">
+                Pilih pegawai lain bila membuat cuti untuk orang lain.
+              </p>
+            </div>
+          ) : null}
           <dl className="mt-3 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
-            <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Nama</dt><dd className="font-medium">{user?.employee?.name ?? user?.username}</dd></div>
-            <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">NIP</dt><dd className="font-medium">{user?.employee?.nip ?? "—"}</dd></div>
-            <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Jabatan</dt><dd className="font-medium">{user?.position ?? "—"}</dd></div>
-            <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Unit kerja</dt><dd className="font-medium">{user?.orgUnit?.name ?? "—"}</dd></div>
+            <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Nama</dt><dd className="font-medium">{pegawai?.name ?? user?.username}</dd></div>
+            <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">NIP</dt><dd className="font-medium">{pegawai?.nip ?? "—"}</dd></div>
+            <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Jabatan</dt><dd className="font-medium">{pegawai?.position ?? user?.position ?? "—"}</dd></div>
+            <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Unit kerja</dt><dd className="font-medium">{pegawai?.orgUnit?.name ?? user?.orgUnit?.name ?? "—"}</dd></div>
             <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Masa kerja</dt><dd className="font-medium">{masaKerja}</dd></div>
-            {balance ? (
+            {balance && (!selectedEmployee || selectedEmployee.id === user?.employee?.id) ? (
               <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Sisa cuti tahunan</dt><dd className="font-medium">{balance.remaining} hari <span className="font-normal text-muted">(hak {balance.entitlement}, terpakai {balance.used})</span></dd></div>
             ) : null}
           </dl>
@@ -195,12 +224,16 @@ export default function CutiBaruPage() {
         </section>
 
         <section className="mt-8 space-y-4">
-          <h2 className="border-b border-line pb-2 text-xs font-semibold tracking-wider text-muted">DOKUMEN — WAJIB ≥2, SALAH SATUNYA SK TERAKHIR</h2>
-          <Field label="1. SK terakhir* (pdf/jpg/png ≤5MB)">
-            <FileButton required hint="PDF/JPG/PNG, maks 5MB" onSelect={setFileSk} />
+          <h2 className="border-b border-line pb-2 text-xs font-semibold tracking-wider text-muted">DOKUMEN — DIPERLUKAN SAAT DIAJUKAN</h2>
+          <p className="text-sm text-muted">
+            Draf boleh disimpan tanpa berkas. Saat menekan “Ajukan cuti”, wajib ada minimal 2 berkas
+            dan salah satunya SK terakhir.
+          </p>
+          <Field label="1. SK terakhir (wajib saat diajukan)"> 
+            <FileButton hint="PDF/JPG/PNG, maks 5MB" onSelect={setFileSk} />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="2. Jenis dokumen pendukung*">
+            <Field label="2. Jenis dokumen pendukung (wajib saat diajukan)">
               <select value={secondType} onChange={(e) => setSecondType(e.target.value)} className="w-full rounded-lg border border-line px-3 py-2 text-sm">
                 <option value="FORM_CUTI">Formulir cuti</option>
                 <option value="SURAT_CUTI_SEBELUMNYA">Surat cuti sebelumnya</option>
@@ -209,13 +242,13 @@ export default function CutiBaruPage() {
                 <option value="LAINNYA">Lainnya</option>
               </select>
             </Field>
-            <Field label="File dokumen pendukung*">
-              <FileButton required hint="PDF/JPG/PNG, maks 5MB" onSelect={setFileSecond} />
+            <Field label="File dokumen pendukung (wajib saat diajukan)">
+              <FileButton hint="PDF/JPG/PNG, maks 5MB" onSelect={setFileSecond} />
             </Field>
           </div>
           {selectedType?.requiresDocument ? (
-            <Field label={`Surat dokter* (wajib untuk ${selectedType.name})`}>
-              <FileButton required hint="PDF/JPG/PNG, maks 5MB" onSelect={setFileDoctor} />
+            <Field label={`Surat dokter (wajib untuk ${selectedType.name})`}>
+              <FileButton hint="PDF/JPG/PNG, maks 5MB" onSelect={setFileDoctor} />
             </Field>
           ) : null}
         </section>
@@ -245,6 +278,6 @@ export default function CutiBaruPage() {
           </div>
         </div>
       </form>
-    </AppShell>
+    </RequirePerm>
   );
 }

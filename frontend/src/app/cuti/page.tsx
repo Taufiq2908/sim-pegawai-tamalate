@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
+import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import type { LeaveItem, LeaveStatus, LeaveType, PageMeta } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
@@ -18,7 +19,6 @@ const FILTERS: Array<{ value: "" | LeaveStatus; label: string }> = [
   { value: "PARAF", label: "Paraf" },
   { value: "APPROVED", label: "Disetujui" },
   { value: "FORWARDED", label: "Ke Sekda" },
-  { value: "SIGNED", label: "Ditandatangani" },
   { value: "REGISTERED", label: "Registrasi" },
   { value: "SUBMITTED_BKPSDMD", label: "Ke BKPSDM" },
   { value: "COMPLETED", label: "Selesai" },
@@ -29,6 +29,7 @@ const FILTERS: Array<{ value: "" | LeaveStatus; label: string }> = [
 const LIMIT = 10;
 
 export default function CutiListPage() {
+  const { hasPermission } = useAuth();
   const [items, setItems] = useState<LeaveItem[]>([]);
   const [meta, setMeta] = useState<PageMeta | null>(null);
   const [types, setTypes] = useState<LeaveType[]>([]);
@@ -82,14 +83,16 @@ export default function CutiListPage() {
   const totalPages = meta ? Math.max(1, Math.ceil(meta.total / meta.limit)) : 1;
 
   return (
-    <AppShell>
+    <RequirePerm perm="leave.view" label="Cuti">
       <div className="flex flex-wrap items-center gap-3">
-        <Link
-          href="/cuti/baru"
-          className="ml-auto rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
-        >
-          + Ajukan cuti
-        </Link>
+        {hasPermission("leave.create") ? (
+          <Link
+            href="/cuti/baru"
+            className="ml-auto rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
+          >
+            + Ajukan cuti
+          </Link>
+        ) : null}
       </div>
 
       <form
@@ -208,6 +211,6 @@ export default function CutiListPage() {
           </>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }
