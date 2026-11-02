@@ -5,6 +5,12 @@
 > instruksi kerja untuk sesi/frontend terpisah.
 > Gunakan `apiFetch` / `apiUpload` dari `frontend/src/lib/api.ts`; jangan memanggil
 > backend langsung dari browser.
+>
+> **Penting soal path:** contoh endpoint di dokumen ini ditulis sebagai path backend
+> (`/v1/...`). Helper frontend sudah menambahkan `/api` dan proxy Next menambahkan
+> `/api/v1`. Saat memanggil helper, hilangkan `/v1`: contoh
+> `apiFetch("/pension-requests/bup?year=2026")`, **bukan**
+> `apiFetch("/v1/pension-requests/bup?year=2026")`.
 
 ## 1. Hasil yang harus dibuat
 
@@ -122,7 +128,9 @@ Tetap tangani 403/409 dari backend.
 
 ## 3. Kontrak endpoint yang dipakai frontend
 
-Semua path di bawah relatif ke `apiFetch("/v1/...")`.
+Semua path di bawah ditulis sebagai path backend (`/v1/...`). Saat memanggil
+`apiFetch`/`apiUpload`, hilangkan prefix `/v1` (contoh:
+`apiFetch("/pension-requests?year=2026")`).
 
 ### Daftar BUP — langkah 1
 

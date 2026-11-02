@@ -69,21 +69,32 @@ const PERMS = [
   ['pension.expedite', 'pension', 'expedite'],
   ['pension.send', 'pension', 'send'],
   ['pension.document.upload', 'pension', 'document.upload'],
+  ['promotion.view', 'promotion', 'view'],
+  ['promotion.create', 'promotion', 'create'],
+  ['promotion.legalize', 'promotion', 'legalize'],
+  ['promotion.verify', 'promotion', 'verify'],
+  ['promotion.revise', 'promotion', 'revise'],
+  ['promotion.paraf', 'promotion', 'paraf'],
+  ['promotion.approve', 'promotion', 'approve'],
+  ['promotion.reject', 'promotion', 'reject'],
+  ['promotion.register', 'promotion', 'register'],
+  ['promotion.archive', 'promotion', 'archive'],
+  ['promotion.document.upload', 'promotion', 'document.upload'],
 ] as const;
 
 const ROLE_MAP: Record<string, string[]> = {
   // VERIFIER basis = operator (Staf Kepegawaian/Arsip). Pemeriksa (Kasubag) via GRANT per user.
-  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'letter.archive', 'kgb.view', 'kgb.document.upload', 'kgb.register', 'kgb.remind', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel', 'archive.view', 'archive.create', 'archive.update', 'pension.view', 'pension.create', 'pension.document.upload', 'pension.send'],
+  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'letter.archive', 'kgb.view', 'kgb.document.upload', 'kgb.register', 'kgb.remind', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel', 'archive.view', 'archive.create', 'archive.update', 'pension.view', 'pension.create', 'pension.document.upload', 'pension.send', 'promotion.view', 'promotion.create', 'promotion.legalize', 'promotion.register', 'promotion.archive', 'promotion.document.upload'],
   // SUPERVISOR = atasan langsung (Kasi, Lurah, Seklur): melihat + pertimbangan.
   // Tanpa verify/approve/sign/dispose/complete/manage. Kasubag = SUPERVISOR + GRANT di bawah.
-  SUPERVISOR: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.review', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.review', 'kgb.document.upload', 'archive.view', 'pension.view'],
-  LEADER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'leave.paraf', 'leave.approve', 'leave.reject', 'leave.forward', 'attendance.view', 'attendance.checkin', 'attendance.summary', 'attendance.forward', 'letter.view', 'letter.dispose', 'letter.followup', 'letter.complete', 'letter.paraf', 'kgb.view', 'kgb.paraf', 'kgb.approve', 'kgb.reject', 'outgoing.view', 'archive.view', 'archive.sign', 'pension.view', 'pension.paraf', 'pension.approve', 'pension.revise', 'pension.reject'],
-  EMPLOYEE: ['auth.me', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.create', 'kgb.submit', 'kgb.document.upload', 'pension.view'],
+  SUPERVISOR: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.review', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.review', 'kgb.document.upload', 'archive.view', 'pension.view', 'promotion.view'],
+  LEADER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'leave.paraf', 'leave.approve', 'leave.reject', 'leave.forward', 'attendance.view', 'attendance.checkin', 'attendance.summary', 'attendance.forward', 'letter.view', 'letter.dispose', 'letter.followup', 'letter.complete', 'letter.paraf', 'kgb.view', 'kgb.paraf', 'kgb.approve', 'kgb.reject', 'outgoing.view', 'archive.view', 'archive.sign', 'pension.view', 'pension.paraf', 'pension.approve', 'pension.revise', 'pension.reject', 'promotion.view', 'promotion.paraf', 'promotion.approve', 'promotion.revise', 'promotion.reject'],
+  EMPLOYEE: ['auth.me', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.create', 'kgb.submit', 'kgb.document.upload', 'pension.view', 'promotion.view'],
 };
 
 // Hak pemeriksa Kasubag (di-GRANT ke user position KASUBAG): verifikasi cuti/KGB/pensiun
 // + rekap + input/koreksi presensi + foto apel (attendance.manage).
-const KASUBAG_GRANTS = ['leave.verify', 'leave.revise', 'leave.reject', 'leave.forward', 'attendance.summary', 'attendance.manage', 'kgb.verify', 'kgb.revise', 'kgb.reject', 'kgb.register', 'kgb.remind', 'pension.create', 'pension.document.upload', 'pension.verify', 'pension.revise', 'pension.reject', 'pension.register', 'pension.expedite'];
+const KASUBAG_GRANTS = ['leave.verify', 'leave.revise', 'leave.reject', 'leave.forward', 'attendance.summary', 'attendance.manage', 'kgb.verify', 'kgb.revise', 'kgb.reject', 'kgb.register', 'kgb.remind', 'pension.create', 'pension.document.upload', 'pension.verify', 'pension.revise', 'pension.reject', 'pension.register', 'pension.expedite', 'promotion.verify', 'promotion.revise', 'promotion.reject'];
 
 async function main() {
   for (const [code, resource, action] of PERMS) {
@@ -198,7 +209,7 @@ async function main() {
 
   // Data kepegawaian dummy untuk form (nama, NIP, jabatan, masa kerja via joinDate, unit kerja).
   // employmentStatus: PNS|PPPK|HONORER. joinDate dipakai frontend menghitung masa kerja.
-  async function mkUser(username: string, password: string, role: any, position: string, empNum: string, name: string, extraDeny: string[] = [], extraGrant: string[] = [], empExtra: { nip?: string; joinDate?: string; rank?: string; orgCode?: string; gender?: string; birthDate?: string } = {}) {
+  async function mkUser(username: string, password: string, role: any, position: string, empNum: string, name: string, extraDeny: string[] = [], extraGrant: string[] = [], empExtra: { nip?: string; joinDate?: string; rank?: string; rankTmt?: string; orgCode?: string; gender?: string; birthDate?: string } = {}) {
     const orgId = empExtra.orgCode
       ? (await prisma.organizationalUnit.findUnique({ where: { code: empExtra.orgCode } }))?.id ?? org.id
       : org.id;
@@ -206,6 +217,7 @@ async function main() {
       where: { employeeNumber: empNum },
       update: {
         name, nip: empExtra.nip ?? null, position, rank: empExtra.rank ?? null,
+        rankTmt: empExtra.rankTmt ? new Date(empExtra.rankTmt) : null,
         birthDate: empExtra.birthDate ? new Date(empExtra.birthDate) : null,
         joinDate: empExtra.joinDate ? new Date(empExtra.joinDate) : null,
         orgUnitId: orgId,
@@ -214,6 +226,7 @@ async function main() {
         employeeNumber: empNum, name, gender: empExtra.gender ?? 'L',
         employmentStatus: role === 'EMPLOYEE' ? 'PNS' : 'PNS',
         position, rank: empExtra.rank, nip: empExtra.nip,
+        rankTmt: empExtra.rankTmt ? new Date(empExtra.rankTmt) : null,
         birthDate: empExtra.birthDate ? new Date(empExtra.birthDate) : null,
         joinDate: empExtra.joinDate ? new Date(empExtra.joinDate) : null,
         orgUnitId: orgId,
@@ -245,18 +258,20 @@ async function main() {
   // Super Admin = akun teknis, bukan peserta apel → kecualikan dari presensi/rekap.
   await prisma.employee.update({ where: { employeeNumber: 'EMP-000' }, data: { isActive: false } });
   // Staf Kepegawaian = operator (murni administrasi, tanpa hak verifikasi).
-  await mkUser('verifier1', 'Verifier123!', 'VERIFIER', 'STAF_KEPEGAWAIAN', 'EMP-001', 'Staf Kepegawaian', [], [], { nip: '199203032020121002', birthDate: '1992-03-03', joinDate: '2020-12-01', rank: 'III/a' });
+  await mkUser('verifier1', 'Verifier123!', 'VERIFIER', 'STAF_KEPEGAWAIAN', 'EMP-001', 'Staf Kepegawaian', [], [], { nip: '199203032020121002', birthDate: '1992-03-03', joinDate: '2020-12-01', rank: 'III/a', rankTmt: '2021-04-01' });
   // Kasubag Umum & Kepegawaian = SUPERVISOR + GRANT pemeriksa (verifikasi + teruskan).
-  await mkUser('kasubag1', 'Kasubag123!', 'SUPERVISOR', 'KASUBAG', 'EMP-005', 'Kasubag Umum', [], KASUBAG_GRANTS, { nip: '198707152010012003', birthDate: '1987-07-15', joinDate: '2010-01-15', rank: 'III/d' });
+  await mkUser('kasubag1', 'Kasubag123!', 'SUPERVISOR', 'KASUBAG', 'EMP-005', 'Kasubag Umum', [], KASUBAG_GRANTS, { nip: '198707152010012003', birthDate: '1987-07-15', joinDate: '2010-01-15', rank: 'III/d', rankTmt: '2021-04-01' });
   // Kasi = atasan langsung (SUPERVISOR murni, hanya pertimbangan).
-  await mkUser('kasi1', 'Kasi123!', 'SUPERVISOR', 'KASI', 'EMP-007', 'Kasi Pemerintahan', [], [], { nip: '199001012015021008', birthDate: '1990-01-01', joinDate: '2015-02-10', rank: 'III/c' });
-  await mkUser('sekcam1', 'Sekcam123!', 'LEADER', 'SEKCAM', 'EMP-002', 'Sekcam Satu', ['leave.approve', 'leave.sign'], [], { nip: '198205102008011004', birthDate: '1982-05-10', joinDate: '2008-01-20', rank: 'IV/a' });
-  await mkUser('camat1', 'Camat123!', 'LEADER', 'CAMAT', 'EMP-003', 'Muh. Aril Syahbani K, S.IP', ['leave.verify'], ['leave.approve', 'leave.sign'], { nip: '198804152007011001', birthDate: '1988-04-15', joinDate: '2007-01-15', rank: 'IV/b' });
-  await mkUser('pegawai1', 'Pegawai123!', 'EMPLOYEE', 'STAF', 'EMP-004', 'Ahmad Pegawai', [], [], { nip: '199501012022031006', birthDate: '1995-01-01', joinDate: '2022-03-01', rank: 'III/a' });
+  await mkUser('kasi1', 'Kasi123!', 'SUPERVISOR', 'KASI', 'EMP-007', 'Kasi Pemerintahan', [], [], { nip: '199001012015021008', birthDate: '1990-01-01', joinDate: '2015-02-10', rank: 'III/c', rankTmt: '2022-04-01' });
+  await mkUser('sekcam1', 'Sekcam123!', 'LEADER', 'SEKCAM', 'EMP-002', 'Sekcam Satu', ['leave.approve', 'leave.sign'], [], { nip: '198205102008011004', birthDate: '1982-05-10', joinDate: '2008-01-20', rank: 'IV/a', rankTmt: '2020-04-01' });
+  await mkUser('camat1', 'Camat123!', 'LEADER', 'CAMAT', 'EMP-003', 'Muh. Aril Syahbani K, S.IP', ['leave.verify'], ['leave.approve', 'leave.sign'], { nip: '198804152007011001', birthDate: '1988-04-15', joinDate: '2007-01-15', rank: 'IV/b', rankTmt: '2021-04-01' });
+  await mkUser('pegawai1', 'Pegawai123!', 'EMPLOYEE', 'STAF', 'EMP-004', 'Ahmad Pegawai', [], [], { nip: '199501012022031006', birthDate: '1995-01-01', joinDate: '2022-03-01', rank: 'III/a', rankTmt: '2022-03-01' });
   // Pegawai kelurahan (pemohon luar kecamatan — registrasi BKPSDMD tetap oleh staf kecamatan).
-  await mkUser('pegawai2', 'Pegawai123!', 'EMPLOYEE', 'STAF', 'EMP-006', 'Budi Kelurahan', [], [], { nip: '199806062024051007', birthDate: '1998-06-06', joinDate: '2024-05-10', rank: 'II/c', orgCode: 'KMN' });
+  await mkUser('pegawai2', 'Pegawai123!', 'EMPLOYEE', 'STAF', 'EMP-006', 'Budi Kelurahan', [], [], { nip: '199806062024051007', birthDate: '1998-06-06', joinDate: '2024-05-10', rank: 'II/c', rankTmt: '2022-05-01', orgCode: 'KMN' });
   // Contoh PNS yang memasuki BUP 58 tahun pada 2026 (uji daftar BUP + usulan pensiun).
-  await mkUser('pensiun1', 'Pensiun123!', 'EMPLOYEE', 'STAF', 'EMP-008', 'Siti Pensiun', [], [], { nip: '196802102020122001', birthDate: '1968-02-10', joinDate: '1990-03-01', rank: 'III/d', gender: 'P' });
+  await mkUser('pensiun1', 'Pensiun123!', 'EMPLOYEE', 'STAF', 'EMP-008', 'Siti Pensiun', [], [], { nip: '196802102020122001', birthDate: '1968-02-10', joinDate: '1990-03-01', rank: 'III/d', rankTmt: '2018-04-01', gender: 'P' });
+  // Contoh ASN yang memenuhi masa jabatan 4 tahun pada 2026 (uji daftar calon + usulan kenaikan pangkat).
+  await mkUser('pangkat1', 'Pangkat123!', 'EMPLOYEE', 'STAF', 'EMP-009', 'Andi Pangkat', [], [], { nip: '199001012018011009', birthDate: '1990-01-01', joinDate: '2018-01-01', rank: 'III/b', rankTmt: '2022-04-01' });
 
   console.log('Seed OK');
 }

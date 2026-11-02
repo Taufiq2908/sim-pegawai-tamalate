@@ -11,4 +11,5 @@ export const env = {
   checkoutWeekday: process.env.CHECKOUT_TIME_WEEKDAY ?? '16:00', // Sen-Kam WITA
   checkoutFriday: process.env.CHECKOUT_TIME_FRIDAY ?? '16:30', // Jumat WITA
   pensionBupAge: Number(process.env.PENSION_BUP_AGE ?? 58), // Batas Usia Pensiun PNS
+  promotionMinYears: Number(process.env.PROMOTION_MIN_YEARS ?? 4), // Masa jabatan minimal usulan reguler
 };

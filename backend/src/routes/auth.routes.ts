@@ -30,6 +30,7 @@ async function userPayload(userId: string) {
       ? {
           id: user.employee.id, nip: user.employee.nip, name: user.employee.name,
           position: user.employee.position, rank: user.employee.rank,
+          rankTmt: user.employee.rankTmt ? user.employee.rankTmt.toISOString().slice(0, 10) : null,
           joinDate: user.employee.joinDate ? user.employee.joinDate.toISOString().slice(0, 10) : null,
           employmentStatus: user.employee.employmentStatus,
           orgUnit: user.employee.orgUnit ? { id: user.employee.orgUnit.id, code: user.employee.orgUnit.code, name: user.employee.orgUnit.name } : null,

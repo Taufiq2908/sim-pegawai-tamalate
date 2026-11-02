@@ -318,7 +318,27 @@ GET  /outgoing-letters/numbering?year= → status nomor terakhir + buffer backda
 ```
 
 Dokumen pada response surat memakai `downloadUrl`; `storedPath` tidak lagi
-dikirim ke frontend.
+dikirim ke frontend. Contohnya
+`/api/v1/outgoing-letters/:id/documents/:docId/download`. Di frontend, normalisasi
+lewat helper `fileUrl(url)`/`downloadHref(url)` yang membuang prefix `/api/v1`
+sebelum memanggil proxy `/api` (jangan menempel `/api` langsung ke `downloadUrl`).
+
+### Arsip
+
+```text
+GET /archives/stats?year=2026                                      (archive.view)
+  → {year, total, unlisted, signedLists, byCategory, bySource}
+GET /archives?year=&sourceType=&category=&q=&page=&limit=          (archive.view)
+GET /archives/:id                                                  (archive.view)
+GET /archives/candidates?sourceType=INCOMING|OUTGOING&q=&limit=    (archive.create)
+POST /archives/lists | GET /archives/lists | POST /archives/lists/:id/records
+POST /archives/lists/:id/sign
+```
+
+`/archives/stats` menghitung record berdasarkan `archiveDate` pada tahun yang
+diminta. `byCategory` hanya berisi kategori yang punya record (frontend sebaiknya
+default ke 0); `unlisted` = record belum masuk daftar arsip; `signedLists` =
+jumlah daftar arsip berstatus `SIGNED` pada tahun tersebut.
 
 Aturan: tanggal surat tidak boleh masa depan; tanggal surat boleh < tanggal catat (backdate);
 CANCELLED terminal; sequence dilindungi UNIQUE(year, sequence_number).
@@ -389,3 +409,95 @@ User/role management full (`POST /users`, `PUT /users/:id/permissions`) dikerjak
 
 Backend jamin: hitung `totalDays`, generate `requestNumber`, cek permission+status+ownership, tulis `leave_approvals`, tolak file >5MB/bukan pdf-gambar.
 Frontend jangan: hitung totalDays sendiri sebagai sumber kebenaran, sembunyikan tombol sebagai satu-satunya proteksi, tebak `availableActions` dari role di sisi klien, expose `stored_path` langsung.
+
+## 10. Pensiun PNS (prefix `pension.`)
+
+Backend tersedia di `/api/v1/pension-requests`. Kontrak lengkap, tipe TypeScript,
+dan rancangan halaman ada di `docs/08-pensiun-requirement.md` dan
+`docs/09-frontend-pensiun-handoff.md`.
+
+```text
+GET  /pension-requests/bup?year=&from=&to=&bupAge=     → daftar PNS memasuki BUP (langkah 1)
+GET  /pension-requests/required-docs                   → checklist dokumen + tipe file
+POST /pension-requests {periodYear, periodMonth?, note?, items[]} → DRAFT
+PATCH /pension-requests/:id                            (DRAFT/REVISION, pemilik)
+POST /pension-requests/:id/items {items[]}
+DELETE /pension-requests/:id/items/:itemId
+POST /pension-requests/:id/items/:itemId/documents (multipart)  docType
+GET  /pension-requests/:id/items/:itemId/documents/:docId/download
+DELETE /pension-requests/:id/items/:itemId/documents/:docId
+POST /pension-requests/:id/verify|revise|reject|paraf|approve {note?}
+POST /pension-requests/:id/register                    APPROVED → REGISTERED
+POST /pension-requests/:id/expedite                    REGISTERED → EXPEDITED
+POST /pension-requests/:id/send                        EXPEDITED → SENT
+POST /pension-requests/:id/complete                    SENT → COMPLETED
+POST /pension-requests/:id/archive                     COMPLETED → ARCHIVED
+GET  /pension-requests?status=&year=&q=&page=&limit=
+GET  /pension-requests/:id                            → items, checklist, timeline, availableActions
+GET  /pension-requests/register?year=
+GET  /pension-requests/nominative?year=&month=
+GET  /pension-requests/expedition-book?year=
+DELETE /pension-requests/:id                          → hapus DRAFT milik sendiri
+```
+
+Aturan khusus: `verify` wajib `documentsComplete: true`; `revise`/`reject` wajib
+catatan minimal 5 karakter; `paraf` hanya jabatan `SEKCAM`; `approve` hanya jabatan
+`CAMAT`; `register`/`expedite`/`send`/`complete`/`archive` hanya `orgUnit.code =
+KEC-TAMALATE`. `register` tanpa surat keluar manual dan tanpa
+`createOutgoingLetter: false` akan membuat surat keluar otomatis memakai service
+penomoran (buffer backdate 3 nomor ditangani backend). Frontend tidak boleh membuat
+tombol reservasi nomor. List/detail `EMPLOYEE` otomatis dibatasi ke usulan yang
+memuat dirinya; buku register/nominatif/ekspedisi hanya untuk petugas.
+
+## 11. Kenaikan Pangkat ASN (prefix `promotion.`)
+
+Backend tersedia di `/api/v1/promotion-requests`. Kontrak lengkap, tipe TypeScript,
+dan rancangan halaman ada di `docs/10-kenaikan-pangkat-requirement.md` dan
+`docs/11-frontend-kenaikan-pangkat-handoff.md`.
+
+Status: `DRAFT → LEGALIZED → VERIFIED → PARAF → APPROVED → REGISTERED → ARCHIVED`,
+dengan cabang `REVISION` dan `REJECTED`.
+
+```text
+GET  /promotion-requests/candidates?periodYear=&asOf=&minYears=4&includeAll=
+GET  /promotion-requests/required-docs                 → 10 dokumen SOP + LAINNYA
+GET  /promotion-requests?status=&year=&q=&page=&limit=
+POST /promotion-requests {periodYear, periodMonth?, note?, items[]} → DRAFT
+PATCH /promotion-requests/:id                          (DRAFT/REVISION)
+POST /promotion-requests/:id/items {items[]}
+PATCH /promotion-requests/:id/items/:itemId
+DELETE /promotion-requests/:id/items/:itemId
+DELETE /promotion-requests/:id                         → hapus DRAFT/REVISION
+POST /promotion-requests/:id/items/:itemId/documents (multipart)  docType
+GET  /promotion-requests/:id/items/:itemId/documents/:docId/download
+DELETE /promotion-requests/:id/items/:itemId/documents/:docId
+GET  /promotion-requests/:id                          → items, checklist, timeline, availableActions
+POST /promotion-requests/:id/legalize                  DRAFT/REVISION → LEGALIZED
+POST /promotion-requests/:id/verify                    LEGALIZED → VERIFIED
+POST /promotion-requests/:id/paraf                     VERIFIED → PARAF
+POST /promotion-requests/:id/approve                   PARAF → APPROVED
+POST /promotion-requests/:id/revise|reject             → REVISION/REJECTED
+POST /promotion-requests/:id/register                  APPROVED → REGISTERED
+POST /promotion-requests/:id/archive                   REGISTERED → ARCHIVED
+GET  /promotion-requests/register?year=&status=&q=
+GET  /promotion-requests/nominative?year=&month=&status=&q=
+GET  /promotion-requests/archive-book?year=&q=
+```
+
+Aturan khusus: satu usulan adalah `PromotionBatch` berisi banyak `PromotionItem`
+ASN. `targetRank` bila kosong memakai golongan berikutnya; `effectiveDate` bila
+kosong memakai tanggal 1 bulan periode (atau 1 April). `currentRankTmt` wajib bila
+master `employee.rankTmt` kosong. `verify` wajib `documentsComplete: true` setelah
+Kasubag memeriksa berkas. `legalize`/`register`/`archive` hanya `orgUnit.code =
+KEC-TAMALATE`; `paraf` hanya jabatan `SEKCAM`; `approve` hanya jabatan `CAMAT`;
+`revise`/`reject` mengikuti tahap aktif. `register` otomatis membuat surat keluar
+(kode klasifikasi default `800.1.3.2`) memakai service penomoran yang ada, dan
+`archive` otomatis membuat `ArchiveRecord` bila surat keluar sudah ada. Frontend
+tidak boleh membuat nomor sendiri atau tombol reservasi nomor. `EMPLOYEE` hanya
+melihat usulan yang memuat dirinya; halaman calon/register/nominatif/arsip khusus
+petugas. Gunakan `availableActions` dari detail sebagai sumber tombol aksi.
+
+> Catatan path frontend: panggil `apiFetch("/pension-requests...")` dan
+> `apiFetch("/promotion-requests...")` **tanpa** `/v1`. Untuk tautan unduhan,
+> backend mengembalikan `/api/v1/...`; ubah dengan
+> `'/api' + url.replace(/^\/api\/v1/, '')` agar tidak dobel `/api`.

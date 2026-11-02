@@ -78,6 +78,7 @@ model Employee {
   employmentStatus String             @map("status_kepegawaian") @db.VarChar(20)
   position         String             @map("jabatan") @db.VarChar(50)
   rank             String?            @map("golongan") @db.VarChar(20)
+  rankTmt          DateTime?          @map("tmt_pangkat_terakhir") @db.Date
   orgUnitId        String             @map("id_unit") @db.Uuid
   orgUnit          OrganizationalUnit @relation(fields: [orgUnitId], references: [id])
   phone            String?            @map("telepon") @db.VarChar(20)
@@ -92,6 +93,7 @@ model Employee {
   kgbRequests      KgbRequest[]
   warningLetters   WarningLetter[]
   pensionItems     PensionItem[]
+  promotionItems   PromotionItem[]
 
   @@map("pegawai")
 }
@@ -137,6 +139,9 @@ model User {
   createdPensionBatches PensionBatch[]           @relation("CreatedPensionBatches")
   pensionActions        PensionApproval[]        @relation("PensionActorActions")
   uploadedPensionDocs   PensionDocument[]
+  createdPromotionBatches PromotionBatch[]       @relation("CreatedPromotionBatches")
+  promotionActions      PromotionApproval[]      @relation("PromotionActorActions")
+  uploadedPromotionDocs PromotionDocument[]
 
   @@map("pengguna")
 }
@@ -502,6 +507,7 @@ model OutgoingLetter {
   documents         OutgoingDocument[]
   archiveRecord     ArchiveRecord?
   pensionBatch      PensionBatch?
+  promotionBatch    PromotionBatch?
 
   @@unique([year, sequenceNumber])
   @@index([status])
@@ -764,4 +770,108 @@ model PensionApproval {
 
   @@index([batchId])
   @@map("persetujuan_usulan_pensiun")
+}
+
+// Satu berkas/daftar usulan kenaikan pangkat ASN (SOP 8 langkah).
+model PromotionBatch {
+  id                   String              @id @default(uuid()) @db.Uuid
+  batchNumber          String              @unique @map("nomor_usulan") @db.VarChar(50)
+  periodYear           Int                 @map("tahun_usulan")
+  periodMonth          Int?                @map("bulan_usulan")
+  status               String              @default("DRAFT") @map("status") @db.VarChar(20)
+  currentHolderRole    String?             @map("peran_pemegang_saat_ini") @db.VarChar(20)
+  note                 String?             @map("catatan")
+  legalizationNote     String?             @map("catatan_legalisasi")
+  stampNumber          String?             @map("nomor_stempel") @db.VarChar(100)
+  verificationNote     String?             @map("catatan_verifikasi")
+  parafNote            String?             @map("catatan_paraf")
+  approvalNote         String?             @map("catatan_persetujuan")
+  revisionNote         String?             @map("catatan_revisi")
+  rejectionReason      String?             @map("alasan_penolakan")
+  outgoingLetterId     String?             @unique @map("id_surat_keluar") @db.Uuid
+  outgoingLetter       OutgoingLetter?     @relation(fields: [outgoingLetterId], references: [id], onDelete: SetNull)
+  outgoingLetterNumber String?             @map("nomor_surat_keluar") @db.VarChar(150)
+  outgoingLetterDate   DateTime?           @map("tanggal_surat_keluar") @db.Date
+  agendaNumber         String?             @map("nomor_agenda") @db.VarChar(50)
+  legalizedAt          DateTime?           @map("dilegalisasi_pada") @db.Timestamptz
+  verifiedAt           DateTime?           @map("diverifikasi_pada") @db.Timestamptz
+  parafAt              DateTime?           @map("diparaf_pada") @db.Timestamptz
+  approvedAt           DateTime?           @map("disetujui_pada") @db.Timestamptz
+  registeredAt         DateTime?           @map("diregistrasi_pada") @db.Timestamptz
+  sentAt               DateTime?           @map("dikirim_pada") @db.Timestamptz
+  archivedAt           DateTime?           @map("diarsipkan_pada") @db.Timestamptz
+  createdBy            String              @map("dibuat_oleh") @db.Uuid
+  creator              User                @relation("CreatedPromotionBatches", fields: [createdBy], references: [id])
+  createdAt            DateTime            @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt            DateTime            @updatedAt @map("diperbarui_pada") @db.Timestamptz
+  items                PromotionItem[]
+  approvals            PromotionApproval[]
+
+  @@index([status, periodYear])
+  @@map("usulan_kenaikan_pangkat")
+}
+
+// Baris daftar nominatif kenaikan pangkat: satu ASN dalam satu berkas usulan.
+model PromotionItem {
+  id                  String            @id @default(uuid()) @db.Uuid
+  batchId             String            @map("id_usulan") @db.Uuid
+  batch               PromotionBatch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  employeeId          String            @map("id_pegawai") @db.Uuid
+  employee            Employee          @relation(fields: [employeeId], references: [id])
+  employeeName        String            @map("nama_pegawai") @db.VarChar(150)
+  employeeNip         String?           @map("nip") @db.VarChar(30)
+  employeeNumber      String            @map("nomor_pegawai") @db.VarChar(30)
+  currentRank         String?           @map("golongan_saat_ini") @db.VarChar(20)
+  currentRankTmt      DateTime?         @map("tmt_pangkat_saat_ini") @db.Date
+  targetRank          String            @map("golongan_diusulkan") @db.VarChar(20)
+  effectiveDate       DateTime          @map("tmt_kenaikan_pangkat") @db.Date
+  yearsInCurrentRank  Int?              @map("masa_jabatan_tahun")
+  position            String            @map("jabatan") @db.VarChar(50)
+  orgUnitName         String?           @map("unit_kerja") @db.VarChar(150)
+  status              String            @default("PENDING") @map("status_item") @db.VarChar(20)
+  note                String?           @map("catatan")
+  legalizedAt         DateTime?         @map("dilegalisasi_pada") @db.Timestamptz
+  verifiedAt          DateTime?         @map("diverifikasi_pada") @db.Timestamptz
+  createdAt           DateTime          @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt           DateTime          @updatedAt @map("diperbarui_pada") @db.Timestamptz
+  documents           PromotionDocument[]
+
+  @@unique([batchId, employeeId])
+  @@index([employeeId, status])
+  @@map("item_usulan_kenaikan_pangkat")
+}
+
+model PromotionDocument {
+  id           String        @id @default(uuid()) @db.Uuid
+  itemId       String        @map("id_item") @db.Uuid
+  item         PromotionItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  docType      String        @map("tipe_dokumen") @db.VarChar(50)
+  originalName String        @map("nama_asli") @db.VarChar(255)
+  storedPath   String        @map("jalur_simpan") @db.VarChar(500)
+  mimeType     String        @map("tipe_mime") @db.VarChar(100)
+  sizeBytes    Int           @map("ukuran_byte")
+  uploadedBy   String        @map("diunggah_oleh") @db.Uuid
+  uploader     User          @relation(fields: [uploadedBy], references: [id])
+  createdAt    DateTime      @default(now()) @map("dibuat_pada") @db.Timestamptz
+
+  @@index([itemId, docType])
+  @@map("dokumen_usulan_kenaikan_pangkat")
+}
+
+model PromotionApproval {
+  id            String         @id @default(uuid()) @db.Uuid
+  batchId       String         @map("id_usulan") @db.Uuid
+  batch         PromotionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  actorUserId   String         @map("id_aktor") @db.Uuid
+  actor         User           @relation("PromotionActorActions", fields: [actorUserId], references: [id])
+  actorRole     String         @map("peran_aktor") @db.VarChar(20)
+  actorPosition String?        @map("jabatan_aktor") @db.VarChar(50)
+  fromStatus    String         @map("dari_status") @db.VarChar(20)
+  toStatus      String         @map("ke_status") @db.VarChar(20)
+  action        String         @map("aksi") @db.VarChar(20)
+  note          String?        @map("catatan")
+  createdAt     DateTime       @default(now()) @map("dibuat_pada") @db.Timestamptz
+
+  @@index([batchId])
+  @@map("persetujuan_usulan_kenaikan_pangkat")
 }
