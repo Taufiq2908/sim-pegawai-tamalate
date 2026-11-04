@@ -114,7 +114,7 @@ export default function PensiunBupPage() {
   }
 
   return (
-    <RequirePerm perm="pension.view" label="Daftar BUP Pensiun">
+    <RequirePerm perm="pension.view" label="Daftar BUP Pensiun" denyForEmployee>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold">Daftar BUP Pensiun</h1>

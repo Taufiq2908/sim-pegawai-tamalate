@@ -4,15 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
-import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import type { PromotionBatch } from "@/lib/types";
+import type { PromotionArchiveRow } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
 export default function PromotionArsipPage() {
-  const { hasPermission } = useAuth();
   const router = useRouter();
-  const [rows, setRows] = useState<PromotionBatch[]>([]);
+  const [rows, setRows] = useState<PromotionArchiveRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [year, setYear] = useState(String(new Date().getFullYear()));
@@ -24,7 +22,7 @@ export default function PromotionArsipPage() {
     try {
       const params = new URLSearchParams({ year });
       if (q.trim()) params.set("q", q.trim());
-      const { data } = await apiFetch<PromotionBatch[]>(
+      const { data } = await apiFetch<PromotionArchiveRow[]>(
         `/promotion-requests/archive-book?${params.toString()}`,
       );
       setRows(Array.isArray(data) ? data : []);
@@ -40,7 +38,7 @@ export default function PromotionArsipPage() {
   }, [load]);
 
   return (
-    <RequirePerm perm="promotion.view" label="Buku Arsip Kenaikan Pangkat">
+    <RequirePerm perm="promotion.view" label="Buku Arsip Kenaikan Pangkat" denyForEmployee>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <button
@@ -90,6 +88,7 @@ export default function PromotionArsipPage() {
                 <th className="px-3 py-2 font-medium">Tanggal Arsip</th>
                 <th className="px-3 py-2 font-medium">Nomor Arsip</th>
                 <th className="px-3 py-2 font-medium">Nomor Usulan</th>
+                <th className="px-3 py-2 font-medium">Periode</th>
                 <th className="px-3 py-2 font-medium">Nomor Surat</th>
                 <th className="px-3 py-2 font-medium">Tujuan</th>
                 <th className="px-3 py-2 font-medium">Kategori</th>
@@ -97,27 +96,35 @@ export default function PromotionArsipPage() {
                 <th className="px-3 py-2 font-medium">Jumlah ASN</th>
                 <th className="px-3 py-2 font-medium">Daftar ASN</th>
                 <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">Aksi</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} className="border-b border-line last:border-0">
-                  <td className="px-3 py-2.5">
-                    {r.outgoingLetter?.archiveRecord?.archiveDate ? r.outgoingLetter.archiveRecord.archiveDate.slice(0, 10) : "-"}
-                  </td>
-                  <td className="px-3 py-2.5 font-medium">
-                    {r.outgoingLetter?.archiveRecord?.archiveNumber ?? "-"}
-                  </td>
+                  <td className="px-3 py-2.5">{r.tanggalArsip?.slice(0, 10) ?? "-"}</td>
+                  <td className="px-3 py-2.5 font-medium">{r.nomorArsip ?? "-"}</td>
                   <td className="px-3 py-2.5">{r.batchNumber}</td>
-                  <td className="px-3 py-2.5">{r.outgoingLetterNumber ?? "-"}</td>
-                  <td className="px-3 py-2.5">{r.outgoingLetter?.recipient ?? "-"}</td>
-                  <td className="px-3 py-2.5">{r.outgoingLetter?.archiveRecord?.category ?? "-"}</td>
-                  <td className="px-3 py-2.5">{r.outgoingLetter?.archiveRecord?.location ?? "-"}</td>
-                  <td className="px-3 py-2.5 font-medium">{r.items.length}</td>
+                  <td className="px-3 py-2.5">{r.periodLabel}</td>
+                  <td className="px-3 py-2.5">{r.nomorSurat ?? "-"}</td>
+                  <td className="px-3 py-2.5">{r.tujuan ?? "-"}</td>
+                  <td className="px-3 py-2.5">{r.kategori ?? "-"}</td>
+                  <td className="px-3 py-2.5">{r.lokasi ?? "-"}</td>
+                  <td className="px-3 py-2.5 font-medium">{r.jumlahPegawai}</td>
                   <td className="px-3 py-2.5 text-muted">
-                    {r.items.map((i) => i.employeeName).join(", ")}
+                    {r.pegawai.map((p) => p.employeeName).join(", ") || "—"}
                   </td>
-                  <td className="px-3 py-2.5"><StatusBadge status={r.status} /></td>
+                  <td className="px-3 py-2.5">
+                    <StatusBadge status={r.status} />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <Link
+                      href={`/kenaikan-pangkat/${r.id}`}
+                      className="rounded-md border border-line px-2.5 py-1 text-xs text-ink hover:bg-paper"
+                    >
+                      Detail
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>

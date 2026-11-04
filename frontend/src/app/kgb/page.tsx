@@ -27,7 +27,7 @@ const FILTERS: Array<{ value: "" | KgbStatus; label: string }> = [
 const LIMIT = 10;
 
 export default function KgbListPage() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [items, setItems] = useState<KgbItem[]>([]);
   const [meta, setMeta] = useState<PageMeta | null>(null);
   const [status, setStatus] = useState("");
@@ -64,18 +64,22 @@ export default function KgbListPage() {
   return (
     <RequirePerm perm="kgb.view" label="KGB">
       <div className="flex flex-wrap items-center gap-2">
-        <Link
-          href="/kgb/register-book"
-          className="ml-auto rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
-        >
-          Buku register
-        </Link>
-        <Link
-          href="/kgb/monitoring"
-          className="rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
-        >
-          Monitoring KGB
-        </Link>
+        {user?.role !== "EMPLOYEE" ? (
+          <Link
+            href="/kgb/register-book"
+            className="ml-auto rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
+          >
+            Buku register
+          </Link>
+        ) : null}
+        {user?.role !== "EMPLOYEE" ? (
+          <Link
+            href="/kgb/monitoring"
+            className="rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
+          >
+            Monitoring KGB
+          </Link>
+        ) : null}
         {hasPermission("kgb.create") ? (
           <Link
             href="/kgb/baru"

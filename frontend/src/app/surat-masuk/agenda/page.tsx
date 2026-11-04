@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { apiFetch } from "@/lib/api";
 import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
 
@@ -71,7 +71,7 @@ export default function AgendaSuratMasukPage() {
   const activeRows = tab === "hari-ini" ? rows : tomorrowRows;
 
   return (
-    <AppShell>
+    <RequirePerm perm="letter.view" label="Buku Agenda Surat Masuk" denyForEmployee>
       <div className="flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-xl font-bold">Buku Agenda Surat Masuk</h1>
@@ -160,6 +160,6 @@ export default function AgendaSuratMasukPage() {
           </div>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }

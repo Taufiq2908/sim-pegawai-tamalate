@@ -98,6 +98,7 @@ export default function PromotionDetailPage() {
   const [editEffectiveDate, setEditEffectiveDate] = useState("");
   const [editCurrentRankTmt, setEditCurrentRankTmt] = useState("");
   const [editItemNote, setEditItemNote] = useState("");
+  const [savingItemId, setSavingItemId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -222,6 +223,30 @@ export default function PromotionDetailPage() {
     }
   }
 
+  async function saveItem(itemId: string) {
+    setSavingItemId(itemId);
+    try {
+      // Backend hanya menerima YYYY-MM-DD; currentRankTmt dari API berbentuk ISO penuh.
+      const currentRankTmt = editCurrentRankTmt ? editCurrentRankTmt.slice(0, 10) : undefined;
+      await apiFetch(`/promotion-requests/${id}/items/${itemId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          targetRank: editTargetRank.trim() || undefined,
+          effectiveDate: editEffectiveDate ? editEffectiveDate.slice(0, 10) : undefined,
+          currentRankTmt,
+          note: editItemNote.trim() || undefined,
+        }),
+      });
+      toast.success("Item usulan diperbarui.");
+      setEditItemId(null);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal menyimpan item usulan");
+    } finally {
+      setSavingItemId(null);
+    }
+  }
+
   if (loading) {
     return (
       <RequirePerm perm="promotion.view" label="Detail Usulan Kenaikan Pangkat">
@@ -318,7 +343,7 @@ export default function PromotionDetailPage() {
         ) : (
           <p className="text-sm text-muted">Tidak ada aksi tersedia untuk Anda.</p>
         )}
-        {note && actions.some((a) => a === "revise" || a === "reject") ? (
+        {actions.some((a) => a === "revise" || a === "reject") ? (
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -340,7 +365,8 @@ export default function PromotionDetailPage() {
                 <th className="px-3 py-2 font-medium">NIP</th>
                 <th className="px-3 py-2 font-medium">Gol. Saat Ini</th>
                 <th className="px-3 py-2 font-medium">Gol. Diusulkan</th>
-                <th className="px-3 py-2 font-medium">TMT</th>
+                <th className="px-3 py-2 font-medium">TMT Pangkat</th>
+                <th className="px-3 py-2 font-medium">TMT Kenaikan</th>
                 <th className="px-3 py-2 font-medium">Masa Jabatan</th>
                 <th className="px-3 py-2 font-medium">Status Item</th>
                 <th className="px-3 py-2 font-medium">Dokumen</th>
@@ -355,6 +381,7 @@ export default function PromotionDetailPage() {
                   <td className="px-3 py-2.5">{item.currentRank ?? "—"}</td>
                   <td className="px-3 py-2.5">{item.targetRank}</td>
                   <td className="px-3 py-2.5">{fmtDate(item.currentRankTmt)}</td>
+                  <td className="px-3 py-2.5">{fmtDate(item.effectiveDate)}</td>
                   <td className="px-3 py-2.5 text-muted">{item.yearsInCurrentRank ?? "—"} th</td>
                   <td className="px-3 py-2.5">
                     <span className={`rounded bg-paper px-1.5 py-0.5 text-[11px] ring-1 ring-inset ring-line ${
@@ -371,7 +398,7 @@ export default function PromotionDetailPage() {
                   </td>
                   {canEdit && !isEmployee ? (
                     <td className="px-3 py-2.5">
-                      <div className="flex gap-1">
+                      <div className="flex flex-wrap gap-1">
                         {editItemId === item.id ? (
                           <>
                             <input
@@ -382,32 +409,31 @@ export default function PromotionDetailPage() {
                             />
                             <input
                               type="date"
+                              value={editCurrentRankTmt}
+                              onChange={(e) => setEditCurrentRankTmt(e.target.value)}
+                              aria-label="TMT Pangkat"
+                              title="TMT Pangkat"
+                              className="rounded border border-line px-2 py-1 text-[11px] outline-none focus:border-brand-700"
+                            />
+                            <input
+                              type="date"
                               value={editEffectiveDate}
                               onChange={(e) => setEditEffectiveDate(e.target.value)}
+                              aria-label="TMT Kenaikan"
+                              title="TMT Kenaikan"
                               className="rounded border border-line px-2 py-1 text-[11px] outline-none focus:border-brand-700"
                             />
                             <button
-                              onClick={() => {
-                                void apiFetch(`/promotion-requests/${id}/items/${item.id}`, {
-                                  method: "PATCH",
-                                  body: JSON.stringify({
-                                    targetRank: editTargetRank || undefined,
-                                    effectiveDate: editEffectiveDate || undefined,
-                                    currentRankTmt: editCurrentRankTmt || undefined,
-                                    note: editItemNote || undefined,
-                                  }),
-                                }).then(() => {
-                                  setEditItemId(null);
-                                  void load();
-                                });
-                              }}
-                              className="rounded bg-brand-900 px-2 py-1 text-[11px] text-white"
+                              disabled={savingItemId === item.id}
+                              onClick={() => void saveItem(item.id)}
+                              className="rounded bg-brand-900 px-2 py-1 text-[11px] text-white disabled:opacity-50"
                             >
-                              Simpan
+                              {savingItemId === item.id ? "Menyimpan…" : "Simpan"}
                             </button>
                             <button
+                              disabled={savingItemId === item.id}
                               onClick={() => setEditItemId(null)}
-                              className="rounded border border-line px-2 py-1 text-[11px] text-ink"
+                              className="rounded border border-line px-2 py-1 text-[11px] text-ink disabled:opacity-50"
                             >
                               Batal
                             </button>
@@ -419,7 +445,7 @@ export default function PromotionDetailPage() {
                                 setEditItemId(item.id);
                                 setEditTargetRank(item.targetRank);
                                 setEditEffectiveDate(item.effectiveDate.slice(0, 10));
-                                setEditCurrentRankTmt(item.currentRankTmt ?? "");
+                                setEditCurrentRankTmt((item.currentRankTmt ?? "").slice(0, 10));
                                 setEditItemNote("");
                               }}
                               className="rounded border border-line px-2 py-1 text-[11px] text-brand-800 hover:bg-paper"

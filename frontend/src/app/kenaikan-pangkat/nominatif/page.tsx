@@ -1,21 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
-import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import type { PromotionBatch } from "@/lib/types";
-import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
-
-function periodLabel(y: number, m?: number | null): string {
-  const MONTHS = [
-    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
-    "Juli", "Agustus", "September", "Oktober", "November", "Desember",
-  ];
-  return m ? `${MONTHS[m - 1]} ${y}` : `Tahun ${y}`;
-}
+import type { PromotionNominativeRow } from "@/lib/types";
+import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
 
 function itemStatusLabel(s: string): string {
   switch (s) {
@@ -32,10 +22,21 @@ function itemStatusLabel(s: string): string {
   }
 }
 
+const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "DRAFT", label: "Draft" },
+  { value: "LEGALIZED", label: "Legalisasi" },
+  { value: "VERIFIED", label: "Terverifikasi" },
+  { value: "PARAF", label: "Paraf" },
+  { value: "APPROVED", label: "Disetujui" },
+  { value: "REGISTERED", label: "Diregistrasi" },
+  { value: "ARCHIVED", label: "Diarsipkan" },
+  { value: "REVISION", label: "Revisi" },
+  { value: "REJECTED", label: "Ditolak" },
+];
+
 export default function PromotionNominatifPage() {
-  const { hasPermission } = useAuth();
   const router = useRouter();
-  const [rows, setRows] = useState<PromotionBatch[]>([]);
+  const [rows, setRows] = useState<PromotionNominativeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [year, setYear] = useState(String(new Date().getFullYear()));
@@ -49,7 +50,7 @@ export default function PromotionNominatifPage() {
       const params = new URLSearchParams({ year });
       if (month) params.set("month", month);
       if (statusFilter) params.set("status", statusFilter);
-      const { data } = await apiFetch<PromotionBatch[]>(
+      const { data } = await apiFetch<PromotionNominativeRow[]>(
         `/promotion-requests/nominative?${params.toString()}`,
       );
       setRows(Array.isArray(data) ? data : []);
@@ -64,20 +65,8 @@ export default function PromotionNominatifPage() {
     void load();
   }, [load]);
 
-  const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
-    { value: "DRAFT", label: "Draft" },
-    { value: "LEGALIZED", label: "Legalisasi" },
-    { value: "VERIFIED", label: "Terverifikasi" },
-    { value: "PARAF", label: "Paraf" },
-    { value: "APPROVED", label: "Disetujui" },
-    { value: "REGISTERED", label: "Diregistrasi" },
-    { value: "ARCHIVED", label: "Diarsipkan" },
-    { value: "REVISION", label: "Revisi" },
-    { value: "REJECTED", label: "Ditolak" },
-  ];
-
   return (
-    <RequirePerm perm="promotion.view" label="Daftar Nominatif Kenaikan Pangkat">
+    <RequirePerm perm="promotion.view" label="Daftar Nominatif Kenaikan Pangkat" denyForEmployee>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <button
@@ -105,7 +94,8 @@ export default function PromotionNominatifPage() {
             max={12}
             value={month}
             onChange={(e) => setMonth(e.target.value)}
-            className="w-16 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700"
+            placeholder="Bulan"
+            className="w-20 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700"
           />
           <select
             value={statusFilter}
@@ -155,42 +145,38 @@ export default function PromotionNominatifPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((batch, bi) => (
-                <Fragment key={batch.id}>
-                  {batch.items.map((item, ii) => (
-                    <tr key={item.id} className="border-b border-line last:border-0">
-                      <td className="px-3 py-2.5">{bi * 50 + ii + 1}</td>
-                      <td className="px-3 py-2.5 font-medium">{batch.batchNumber}</td>
-                      <td className="px-3 py-2.5">{item.employeeName}</td>
-                      <td className="px-3 py-2.5 text-muted">{item.employeeNip ?? "—"}</td>
-                      <td className="px-3 py-2.5">{item.currentRank ?? "—"}</td>
-                      <td className="px-3 py-2.5">{item.currentRankTmt ? item.currentRankTmt.slice(0, 10) : "—"}</td>
-                      <td className="px-3 py-2.5">{item.targetRank}</td>
-                      <td className="px-3 py-2.5">{item.effectiveDate.slice(0, 10)}</td>
-                      <td className="px-3 py-2.5 text-muted">{item.yearsInCurrentRank ?? "—"} th</td>
-                      <td className="px-3 py-2.5">{item.position}</td>
-                      <td className="px-3 py-2.5">{item.orgUnitName ?? "—"}</td>
-                      <td className="px-3 py-2.5">
-                        <span className={`rounded bg-paper px-1.5 py-0.5 text-[11px] ring-1 ring-inset ring-line ${
-                          item.status === "VERIFIED" || item.status === "APPROVED" ? "bg-ok-100 text-ok-700" : "bg-warn-100 text-warn-700"
-                        }`}>
-                          {itemStatusLabel(item.status)}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        {item.documentsChecklist.filter((d) => d.uploaded).length} / {item.documentsChecklist.length}
-                        {item.missingDocuments.length > 0 && (
-                          <span className="ml-1 text-xs text-bad-700">({item.missingDocuments.length} kurang)</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5">{batch.outgoingLetterNumber ?? "-"}</td>
-                      <td className="px-3 py-2.5">{batch.agendaNumber ?? "-"}</td>
-                      <td className="px-3 py-2.5">
-                        {batch.outgoingLetter?.archiveRecord?.archiveNumber ?? "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </Fragment>
+              {rows.map((item) => (
+                <tr key={item.itemId} className="border-b border-line last:border-0">
+                  <td className="px-3 py-2.5">{item.nomor}</td>
+                  <td className="px-3 py-2.5 font-medium">{item.batchNumber}</td>
+                  <td className="px-3 py-2.5">{item.employeeName}</td>
+                  <td className="px-3 py-2.5 text-muted">{item.employeeNip ?? "—"}</td>
+                  <td className="px-3 py-2.5">{item.currentRank ?? "—"}</td>
+                  <td className="px-3 py-2.5">{item.currentRankTmt?.slice(0, 10) ?? "—"}</td>
+                  <td className="px-3 py-2.5">{item.targetRank}</td>
+                  <td className="px-3 py-2.5">{item.effectiveDate?.slice(0, 10) ?? "—"}</td>
+                  <td className="px-3 py-2.5 text-muted">{item.yearsInCurrentRank ?? "—"} th</td>
+                  <td className="px-3 py-2.5">{item.position}</td>
+                  <td className="px-3 py-2.5">{item.orgUnitName ?? "—"}</td>
+                  <td className="px-3 py-2.5">
+                    <span className={`rounded bg-paper px-1.5 py-0.5 text-[11px] ring-1 ring-inset ring-line ${
+                      item.itemStatus === "VERIFIED" || item.itemStatus === "APPROVED"
+                        ? "bg-ok-100 text-ok-700"
+                        : "bg-warn-100 text-warn-700"
+                    }`}>
+                      {item.itemStatusLabel ?? itemStatusLabel(item.itemStatus)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {item.documentsChecklist.filter((d) => d.uploaded).length} / {item.documentsChecklist.length}
+                    {item.missingDocuments.length > 0 && (
+                      <span className="ml-1 text-xs text-bad-700">({item.missingDocuments.length} kurang)</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5">{item.nomorSurat ?? "-"}</td>
+                  <td className="px-3 py-2.5">{item.nomorAgenda ?? "-"}</td>
+                  <td className="px-3 py-2.5">{item.nomorArsip ?? "-"}</td>
+                </tr>
               ))}
             </tbody>
           </table>

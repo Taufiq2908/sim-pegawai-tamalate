@@ -39,7 +39,7 @@ export default function PensiunEkspedisiPage() {
   }, [load]);
 
   return (
-    <RequirePerm perm="pension.view" label="Buku Ekspedisi Pensiun">
+    <RequirePerm perm="pension.view" label="Buku Ekspedisi Pensiun" denyForEmployee>
       <div className="flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-xl font-bold">Buku Ekspedisi Pensiun</h1>

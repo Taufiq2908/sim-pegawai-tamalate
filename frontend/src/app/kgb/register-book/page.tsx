@@ -46,7 +46,7 @@ export default function KgbRegisterBookPage() {
   }, [load, year]);
 
   return (
-    <RequirePerm perm="kgb.view" label="Buku Register KGB">
+    <RequirePerm perm="kgb.view" label="Buku Register KGB" denyForEmployee>
       <div className="no-print flex flex-wrap items-center gap-2">
         <div>
           <h1 className="text-xl font-bold">Buku Register KGB</h1>

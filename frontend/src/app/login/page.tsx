@@ -13,6 +13,8 @@ const DEMO = [
   { u: "kasubag1", p: "Kasubag123!", role: "Kasubag" },
   { u: "sekcam1", p: "Sekcam123!", role: "Sekcam" },
   { u: "camat1", p: "Camat123!", role: "Camat" },
+  { u: "pangkat1", p: "Pangkat123!", role: "Pegawai (Pangkat)" },
+  { u: "pensiun1", p: "Pensiun123!", role: "Pegawai (Pensiun)" },
   { u: "superadmin", p: "Admin123!", role: "Super Admin" },
 ];
 

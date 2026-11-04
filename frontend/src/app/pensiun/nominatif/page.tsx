@@ -82,21 +82,21 @@ export default function PensiunNominativePage() {
 
   if (loading) {
     return (
-      <RequirePerm perm="pension.view" label="Daftar Nominatif Pensiun">
+      <RequirePerm perm="pension.view" label="Daftar Nominatif Pensiun" denyForEmployee>
         <div className="mt-6"><Skeleton className="h-64 w-full" /></div>
       </RequirePerm>
     );
   }
   if (error) {
     return (
-      <RequirePerm perm="pension.view" label="Daftar Nominatif Pensiun">
+      <RequirePerm perm="pension.view" label="Daftar Nominatif Pensiun" denyForEmployee>
         <ErrorBox message={error} onRetry={load} />
       </RequirePerm>
     );
   }
 
   return (
-    <RequirePerm perm="pension.view" label="Daftar Nominatif Pensiun">
+    <RequirePerm perm="pension.view" label="Daftar Nominatif Pensiun" denyForEmployee>
       <div className="flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-xl font-bold">Daftar Nominatif Pensiun</h1>

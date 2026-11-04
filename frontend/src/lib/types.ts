@@ -846,3 +846,85 @@ export interface PromotionCandidate {
     itemStatus: string;
   } | null;
 }
+
+// Baris buku register (flat, bukan PromotionBatch).
+export interface PromotionRegisterRow {
+  id: string;
+  batchNumber: string;
+  periodYear: number;
+  periodMonth: number | null;
+  periodLabel: string;
+  status: string;
+  statusLabel: string;
+  jumlahPegawai: number;
+  pegawai: Array<{
+    name: string;
+    nip: string | null;
+    currentRank: string | null;
+    targetRank: string;
+    effectiveDate: string | null;
+    status: string;
+  }>;
+  nomorSurat: string | null;
+  tanggalSurat: string | null;
+  nomorAgenda: string | null;
+  nomorArsip: string | null;
+  tanggalArsip: string | null;
+  registeredAt: string | null;
+  sentAt: string | null;
+  archivedAt: string | null;
+  createdAt: string | null;
+}
+
+// Baris nominatif (satu baris = satu item ASN).
+export interface PromotionNominativeRow {
+  nomor: number;
+  itemId: string;
+  batchId: string;
+  batchNumber: string;
+  periodYear: number;
+  periodMonth: number | null;
+  periodLabel: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNip: string | null;
+  employeeNumber: string;
+  currentRank: string | null;
+  currentRankTmt: string | null;
+  targetRank: string;
+  effectiveDate: string;
+  yearsInCurrentRank: number | null;
+  position: string;
+  orgUnitName: string | null;
+  itemStatus: string;
+  itemStatusLabel: string;
+  batchStatus: string;
+  statusLabel: string;
+  documentsChecklist: PromotionChecklistItem[];
+  missingDocuments: string[];
+  nomorSurat: string | null;
+  nomorAgenda: string | null;
+  nomorArsip: string | null;
+}
+
+// Baris buku arsip (flat, bukan PromotionBatch).
+export interface PromotionArchiveRow {
+  id: string;
+  batchNumber: string;
+  periodLabel: string;
+  tanggalArsip: string | null;
+  nomorArsip: string | null;
+  kategori: string | null;
+  lokasi: string | null;
+  nomorSurat: string | null;
+  tujuan: string | null;
+  jumlahPegawai: number;
+  pegawai: Array<{
+    employeeName: string;
+    employeeNip: string | null;
+    currentRank: string | null;
+    targetRank: string;
+  }>;
+  status: string;
+  statusLabel: string;
+}

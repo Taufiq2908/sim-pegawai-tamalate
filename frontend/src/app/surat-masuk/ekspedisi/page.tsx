@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { RequirePerm } from "@/components/shell";
 import { apiFetch } from "@/lib/api";
 import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
 
@@ -42,7 +42,7 @@ export default function EkspedisiPage() {
   }, [load]);
 
   return (
-    <AppShell>
+    <RequirePerm perm="letter.view" label="Buku Ekspedisi Surat Masuk" denyForEmployee>
       <div className="flex flex-wrap items-center gap-2">
         <div>
           <h1 className="text-xl font-bold">Buku Ekspedisi</h1>
@@ -95,6 +95,6 @@ export default function EkspedisiPage() {
           </div>
         )}
       </div>
-    </AppShell>
+    </RequirePerm>
   );
 }

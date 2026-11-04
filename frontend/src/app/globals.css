@@ -88,6 +88,15 @@ h2 {
     padding: 0 !important;
     margin: 0 !important;
   }
+  .app-shell,
+  .app-main {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .app-main {
+    display: block !important;
+  }
   .print-full {
     max-width: none !important;
     padding-left: 0 !important;

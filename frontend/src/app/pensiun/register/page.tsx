@@ -69,7 +69,7 @@ export default function PensiunRegisterPage() {
   }, [load]);
 
   return (
-    <RequirePerm perm="pension.view" label="Buku Register Pensiun">
+    <RequirePerm perm="pension.view" label="Buku Register Pensiun" denyForEmployee>
       <div className="flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-xl font-bold">Buku Register Pensiun</h1>

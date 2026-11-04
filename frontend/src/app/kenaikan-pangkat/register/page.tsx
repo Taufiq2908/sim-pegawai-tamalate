@@ -4,23 +4,25 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
-import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import type { PromotionBatch } from "@/lib/types";
+import type { PromotionRegisterRow } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
-function periodLabel(y: number, m?: number | null): string {
-  const MONTHS = [
-    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
-    "Juli", "Agustus", "September", "Oktober", "November", "Desember",
-  ];
-  return m ? `${MONTHS[m - 1]} ${y}` : `Tahun ${y}`;
-}
+const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "DRAFT", label: "Draft" },
+  { value: "LEGALIZED", label: "Legalisasi" },
+  { value: "VERIFIED", label: "Terverifikasi" },
+  { value: "PARAF", label: "Paraf" },
+  { value: "APPROVED", label: "Disetujui" },
+  { value: "REGISTERED", label: "Diregistrasi" },
+  { value: "ARCHIVED", label: "Diarsipkan" },
+  { value: "REVISION", label: "Revisi" },
+  { value: "REJECTED", label: "Ditolak" },
+];
 
 export default function PromotionRegisterPage() {
-  const { hasPermission } = useAuth();
   const router = useRouter();
-  const [rows, setRows] = useState<PromotionBatch[]>([]);
+  const [rows, setRows] = useState<PromotionRegisterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [year, setYear] = useState(String(new Date().getFullYear()));
@@ -32,7 +34,7 @@ export default function PromotionRegisterPage() {
     try {
       const params = new URLSearchParams({ year });
       if (statusFilter) params.set("status", statusFilter);
-      const { data } = await apiFetch<PromotionBatch[]>(
+      const { data } = await apiFetch<PromotionRegisterRow[]>(
         `/promotion-requests/register?${params.toString()}`,
       );
       setRows(Array.isArray(data) ? data : []);
@@ -47,20 +49,8 @@ export default function PromotionRegisterPage() {
     void load();
   }, [load]);
 
-  const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
-    { value: "DRAFT", label: "Draft" },
-    { value: "LEGALIZED", label: "Legalisasi" },
-    { value: "VERIFIED", label: "Terverifikasi" },
-    { value: "PARAF", label: "Paraf" },
-    { value: "APPROVED", label: "Disetujui" },
-    { value: "REGISTERED", label: "Diregistrasi" },
-    { value: "ARCHIVED", label: "Diarsipkan" },
-    { value: "REVISION", label: "Revisi" },
-    { value: "REJECTED", label: "Ditolak" },
-  ];
-
   return (
-    <RequirePerm perm="promotion.view" label="Buku Register Kenaikan Pangkat">
+    <RequirePerm perm="promotion.view" label="Buku Register Kenaikan Pangkat" denyForEmployee>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <button
@@ -114,8 +104,10 @@ export default function PromotionRegisterPage() {
                 <th className="px-3 py-2 font-medium">Nomor Usulan</th>
                 <th className="px-3 py-2 font-medium">Periode</th>
                 <th className="px-3 py-2 font-medium">Jumlah ASN</th>
+                <th className="px-3 py-2 font-medium">Daftar ASN</th>
                 <th className="px-3 py-2 font-medium">Status</th>
                 <th className="px-3 py-2 font-medium">Nomor Surat</th>
+                <th className="px-3 py-2 font-medium">Tanggal Surat</th>
                 <th className="px-3 py-2 font-medium">Nomor Agenda</th>
                 <th className="px-3 py-2 font-medium">Nomor Arsip</th>
                 <th className="px-3 py-2 font-medium">Tanggal Arsip</th>
@@ -126,17 +118,19 @@ export default function PromotionRegisterPage() {
               {rows.map((r) => (
                 <tr key={r.id} className="border-b border-line last:border-0">
                   <td className="px-3 py-2.5 font-medium">{r.batchNumber}</td>
-                  <td className="px-3 py-2.5">{periodLabel(r.periodYear, r.periodMonth)}</td>
-                  <td className="px-3 py-2.5 font-medium">{r.items.length}</td>
-                  <td className="px-3 py-2.5"><StatusBadge status={r.status} /></td>
-                  <td className="px-3 py-2.5">{r.outgoingLetterNumber ?? "-"}</td>
-                  <td className="px-3 py-2.5">{r.agendaNumber ?? "-"}</td>
-                  <td className="px-3 py-2.5">
-                    {r.outgoingLetter?.archiveRecord?.archiveNumber ?? "-"}
+                  <td className="px-3 py-2.5">{r.periodLabel}</td>
+                  <td className="px-3 py-2.5 font-medium">{r.jumlahPegawai}</td>
+                  <td className="px-3 py-2.5 text-muted">
+                    {r.pegawai.map((p) => p.name).join(", ") || "—"}
                   </td>
                   <td className="px-3 py-2.5">
-                    {r.outgoingLetter?.archiveRecord?.archiveDate ? r.outgoingLetter.archiveRecord.archiveDate.slice(0, 10) : "-"}
+                    <StatusBadge status={r.status} />
                   </td>
+                  <td className="px-3 py-2.5">{r.nomorSurat ?? "-"}</td>
+                  <td className="px-3 py-2.5">{r.tanggalSurat?.slice(0, 10) ?? "-"}</td>
+                  <td className="px-3 py-2.5">{r.nomorAgenda ?? "-"}</td>
+                  <td className="px-3 py-2.5">{r.nomorArsip ?? "-"}</td>
+                  <td className="px-3 py-2.5">{r.tanggalArsip?.slice(0, 10) ?? "-"}</td>
                   <td className="px-3 py-2.5">
                     <Link
                       href={`/kenaikan-pangkat/${r.id}`}

@@ -20,7 +20,7 @@ const FILTERS: Array<{ value: "" | LetterStatus; label: string }> = [
 const LIMIT = 10;
 
 export default function SuratMasukListPage() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [items, setItems] = useState<IncomingLetter[]>([]);
   const [meta, setMeta] = useState<PageMeta | null>(null);
   const [status, setStatus] = useState("");
@@ -70,12 +70,16 @@ export default function SuratMasukListPage() {
             + Catat surat
           </Link>
         ) : null}
-        <Link href="/surat-masuk/agenda" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:bg-paper">
-          Buku agenda
-        </Link>
-        <Link href="/surat-masuk/ekspedisi" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:bg-paper">
-          Buku ekspedisi
-        </Link>
+        {user?.role !== "EMPLOYEE" ? (
+          <Link href="/surat-masuk/agenda" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:bg-paper">
+            Buku agenda
+          </Link>
+        ) : null}
+        {user?.role !== "EMPLOYEE" ? (
+          <Link href="/surat-masuk/ekspedisi" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:bg-paper">
+            Buku ekspedisi
+          </Link>
+        ) : null}
       </div>
 
       <form

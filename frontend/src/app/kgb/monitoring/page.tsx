@@ -99,7 +99,7 @@ export default function KgbMonitoringPage() {
   }
 
   return (
-    <RequirePerm perm="kgb.view" label="Monitoring KGB">
+    <RequirePerm perm="kgb.view" label="Monitoring KGB" denyForEmployee>
       <div className="flex flex-wrap items-center gap-2">
         <div>
           <h1 className="text-xl font-bold">Monitoring KGB</h1>

@@ -24,7 +24,8 @@ const FILTERS: Array<{ value: "" | PromotionStatus; label: string }> = [
 const LIMIT = 10;
 
 export default function PromotionListPage() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
+  const isEmployee = user?.role === "EMPLOYEE";
   const [items, setItems] = useState<PromotionBatch[]>([]);
   const [meta, setMeta] = useState<PageMeta | null>(null);
   const [status, setStatus] = useState("");
@@ -75,40 +76,46 @@ export default function PromotionListPage() {
 
   return (
     <RequirePerm perm="promotion.view" label="Kenaikan Pangkat">
-      <div className="flex flex-wrap items-center gap-2">
-        <Link
-          href="/kenaikan-pangkat/calon"
-          className="ml-auto rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
-        >
-          Daftar Calon
-        </Link>
-        <Link
-          href="/kenaikan-pangkat/register"
-          className="rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
-        >
-          Buku Register
-        </Link>
-        <Link
-          href="/kenaikan-pangkat/nominatif"
-          className="rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
-        >
-          Nominatif
-        </Link>
-        <Link
-          href="/kenaikan-pangkat/arsip"
-          className="rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
-        >
-          Buku Arsip
-        </Link>
-        {hasPermission("promotion.create") ? (
-          <Link
-            href="/kenaikan-pangkat/calon"
-            className="rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
-          >
-            + Buat Usulan
-          </Link>
-        ) : null}
-      </div>
+      {!isEmployee || hasPermission("promotion.create") ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {!isEmployee ? (
+            <>
+              <Link
+                href="/kenaikan-pangkat/calon"
+                className="ml-auto rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
+              >
+                Daftar Calon
+              </Link>
+              <Link
+                href="/kenaikan-pangkat/register"
+                className="rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
+              >
+                Buku Register
+              </Link>
+              <Link
+                href="/kenaikan-pangkat/nominatif"
+                className="rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
+              >
+                Nominatif
+              </Link>
+              <Link
+                href="/kenaikan-pangkat/arsip"
+                className="rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-paper"
+              >
+                Buku Arsip
+              </Link>
+            </>
+          ) : null}
+          {hasPermission("promotion.create") ? (
+            <Link
+              href="/kenaikan-pangkat/calon"
+              className="rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
+            >
+              + Buat Usulan
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
 
       <form
         onSubmit={(e) => {
