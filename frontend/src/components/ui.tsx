@@ -1,6 +1,7 @@
 /** Label Bahasa Indonesia untuk kode status backend. Kode dipertahankan, tampilan dilokalkan. */
 export const STATUS_LABEL: Record<string, string> = {
   DRAFT: "Draft",
+  LEGALIZED: "Berkas legalisasi",
   SUBMITTED: "Diajukan",
   REVIEWED: "Pertimbangan atasan",
   REVISION: "Perlu perbaikan",
@@ -34,6 +35,7 @@ export const STATUS_LABEL: Record<string, string> = {
 /** Warna muted per status: hijau = selesai/setuju, kuning = menunggu, merah = tolak/absen. */
 const STATUS_TONE: Record<string, string> = {
   DRAFT: "bg-slate-100 text-slate-600",
+  LEGALIZED: "bg-info-100 text-info-700",
   SUBMITTED: "bg-warn-100 text-warn-700",
   REVIEWED: "bg-info-100 text-info-700",
   REVISION: "bg-warn-100 text-warn-700",

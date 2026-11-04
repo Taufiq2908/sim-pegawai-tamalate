@@ -17,6 +17,7 @@ export interface EmployeeRef {
   employmentStatus?: string;
   position?: string;
   rank?: string | null;
+  rankTmt?: string | null;
   joinDate?: string | null;
   orgUnit?: OrgUnit | null;
 }
@@ -696,4 +697,152 @@ export interface PensionExpeditionRow {
   status: PensionStatus;
   statusLabel: string;
   catatan: string | null;
+}
+
+export type PromotionStatus =
+  | "DRAFT" | "LEGALIZED" | "VERIFIED" | "PARAF"
+  | "APPROVED" | "REGISTERED" | "ARCHIVED"
+  | "REVISION" | "REJECTED";
+
+export type PromotionItemStatus =
+  | "PENDING" | "LEGALIZED" | "VERIFIED" | "PARAF" | "APPROVED"
+  | "REGISTERED" | "ARCHIVED" | "REVISION" | "REJECTED";
+
+export interface PromotionChecklistItem {
+  code: string;
+  label: string;
+  uploaded: boolean;
+  documentId: string | null;
+  originalName: string | null;
+  uploadedAt: string | null;
+}
+
+export interface PromotionDocument {
+  id: string;
+  docType: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedBy: string;
+  createdAt: string;
+  downloadUrl: string;
+}
+
+export interface PromotionItem {
+  id: string;
+  batchId: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNip: string | null;
+  employeeNumber: string;
+  currentRank: string | null;
+  currentRankTmt: string | null;
+  targetRank: string;
+  effectiveDate: string;
+  yearsInCurrentRank: number | null;
+  position: string;
+  orgUnitName: string | null;
+  status: PromotionItemStatus;
+  statusLabel: string;
+  note: string | null;
+  legalizedAt: string | null;
+  verifiedAt: string | null;
+  documents: PromotionDocument[];
+  documentsChecklist: PromotionChecklistItem[];
+  missingDocuments: string[];
+}
+
+export interface PromotionBatch {
+  id: string;
+  batchNumber: string;
+  periodYear: number;
+  periodMonth: number | null;
+  status: PromotionStatus;
+  statusLabel: string;
+  currentHolderRole: string | null;
+  note: string | null;
+  legalizationNote: string | null;
+  stampNumber: string | null;
+  verificationNote: string | null;
+  parafNote: string | null;
+  approvalNote: string | null;
+  revisionNote: string | null;
+  rejectionReason: string | null;
+  outgoingLetterId: string | null;
+  outgoingLetterNumber: string | null;
+  outgoingLetterDate: string | null;
+  agendaNumber: string | null;
+  legalizedAt: string | null;
+  verifiedAt: string | null;
+  parafAt: string | null;
+  approvedAt: string | null;
+  registeredAt: string | null;
+  sentAt: string | null;
+  archivedAt: string | null;
+  items: PromotionItem[];
+  timeline: Array<{
+    action: string;
+    fromStatus: string;
+    toStatus: string;
+    actorName: string | null;
+    actorRole: string;
+    actorPosition: string | null;
+    note: string | null;
+    createdAt: string;
+  }>;
+  availableActions: string[];
+  canEdit: boolean;
+  signers: {
+    camat: { name: string; nip: string | null; position: string } | null;
+    sekcam: { name: string; nip: string | null; position: string } | null;
+  };
+  outgoingLetter?: {
+    id: string;
+    letterNumber: string;
+    subject: string;
+    letterDate: string;
+    recipient: string | null;
+    signerName?: string | null;
+    classification: { code: string; name: string } | null;
+    archiveRecord: {
+      id: string;
+      archiveNumber: string;
+      archiveDate: string;
+      category: string;
+      location: string;
+    } | null;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PromotionCandidate {
+  employee: {
+    id: string;
+    nip: string | null;
+    employeeNumber: string;
+    name: string;
+    gender: string;
+    rank: string | null;
+    rankTmt: string | null;
+    position: string;
+    employmentStatus: string;
+    orgUnit: { id: string; code: string; name: string } | null;
+  };
+  currentRank: string | null;
+  currentRankTmt: string | null;
+  suggestedTargetRank: string | null;
+  yearsInRank: number | null;
+  minYears: number;
+  dueDate: string | null;
+  eligible: boolean | null;
+  missingRankTmt: boolean;
+  existingItem: {
+    id: string;
+    batchId: string;
+    batchNumber: string;
+    batchStatus: string;
+    periodYear: number;
+    itemStatus: string;
+  } | null;
 }

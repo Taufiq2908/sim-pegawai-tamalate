@@ -48,6 +48,16 @@ const SECTIONS = [
       { href: "/pensiun/ekspedisi", label: "Buku Ekspedisi", icon: Icons.send, perm: "pension.view", hideForEmployee: true },
     ],
   },
+  {
+    title: "Kenaikan Pangkat",
+    items: [
+      { href: "/kenaikan-pangkat", label: "Kenaikan Pangkat", icon: Icons.chart, perm: "promotion.view" },
+      { href: "/kenaikan-pangkat/calon", label: "Daftar Calon", icon: Icons.grid, perm: "promotion.view", hideForEmployee: true },
+      { href: "/kenaikan-pangkat/register", label: "Buku Register", icon: Icons.file, perm: "promotion.view", hideForEmployee: true },
+      { href: "/kenaikan-pangkat/nominatif", label: "Daftar Nominatif", icon: Icons.grid, perm: "promotion.view", hideForEmployee: true },
+      { href: "/kenaikan-pangkat/arsip", label: "Buku Arsip", icon: Icons.archive, perm: "promotion.view", hideForEmployee: true },
+    ],
+  },
 ];
 
 function initials(name?: string | null) {
@@ -73,6 +83,12 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/pensiun\/[^/]+\/cetak\/surat$/, "Cetak Surat Usulan Pensiun"],
   [/^\/pensiun\/[^/]+$/, "Detail Usulan Pensiun"],
   [/^\/pensiun$/, "Daftar Usulan Pensiun"],
+  [/^\/kenaikan-pangkat\/calon$/, "Daftar Calon Kenaikan Pangkat"],
+  [/^\/kenaikan-pangkat\/register$/, "Buku Register Kenaikan Pangkat"],
+  [/^\/kenaikan-pangkat\/nominatif$/, "Daftar Nominatif Kenaikan Pangkat"],
+  [/^\/kenaikan-pangkat\/arsip$/, "Buku Arsip Kenaikan Pangkat"],
+  [/^\/kenaikan-pangkat\/[^/]+$/, "Detail Usulan Kenaikan Pangkat"],
+  [/^\/kenaikan-pangkat$/, "Daftar Usulan Kenaikan Pangkat"],
   [/^\/surat-masuk\/agenda$/, "Buku Agenda Surat Masuk"],
   [/^\/surat-masuk\/ekspedisi$/, "Buku Ekspedisi"],
   [/^\/surat-masuk\/baru$/, "Pencatatan Surat Masuk"],
@@ -99,6 +115,11 @@ const SUBTITLES: Array<[RegExp, string]> = [
   [/^\/surat-masuk$/, "Agenda, disposisi, distribusi, dan arsip"],
   [/^\/surat-keluar$/, "Penomoran naskah dinas dan reservasi nomor"],
   [/^\/kgb$/, "Pengajuan kenaikan gaji berkala"],
+  [/^\/kenaikan-pangkat$/, "Kelola pengajuan kenaikan pangkat ASN"],
+  [/^\/kenaikan-pangkat\/calon$/, "Daftar ASN yang memenuhi syarat kenaikan pangkat"],
+  [/^\/kenaikan-pangkat\/register$/, "Buku register usulan kenaikan pangkat"],
+  [/^\/kenaikan-pangkat\/nominatif$/, "Daftar nominatif usulan kenaikan pangkat"],
+  [/^\/kenaikan-pangkat\/arsip$/, "Buku arsip usulan kenaikan pangkat"],
   [/^\/notifikasi$/, "Disposisi dan informasi untuk Anda"],
   [/^\/$/, "Ruang kerja administrasi kecamatan"],
 ];
