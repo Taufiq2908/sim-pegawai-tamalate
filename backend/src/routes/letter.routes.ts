@@ -445,6 +445,9 @@ router.get('/disposition-targets', requirePermission('letter.dispose'), async (_
 // ---------- GET /letters/register-book (buku agenda surat masuk) ----------
 // Kolom: nomor, instansiDitujukan, noSurat, tanggalSurat, perihal, penanggungJawab, ket
 router.get('/register-book', requirePermission('letter.view'), async (req, res) => {
+  if (req.user!.role === 'EMPLOYEE') {
+    return fail(res, 403, 'Buku agenda surat hanya untuk petugas');
+  }
   const { from, to, q, status } = req.query as any;
   const where: any = {};
   if (from || to) {
@@ -604,6 +607,9 @@ router.post('/:id/expedition', requirePermission('letter.expedition'), async (re
 // ---------- GET /letters/expedition-book (buku ekspedisi) ----------
 // Kolom: tanggalHariIni, nomorRegis, tanggalSurat, penerimaSurat, paraf, asalSurat
 router.get('/expedition-book', requirePermission('letter.view'), async (req, res) => {
+  if (req.user!.role === 'EMPLOYEE') {
+    return fail(res, 403, 'Buku ekspedisi hanya untuk petugas');
+  }
   const { from, to, q, letterId } = req.query as any;
   const where: any = {};
   if (letterId) where.letterId = String(letterId);

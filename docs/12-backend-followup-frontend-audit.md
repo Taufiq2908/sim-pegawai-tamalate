@@ -1,8 +1,10 @@
 # 12 — Tindak Lanjut Frontend → Backend
 
 Tanggal: 4 November 2026
-Status: perbaikan frontend selesai; beberapa hal butuh tindakan/konfirmasi backend.
-Catatan: tidak ada kode backend yang diubah pada tindak lanjut ini.
+Status: perbaikan frontend selesai; tindak lanjut backend sudah diterapkan
+(lihat bagian **Resolusi backend** di bawah).
+Catatan: bagian awal dokumen ini adalah audit dari frontend; perubahan backend
+dicatat pada bagian resolusi.
 
 ## Sudah diperbaiki di frontend
 
@@ -95,8 +97,41 @@ Catatan: tidak ada kode backend yang diubah pada tindak lanjut ini.
    Frontend sudah memakai `itemStatus`; mohon pastikan field itu tetap
    dipertahankan pada response `GET /promotion-requests/nominative`.
 
-## Yang tidak diubah
+## Yang tidak diubah oleh frontend
 
 - Tidak ada perubahan pada `backend/src/routes/*`, `backend/prisma/*`, atau
-  `backend/package.json` pada tindak lanjut ini.
-- Tidak ada commit/push.
+  `backend/package.json` pada tindak lanjut frontend ini.
+- Tidak ada commit/push dari frontend.
+
+---
+
+## Resolusi backend (4 November 2026)
+
+- **KGB monitoring & register-book**: `EMPLOYEE` sekarang mendapat `403`.
+  `VERIFIER`, `SUPERVISOR`, dan `LEADER` tetap `200` karena buku ini masih
+  dipakai sebagai laporan read-only. Guard ada di
+  `backend/src/routes/kgb.routes.ts`.
+- **Buku surat masuk & ekspedisi**: `EMPLOYEE` sekarang mendapat `403`.
+  `VERIFIER`, `SUPERVISOR`, dan `LEADER` tetap `200`. Guard ada di
+  `backend/src/routes/letter.routes.ts`.
+- **Prisma generate**: `backend/package.json` sekarang menjalankan
+  `prisma generate` lewat `predev`, `prebuild`, dan `postinstall`. Pipeline
+  deploy harus menjalankan `npm ci` (termasuk devDependencies) lalu
+  `npm run build` sebelum `npm start`, dengan environment `DIRECT_URL`
+  tersedia karena `prisma.config.ts` membacanya. Jika pipeline memakai
+  `npm ci --omit=dev`, generate harus dilakukan di build stage atau
+  `prisma` dipindahkan ke dependencies.
+- **Operator cuti/KGB**: `VERIFIER` sudah diberi `leave.create` dan
+  `kgb.create`. `leave.submit`/`kgb.submit` sengaja tetap milik `EMPLOYEE`;
+  operator menyiapkan draf + dokumen, lalu pegawai mengajukan. Jika operator
+  juga harus mengajukan, perlu keputusan policy dan grant tambahan.
+- **Scope buku surat**: untuk saat ini tidak perlu scope unit karena
+  deployment hanya satu unit (`KEC-TAMALATE`) dan `IncomingLetter` belum
+  memiliki `orgUnitId`. Jika sistem menjadi multi-unit, scope unit perlu
+  ditambahkan bersama perubahan schema.
+- **Nominatif kenaikan pangkat**: field `itemStatus` dan `itemStatusLabel`
+  dipertahankan pada response `GET /promotion-requests/nominative`.
+
+Verifikasi: `npm run typecheck`, `npm run build`, `npm run prisma:seed`, dan
+smoke test API (`EMPLOYEE` 403; `VERIFIER`, `SUPERVISOR`, `LEADER` 200)
+lulus. Tidak ada commit/push.

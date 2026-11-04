@@ -96,6 +96,9 @@ function registerNumberFromNote(note: string | null | undefined, fallback: strin
 //   lama: {nomorSk, tanggalSk, tglMulai, masaKerja, tahun, golMasaKerja, gajiPokok},
 //   baru: {tglMulai, kgbYad, masaKerja, tahun, golMasaKerja, gajiPokok}
 router.get('/register-book', requirePermission('kgb.view'), async (req, res) => {
+  if (req.user!.role === 'EMPLOYEE') {
+    return fail(res, 403, 'Buku register KGB hanya untuk petugas kepegawaian');
+  }
   const { year } = req.query as any;
   const y = year ? Number(year) : null;
   if (y !== null && (!Number.isInteger(y) || y < 1900 || y > 2200)) {
@@ -192,6 +195,9 @@ router.get('/register-book', requirePermission('kgb.view'), async (req, res) => 
 // + perhitungan jatuh tempo KGB berikutnya (2 tahun dari KGB terakhir / tanggal masuk)
 // + flag dueSoon (≤3 bulan) untuk pemicu pengingat.
 router.get('/monitoring', requirePermission('kgb.view'), async (req, res) => {
+  if (req.user!.role === 'EMPLOYEE') {
+    return fail(res, 403, 'Monitoring KGB hanya untuk petugas kepegawaian');
+  }
   const employees = await prisma.employee.findMany({
     where: { isActive: true },
     include: { orgUnit: true },
