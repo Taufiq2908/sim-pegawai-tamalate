@@ -4,11 +4,13 @@ import { toast } from "@/components/toast";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/shell";
+import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import type { NotificationItem } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
 
 export default function NotifikasiPage() {
+  const { user } = useAuth();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -108,8 +110,11 @@ export default function NotifikasiPage() {
                     </Link>
                   ) : null}
                   {n.referenceType === "kgb_reminder" ? (
-                    <Link href="/kgb/monitoring" className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
-                      Buka monitoring KGB
+                    <Link
+                      href={user?.role === "EMPLOYEE" ? "/kgb" : "/kgb/monitoring"}
+                      className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110"
+                    >
+                      {user?.role === "EMPLOYEE" ? "Buka KGB" : "Buka monitoring KGB"}
                     </Link>
                   ) : null}
                   {n.referenceType === "archive_list" && n.referenceId ? (
