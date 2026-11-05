@@ -27,6 +27,26 @@ Khusus: Camat → Sekda (kecamatan hanya buatkan surat); Sekcam → Camat langsu
 Kelurahan: Staf → Kasi → Sekretaris Lurah → Lurah (mapping final per tahap
 [BELUM DITENTUKAN] lengkap). UI tidak mengunci teks jabatan — tampilkan dari data.
 
+### 1.1 Kebijakan self-service (berlaku 5 November 2026)
+
+- Semua role hanya boleh **membuat, mengubah, mengunggah dokumen, dan mengajukan**
+  cuti untuk employee miliknya sendiri. Ini termasuk `SUPER_ADMIN` dan `LEADER`
+  (Camat/Sekcam); tidak ada lagi pembuatan cuti oleh operator untuk pegawai lain.
+- `employeeId` pada `POST /leave-requests` hanya dipertahankan untuk kompatibilitas
+  frontend lama. Nilainya wajib sama dengan employee user login; beda → `403`.
+  Frontend baru tidak perlu mengirim field ini dan tidak perlu employee picker.
+- `VERIFIER` **tidak memiliki** `leave.create`. Verifier tetap memegang
+  `leave.view`, `leave.receive`, `leave.register`, dan `leave.document.upload`
+  untuk memproses cuti milik orang lain, tetapi tidak dapat membuat draft cuti.
+- `EMPLOYEE` dan `LEADER` memegang `leave.create` + `leave.submit` untuk cuti
+  sendiri. `SUPERVISOR` tetap tidak memegang `leave.create`.
+- `availableActions` hanya menampilkan `submit` bila user login adalah pemilik
+  employee pengajuan, sehingga tombol tidak muncul bagi verifier/Camat/Super Admin
+  yang membuka draft orang lain.
+- Draft lama tidak dimigrasikan atau dihapus. Guard ownership berlaku retroaktif:
+  hanya employee pemilik yang dapat mengubah/mengunggah/mengajukan draft lama.
+  Penghapusan draft lama, jika diperlukan, dilakukan manual oleh admin data.
+
 ## 2. Formulir resmi: 6 jenis + section A–I
 Jenis: TAHUNAN, BESAR, SAKIT, MELAHIRKAN, ALASAN_PENTING, DILUAR_TANGGUNGAN
 (2 terakhir belum di-seed backend). Section: A data pemohon auto-fill •
@@ -43,6 +63,8 @@ istilah "persetujuan digital" (nama+NIP+jabatan+waktu per aksi).
   revise≈PERUBAHAN, reject≈TIDAK DISETUJUI, postpone≈DITANGGUHKAN.
 - Role SUPERVISOR (atasan langsung, `leave.review`) + Kasubag = SUPERVISOR + GRANT
   verify; akun `kasi1` (atasan murni) dan `kasubag1` (pemeriksa).
+- Self-service cuti: create/patch/upload/submit hanya oleh pemilik employee,
+  semua role; `VERIFIER` tidak punya `leave.create`.
 - Upload jawaban BKPSDM (`answer-letter`) saat APPROVED/REGISTERED/SUBMITTED_BKPSDMD;
   `receiveresult` mensyaratkannya (SIGNED dihapus dari rantai).
 - Resolver atasan (`GET /employees/:id/supervisor` + field `supervisor` di detail cuti).

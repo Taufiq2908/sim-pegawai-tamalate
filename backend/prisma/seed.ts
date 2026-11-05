@@ -86,7 +86,7 @@ const PERMS = [
 
 const ROLE_MAP: Record<string, string[]> = {
   // VERIFIER basis = operator (Staf Kepegawaian/Arsip). Pemeriksa (Kasubag) via GRANT per user.
-  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.create', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'kgb.view', 'kgb.create', 'kgb.document.upload', 'kgb.register', 'kgb.remind', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel', 'archive.view', 'archive.update', 'pension.view', 'pension.create', 'pension.document.upload', 'pension.send', 'promotion.view', 'promotion.create', 'promotion.legalize', 'promotion.register', 'promotion.archive', 'promotion.document.upload'],
+  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'kgb.view', 'kgb.create', 'kgb.document.upload', 'kgb.register', 'kgb.remind', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel', 'archive.view', 'archive.update', 'pension.view', 'pension.create', 'pension.document.upload', 'pension.send', 'promotion.view', 'promotion.create', 'promotion.legalize', 'promotion.register', 'promotion.archive', 'promotion.document.upload'],
   // SUPERVISOR = atasan langsung (Kasi, Lurah, Seklur): melihat + pertimbangan.
   // Tanpa verify/approve/sign/dispose/complete/manage. Kasubag = SUPERVISOR + GRANT di bawah.
   SUPERVISOR: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.review', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.review', 'kgb.document.upload', 'archive.view', 'pension.view', 'promotion.view'],
@@ -274,6 +274,26 @@ async function main() {
   await mkUser('pensiun1', 'Pensiun123!', 'EMPLOYEE', 'STAF', 'EMP-008', 'Siti Pensiun', [], [], { nip: '196802102020122001', birthDate: '1968-02-10', joinDate: '1990-03-01', rank: 'III/d', rankTmt: '2018-04-01', gender: 'P' });
   // Contoh ASN yang memenuhi masa jabatan 4 tahun pada 2026 (uji daftar calon + usulan kenaikan pangkat).
   await mkUser('pangkat1', 'Pangkat123!', 'EMPLOYEE', 'STAF', 'EMP-009', 'Andi Pangkat', [], [], { nip: '199001012018011009', birthDate: '1990-01-01', joinDate: '2018-01-01', rank: 'III/b', rankTmt: '2022-04-01' });
+
+  // Policy cuti: VERIFIER tidak boleh membuat cuti. Role-permission sudah
+  // disinkronkan di atas; cabut juga GRANT individual yang mungkin tertinggal.
+  {
+    const leaveCreate = await prisma.permission.findUnique({ where: { code: 'leave.create' } });
+    const verifierUsers = await prisma.user.findMany({
+      where: { role: 'VERIFIER' },
+      select: { id: true },
+    });
+    if (leaveCreate && verifierUsers.length) {
+      const revoked = await prisma.userPermissionOverride.deleteMany({
+        where: {
+          permissionId: leaveCreate.id,
+          effect: 'GRANT',
+          userId: { in: verifierUsers.map((u) => u.id) },
+        },
+      });
+      if (revoked.count) console.log(`Cabut GRANT leave.create VERIFIER: ${revoked.count}`);
+    }
+  }
 
   console.log('Seed OK');
 }

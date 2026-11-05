@@ -18,7 +18,7 @@ menutup celah integrasi, bukan membuat modul baru.
 | P0 | Tombol create tidak dicek permission | Banyak 403 yang terlihat seperti bug |
 | P0 | UI monitoring/reminder KGB belum memakai `isOverdue` | KGB terlambat tidak pernah ditindak |
 | P1 | Surat pengajuan vs pengantar tidak satu sumber | Tanggal/penandatangan bisa beda |
-| P1 | Operator tidak bisa membuat cuti/KGB untuk pegawai lain | Fitur backend tidak terpakai |
+| P1 | ~~Operator tidak bisa membuat cuti/KGB untuk pegawai lain~~ → hanya KGB | Kebijakan cuti berubah: self-service |
 | P2 | Kontrak tipe & label status | Kebingungan status |
 
 ---
@@ -230,16 +230,23 @@ mendapat badge terlambat, dan bisa dikirimi pengingat.
 
 ## P1 — Penting, setelah P0
 
-### P1-1. Operator belum bisa membuat cuti/KGB untuk pegawai lain
+### P1-1. Operator membuat KGB untuk pegawai lain (cuti dibatalkan)
 
-Backend mendukung `employeeId` opsional:
+> **Cuti: DIBATALKAN (5 November 2026).** Cuti sekarang self-service untuk semua
+> role. Jangan menambah employee picker di form cuti, jangan mengirim
+> `employeeId` orang lain, dan jangan menampilkan tombol “Buatkan cuti” untuk
+> pegawai lain. `VERIFIER` tidak lagi memiliki `leave.create`; backend menolak
+> create/patch/upload/submit cuti non-pemilik dengan `403`.
+>
+> **KGB:** bagian di bawah tetap berlaku.
 
-- Cuti: `backend/src/routes/leave.routes.ts:177`.
+Backend KGB mendukung `employeeId` opsional:
+
 - KGB: `backend/src/routes/kgb.routes.ts:291,300-304`.
 
-Frontend selalu memakai akun sendiri (`cuti/baru` baris 88-98; `kgb/baru` baris 54-63).
+Frontend selalu memakai akun sendiri (`kgb/baru` baris 54-63).
 
-**Kerjakan**
+**Kerjakan (KGB saja)**
 
 - Tambah pemilih pegawai (cari `/employees?limit=...`) untuk role non-EMPLOYEE.
 - Kirim `employeeId` hanya bila dipilih.

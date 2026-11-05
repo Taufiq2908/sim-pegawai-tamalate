@@ -95,7 +95,9 @@ Visibility:
 `availableActions` dihitung backend dari (status + permission user login) — frontend cukup render tombol dari field ini.
 
 ### POST /leave-requests
-Perm: `leave.create`. Body JSON (buat DRAFT dulu), lalu upload dokumen, lalu submit.
+Perm: `leave.create`. **Self-service untuk semua role**: cuti hanya boleh dibuat
+untuk employee yang terhubung ke akun login, termasuk `SUPER_ADMIN`.
+Body JSON (buat DRAFT dulu), lalu upload dokumen, lalu submit.
 ```json
 {
   "leaveTypeCode": "TAHUNAN",
@@ -107,14 +109,21 @@ Perm: `leave.create`. Body JSON (buat DRAFT dulu), lalu upload dokumen, lalu sub
 }
 // 201 → objek detail dengan status DRAFT, availableActions: ["submit"]
 ```
-Validasi 422: tanggal terbalik, reason kosong, leaveType tidak aktif.
+`employeeId` **tidak perlu dikirim**. Field ini masih diterima untuk kompatibilitas
+frontend lama.
+Nilainya wajib sama dengan employee user login; beda → `403`. Bila kosong,
+backend memakai employee user login. User tanpa data employee → `422`.
+Validasi 422 lain: tanggal terbalik, reason kosong, leaveType tidak aktif.
 
 ### PATCH /leave-requests/:id
-Hanya saat DRAFT/REVISION dan hanya pemilik. Body sama seperti create (parsial boleh).
+Perm: `leave.create`. Hanya saat DRAFT/REVISION dan hanya **pemilik employee**
+(semua role, termasuk `SUPER_ADMIN`). Non-pemilik → `403`.
+Body sama seperti create (parsial boleh).
 Mengganti jenis cuti: kirim `leaveTypeCode`; backend memvalidasi jenis aktif dan meng-update `leaveTypeId`.
 
 ### POST /leave-requests/:id/documents (multipart)
-Perm: `leave.document.upload`. Hanya DRAFT/REVISION + pemilik (atau verifier nambah? v1: tidak).
+Perm: `leave.document.upload`. Hanya DRAFT/REVISION + **pemilik employee**
+(semua role). Non-pemilik → `403`; tidak ada jalur upload untuk verifier.
 Form fields: `docType=FORM_CUTI`, `file=<binary>`.
 Response 201: objek dokumen.
 
@@ -128,7 +137,7 @@ Setiap sukses → 200 dengan objek detail baru (status berubah) + timeline berta
 
 | endpoint | perm | dari status | ke status |
 |---|---|---|---|
-| POST /leave-requests/:id/submit | leave.submit | DRAFT,REVISION,POSTPONED | SUBMITTED (pemilik; ≥2 dokumen + SK_TERAKHIR; SAKIT wajib SURAT_DOKTER) |
+| POST /leave-requests/:id/submit | leave.submit | DRAFT,REVISION,POSTPONED | SUBMITTED (hanya pemilik employee, semua role; ≥2 dokumen + SK_TERAKHIR; SAKIT wajib SURAT_DOKTER) |
 | POST /leave-requests/:id/review | leave.review | SUBMITTED | REVIEWED (hanya atasan langsung; Camat/Sekcam/Lurah/kelurahan lewat) |
 | POST /leave-requests/:id/verify | leave.verify | REVIEWED (atau SUBMITTED khusus pemohon Camat/Sekcam/Lurah/kelurahan) | VERIFIED (Kasubag — `kasubag1`) |
 | POST /leave-requests/:id/revise | leave.verify/review | SUBMITTED (atasan langsung), REVIEWED (Kasubag) | REVISION |

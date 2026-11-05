@@ -88,7 +88,10 @@ dicatat pada bagian resolusi.
    `backend/prisma/seed.ts` (ROLE_MAP), padahal `docs/07-frontend-handoff.md`
    P1-1 menyebut operator perlu membuat untuk orang lain. Frontend otomatis
    menampilkan tombol bila permission tersedia; saat ini tombol tersebut tidak
-   muncul untuk `VERIFIER`. Mohon grant permission atau konfirmasi policy.
+   muncul untuk `VERIFIER`. **Koreksi 5 November 2026:** untuk **cuti**, policy
+   final adalah self-service.
+   `VERIFIER` tetap tanpa `leave.create`; tidak ada operator pembuat cuti.
+   Bagian KGB pada pertanyaan ini tidak berubah.
 2. **Scope buku surat untuk SUPERVISOR/LEADER.**
    `register-book` dan `expedition-book` memakai `letter.view` tanpa scope,
    sehingga SUPERVISOR/LEADER melihat seluruh surat. Frontend menampilkan
@@ -121,10 +124,13 @@ dicatat pada bagian resolusi.
   tersedia karena `prisma.config.ts` membacanya. Jika pipeline memakai
   `npm ci --omit=dev`, generate harus dilakukan di build stage atau
   `prisma` dipindahkan ke dependencies.
-- **Operator cuti/KGB**: `VERIFIER` sudah diberi `leave.create` dan
-  `kgb.create`. `leave.submit`/`kgb.submit` sengaja tetap milik `EMPLOYEE`;
-  operator menyiapkan draf + dokumen, lalu pegawai mengajukan. Jika operator
-  juga harus mengajukan, perlu keputusan policy dan grant tambahan.
+- **Operator cuti/KGB (revisi cuti 5 November 2026)**: untuk **KGB**, `VERIFIER`
+  tetap memegang `kgb.create`; `kgb.submit` tetap milik pemilik. Untuk **cuti**,
+  kebijakan berubah menjadi self-service: `VERIFIER` tidak lagi memegang
+  `leave.create`, dan create/patch/upload/submit hanya boleh oleh employee
+  pemilik untuk semua role (termasuk `SUPER_ADMIN`). Role permission dan GRANT
+  individual `leave.create` untuk user `VERIFIER` dicabut lewat migrasi data
+  `20261105020000_leave_create_self_only` dan seed.
 - **Scope buku surat**: untuk saat ini tidak perlu scope unit karena
   deployment hanya satu unit (`KEC-TAMALATE`) dan `IncomingLetter` belum
   memiliki `orgUnitId`. Jika sistem menjadi multi-unit, scope unit perlu

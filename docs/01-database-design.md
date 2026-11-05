@@ -290,11 +290,11 @@ DRAFT → SUBMITTED → VERIFIED → PARAF → APPROVED → SIGNED → COMPLETED
 
 | dari → ke | endpoint | permission wajib | role tipikal |
 |---|---|---|---|
-| DRAFT → SUBMITTED | POST /leave-requests/:id/submit | leave.submit | EMPLOYEE (pemilik) |
+| DRAFT → SUBMITTED | POST /leave-requests/:id/submit | leave.submit | semua role (pemilik employee) |
 | SUBMITTED → VERIFIED | POST .../verify | leave.verify | VERIFIER |
 | SUBMITTED → REVISION | POST .../revise | leave.verify | VERIFIER |
 | SUBMITTED → REJECTED | POST .../reject | leave.reject | VERIFIER/LEADER |
-| REVISION → SUBMITTED | POST .../submit | leave.submit | EMPLOYEE (pemilik) |
+| REVISION → SUBMITTED | POST .../submit | leave.submit | semua role (pemilik employee) |
 | VERIFIED → PARAF | POST .../paraf | leave.paraf | LEADER (Sekcam) |
 | VERIFIED → REJECTED | POST .../reject | leave.reject | LEADER |
 | PARAF → APPROVED | POST .../approve | leave.approve | LEADER (Camat) |
@@ -307,7 +307,10 @@ Aturan backend (wajib dicek tiap aksi, jangan percaya frontend):
 1. User aktif + token valid.
 2. Punya permission (setelah GRANT/DENY).
 3. Status saat ini = yang diharapkan (optimistic: tolak jika status berubah).
-4. Ownership: EMPLOYEE hanya `own` (employee_id miliknya); VERIFIER/LEADER boleh lintas employee dalam org-nya (v1: semua, filter belakangan).
+4. Ownership: create/patch/upload/submit cuti hanya untuk employee milik user login,
+   semua role (termasuk SUPER_ADMIN); `VERIFIER` tidak punya `leave.create`.
+   VERIFIER/LEADER tetap boleh melihat/memproses pengajuan employee lain sesuai
+   permission tahapnya (v1: semua, filter unit belakangan).
 5. `note` wajib jika REVISE/REJECT.
 6. Setiap transisi sukses → INSERT leave_approvals + UPDATE leave_requests.status.
 

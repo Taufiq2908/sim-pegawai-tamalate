@@ -24,7 +24,7 @@ const upload = multer({
   },
 });
 
-async function toDetail(r: any, perms: string[]) {
+async function toDetail(r: any, perms: string[], viewerEmployeeId?: string | null) {
   const supervisor = r.employee
     ? await resolveSupervisor({ position: r.employee.position, orgUnit: r.employee.orgUnit ?? null })
     : null;
@@ -37,7 +37,9 @@ async function toDetail(r: any, perms: string[]) {
     : null;
   return {
     ...r,
-    availableActions: availableActions(r.status, perms, applicant),
+    availableActions: availableActions(r.status, perms, applicant, {
+      isOwner: r.employeeId === viewerEmployeeId,
+    }),
     supervisor,
     camat: camat ? { name: camat.employee?.name ?? camat.username, nip: camat.employee?.nip ?? null, position: 'CAMAT' } : null,
     documents: (r.documents ?? []).map((d: any) => ({
@@ -162,7 +164,7 @@ router.get('/:id', requirePermission('leave.view'), async (req, res) => {
   if (req.user!.role === 'EMPLOYEE' && req.user!.employeeId && r.employeeId !== req.user!.employeeId) {
     return fail(res, 403, 'Hanya boleh melihat pengajuan sendiri');
   }
-  return ok(res, await toDetail(r, req.user!.permissions));
+  return ok(res, await toDetail(r, req.user!.permissions, req.user!.employeeId));
 });
 
 // POST /leave-requests (DRAFT)
@@ -174,17 +176,19 @@ router.post('/', requirePermission('leave.create'), async (req, res) => {
     reason: z.string().min(5),
     addressDuringLeave: z.string().optional(),
     contactDuringLeave: z.string().optional(),
-    employeeId: z.string().uuid().optional(), // hanya non-EMPLOYEE (admin input untuk orang lain)
+    // Dipertahankan untuk kompatibilitas. Nilainya wajib sama dengan employee user login.
+    employeeId: z.string().uuid().optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
   const b = parsed.data;
 
-  let employeeId = req.user!.employeeId;
-  if (b.employeeId) {
-    if (req.user!.role === 'EMPLOYEE') return fail(res, 403, 'Tidak boleh membuat untuk orang lain');
-    employeeId = b.employeeId;
+  // Policy: semua role hanya boleh membuat cuti untuk dirinya sendiri.
+  // Cek ini tetap dilakukan di route karena SUPER_ADMIN punya bypass permission '*'.
+  if (b.employeeId && b.employeeId !== req.user!.employeeId) {
+    return fail(res, 403, 'Hanya boleh membuat cuti untuk diri sendiri');
   }
+  const employeeId = req.user!.employeeId;
   if (!employeeId) return fail(res, 422, 'User ini tidak terhubung ke data employee');
 
   const leaveType = await prisma.leaveType.findUnique({ where: { code: b.leaveTypeCode } });
@@ -234,15 +238,17 @@ router.post('/', requirePermission('leave.create'), async (req, res) => {
     return created;
   });
   const full = await prisma.leaveRequest.findUnique({ where: { id: r.id }, include: includeDetail });
-  return res.status(201).json({ success: true, message: 'Draf cuti dibuat', data: await toDetail(full, req.user!.permissions), meta: null, errors: null });
+  return res.status(201).json({ success: true, message: 'Draf cuti dibuat', data: await toDetail(full, req.user!.permissions, req.user!.employeeId), meta: null, errors: null });
 });
 
 // PATCH /leave-requests/:id (DRAFT/REVISION, pemilik)
 router.patch('/:id', requirePermission('leave.create'), async (req, res) => {
   const r = await prisma.leaveRequest.findUnique({ where: { id: req.params.id } });
   if (!r) return fail(res, 404, 'Tidak ditemukan');
+  // Policy: hanya pemilik draft (employee yang sama), berlaku untuk semua role.
+  // Cek ownership sebelum status agar non-pemilik selalu mendapat 403.
+  if (r.employeeId !== req.user!.employeeId) return fail(res, 403, 'Hanya pemilik draft yang boleh mengubah');
   if (!['DRAFT', 'REVISION'].includes(r.status)) return fail(res, 409, `Hanya DRAFT/REVISION yang bisa diubah (saat ini ${r.status})`);
-  if (req.user!.role === 'EMPLOYEE' && r.employeeId !== req.user!.employeeId) return fail(res, 403, 'Bukan milikmu');
   const schema = z.object({
     leaveTypeCode: z.string().min(1).optional(),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -274,7 +280,7 @@ router.patch('/:id', requirePermission('leave.create'), async (req, res) => {
     },
     include: includeDetail,
   });
-  return ok(res, await toDetail(updated, req.user!.permissions));
+  return ok(res, await toDetail(updated, req.user!.permissions, req.user!.employeeId));
 });
 
 // POST /leave-requests/:id/documents
@@ -284,10 +290,24 @@ router.post('/:id/documents', requirePermission('leave.document.upload'), (req, 
     const file = (req as any).file;
     const { docType = 'LAINNYA' } = req.body ?? {};
     if (!file) return fail(res, 422, 'file wajib (pdf/jpg/png, max 5MB)');
+    const cleanupTemp = () => {
+      try { fs.rmSync(file.path, { force: true }); } catch { /* best-effort */ }
+    };
     const r = await prisma.leaveRequest.findUnique({ where: { id: req.params.id } });
-    if (!r) return fail(res, 404, 'Tidak ditemukan');
-    if (!['DRAFT', 'REVISION'].includes(r.status)) return fail(res, 409, 'Upload hanya saat DRAFT/REVISION');
-    if (req.user!.role === 'EMPLOYEE' && r.employeeId !== req.user!.employeeId) return fail(res, 403, 'Bukan milikmu');
+    if (!r) {
+      cleanupTemp();
+      return fail(res, 404, 'Tidak ditemukan');
+    }
+    // Policy: hanya pemilik draft yang boleh mengunggah, berlaku untuk semua role.
+    // Cek ownership sebelum status agar non-pemilik selalu mendapat 403.
+    if (r.employeeId !== req.user!.employeeId) {
+      cleanupTemp();
+      return fail(res, 403, 'Hanya pemilik draft yang boleh mengunggah');
+    }
+    if (!['DRAFT', 'REVISION'].includes(r.status)) {
+      cleanupTemp();
+      return fail(res, 409, 'Upload hanya saat DRAFT/REVISION');
+    }
     const ext = path.extname(file.originalname);
     const storedPath = file.path + ext;
     fs.renameSync(file.path, storedPath);
@@ -370,6 +390,12 @@ router.post('/:id/:action', async (req, res) => {
 
   const r = await prisma.leaveRequest.findUnique({ where: { id: req.params.id } });
   if (!r) return fail(res, 404, 'Tidak ditemukan');
+  // Ownership untuk submit (termasuk pengajuan ulang dari POSTPONED), semua role.
+  // Jangan hanya bergantung pada permission: SUPER_ADMIN punya bypass '*'.
+  // Cek sebelum status agar non-pemilik selalu mendapat 403.
+  if (action === 'submit' && r.employeeId !== req.user!.employeeId) {
+    return fail(res, 403, 'Hanya pemilik pengajuan yang boleh submit');
+  }
   // Siapa pun (termasuk Camat/Super Admin) tidak boleh memproses pengajuan sendiri.
   if (action !== 'submit' && r.createdBy === req.user!.id) {
     return fail(res, 403, 'Tidak boleh memproses pengajuan sendiri');
@@ -475,10 +501,6 @@ router.post('/:id/:action', async (req, res) => {
     }
     if (!note) return fail(res, 422, 'note wajib untuk forward (catat nomor/tanggal penerusan ke Sekda)');
   }
-  // ownership untuk submit (termasuk pengajuan ulang dari POSTPONED)
-  if (action === 'submit' && req.user!.role === 'EMPLOYEE' && r.employeeId !== req.user!.employeeId) {
-    return fail(res, 403, 'Bukan milikmu');
-  }
   // Submit wajib melampirkan minimal 2 berkas, salah satunya SK terakhir.
   // Jenis yang requiresDocument (mis. SAKIT) wajib melampirkan SURAT_DOKTER.
   if (action === 'submit') {
@@ -538,7 +560,7 @@ router.post('/:id/:action', async (req, res) => {
   });
 
   const full = await prisma.leaveRequest.findUnique({ where: { id: updated.id }, include: includeDetail });
-  return ok(res, await toDetail(full, req.user!.permissions), `${action} berhasil`);
+  return ok(res, await toDetail(full, req.user!.permissions, req.user!.employeeId), `${action} berhasil`);
 });
 
 // DELETE /leave-requests/:id — hapus DRAFT milik sendiri (tidak ada hapus untuk status lain).

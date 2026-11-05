@@ -66,15 +66,27 @@ export interface ApplicantRef {
   orgType?: string | null;
 }
 
+export interface ActionContext {
+  /** true bila user login adalah pemilik employee pengajuan. */
+  isOwner?: boolean;
+}
+
 // availableActions sadar jabatan pemohon: sembunyikan aksi yang pasti 422
 // (forward non-Camat, approve-VERIFIED non-Sekcam, paraf pemohon-Sekcam,
 // review untuk yang melewati REVIEWED, verify-SUBMITTED sebelum REVIEWED).
-export function availableActions(status: string, perms: string[], applicant?: ApplicantRef | null): string[] {
+// `submit` hanya untuk pemilik pengajuan, termasuk bagi SUPER_ADMIN.
+export function availableActions(
+  status: string,
+  perms: string[],
+  applicant?: ApplicantRef | null,
+  ctx?: ActionContext,
+): string[] {
   const pos = applicant?.position ?? null;
   const skip = applicant && pos ? skipsReviewer(pos, applicant.orgType ?? null) : null;
   const visible = (a: string): boolean => {
     if (!ACTION_FROM[a].includes(status)) return false;
     if (!perms.includes('*') && !ACTION_PERM[a].some((p) => perms.includes(p))) return false;
+    if (a === 'submit' && ctx && !ctx.isOwner) return false;
     if (a === 'forward' && pos !== 'CAMAT') return false;
     if (a === 'approve' && status === 'VERIFIED' && pos !== 'SEKCAM') return false;
     if (a === 'paraf' && pos === 'SEKCAM') return false;
