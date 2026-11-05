@@ -116,6 +116,31 @@ function publicDocument(d: any, letterId: string) {
   };
 }
 
+/**
+ * Bentuk disposisi yang sama untuk list dan detail.
+ * `from`/`to` adalah kontrak kanonik; jangan mengembalikan fromUser/toUser
+ * mentah dari Prisma agar frontend tidak perlu menebak bentuknya.
+ */
+function toDisposition(d: any, perms: string[], meId: string) {
+  return {
+    id: d.id,
+    from: { id: d.fromUser.id, username: d.fromUser.username },
+    to: { id: d.toUser.id, username: d.toUser.username },
+    targetCode: d.targetCode,
+    targetName: d.targetName,
+    instruction: d.instruction,
+    deadline: d.deadline,
+    status: d.status,
+    acceptedAt: d.acceptedAt,
+    responseNote: d.responseNote,
+    respondedAt: d.respondedAt,
+    createdAt: d.createdAt,
+    canAccept: d.status === 'PENDING' && (d.toUser.id === meId || perms.includes('*')),
+    canComplete: d.status === 'ACCEPTED' && (d.toUser.id === meId || perms.includes('*')),
+    canFollowUp: d.status === 'ACCEPTED' && (d.toUser.id === meId || perms.includes('*')),
+  };
+}
+
 function toDetail(l: any, perms: string[], meId: string) {
   return {
     ...l,
@@ -129,23 +154,7 @@ function toDetail(l: any, perms: string[], meId: string) {
       position: a.user.position ?? a.user.employee?.position ?? null,
       note: a.note,
     })),
-    dispositions: (l.dispositions ?? []).map((d: any) => ({
-      id: d.id,
-      from: { id: d.fromUser.id, username: d.fromUser.username },
-      to: { id: d.toUser.id, username: d.toUser.username },
-      targetCode: d.targetCode,
-      targetName: d.targetName,
-      instruction: d.instruction,
-      deadline: d.deadline,
-      status: d.status,
-      acceptedAt: d.acceptedAt,
-      responseNote: d.responseNote,
-      respondedAt: d.respondedAt,
-      createdAt: d.createdAt,
-      canAccept: d.status === 'PENDING' && (d.toUser.id === meId || perms.includes('*')),
-      canComplete: d.status === 'ACCEPTED' && (d.toUser.id === meId || perms.includes('*')),
-      canFollowUp: d.status === 'ACCEPTED' && (d.toUser.id === meId || perms.includes('*')),
-    })),
+    dispositions: (l.dispositions ?? []).map((d: any) => toDisposition(d, perms, meId)),
   };
 }
 
@@ -301,9 +310,43 @@ async function syncLetterDispositionStatus(letterId: string) {
   return letter;
 }
 
-function toAgendaRow(l: any) {
+/** Kolom buku agenda; dipakai register-book dan agenda agar shape sama. */
+function toBookRow(l: any, index: number) {
+  // Catatan Sekcam disimpan sebagai disposisi ke diri sendiri; jangan
+  // dihitung sebagai penanggung jawab/instruksi Camat di buku agenda.
+  const activeDisps = (l.dispositions ?? []).filter((d: any) => d.fromUserId !== d.toUserId);
+  const penanggungJawab = [...new Set(
+    activeDisps
+      .map((d: any) => d.targetName ?? d.toUser?.employee?.name ?? d.toUser?.username)
+      .filter(Boolean) as string[],
+  )].join(', ') || l.pic || l.creator?.username || '-';
+  const camatInstruction = activeDisps.find(
+    (d: any) => d.instruction && !d.instruction.startsWith('Catatan Sekcam'),
+  )?.instruction;
+
+  return {
+    nomor: index + 1,
+    nomorAgenda: l.agendaNumber,
+    instansiDitujukan: l.addressedTo ?? '-',
+    instansiAsal: l.sender,
+    noSurat: l.letterNumber,
+    nomorSurat: l.letterNumber,
+    tanggalSurat: l.letterDate.toISOString().slice(0, 10),
+    tanggalDiterima: l.receivedDate.toISOString().slice(0, 10),
+    perihal: l.subject,
+    penanggungJawab,
+    klasifikasi: l.classification?.code ?? '-',
+    ket: camatInstruction ?? l.remarks ?? l.status,
+    keterangan: camatInstruction ?? l.remarks ?? l.status,
+    status: l.status,
+    petugasAgenda: (l.agendaAssignments ?? []).map((a: any) => a.user.username),
+  };
+}
+
+function toAgendaRow(l: any, index: number) {
   return {
     ...l,
+    ...toBookRow(l, index),
     assignedStaff: (l.agendaAssignments ?? []).map((a: any) => ({
       id: a.user.id,
       username: a.user.username,
@@ -325,6 +368,12 @@ async function loadAgenda(start: Date, end: Date, user: any) {
     include: {
       classification: true,
       creator: { omit: { passwordHash: true } },
+      dispositions: {
+        include: {
+          toUser: { select: { username: true, employee: { select: { name: true } } } },
+        },
+        orderBy: { createdAt: 'desc' as const },
+      },
       agendaAssignments: {
         include: {
           user: {
@@ -342,7 +391,7 @@ async function loadAgenda(start: Date, end: Date, user: any) {
     orderBy: [{ activityDate: 'asc' }, { activityStartTime: 'asc' }, { createdAt: 'asc' }],
     take: 500,
   });
-  return items.map(toAgendaRow);
+  return items.map((l, i) => toAgendaRow(l, i));
 }
 
 // ---------- POST /letters (JSON atau multipart + file opsional) ----------
@@ -585,7 +634,12 @@ router.get('/', requirePermission('letter.view'), async (req, res) => {
       take: l,
     }),
   ]);
-  return ok(res, items, 'ok', { page: p, limit: l, total });
+  const data = items.map((letter: any) => ({
+    ...letter,
+    dispositions: (letter.dispositions ?? []).map((d: any) =>
+      toDisposition(d, req.user!.permissions, req.user!.id)),
+  }));
+  return ok(res, data, 'ok', { page: p, limit: l, total });
 });
 
 // ---------- GET /letters/classifications ----------
@@ -691,34 +745,7 @@ router.get('/register-book', requirePermission('letter.view'), async (req, res) 
     orderBy: [{ receivedDate: 'asc' }, { createdAt: 'asc' }],
     take: 2000,
   });
-  const rows = items.map((l, i) => {
-    // Catatan Sekcam disimpan sebagai disposisi ke diri sendiri; jangan
-    // dihitung sebagai penanggung jawab/instruksi Camat di buku agenda.
-    const activeDisps = (l.dispositions ?? []).filter((d) => d.fromUserId !== d.toUserId);
-    const penanggungJawab = [...new Set(
-      activeDisps
-        .map((d) => d.targetName ?? d.toUser.employee?.name ?? d.toUser.username)
-        .filter(Boolean) as string[],
-    )].join(', ') || l.pic || l.creator.username;
-    const camatInstruction = activeDisps.find((d) => d.instruction && !d.instruction.startsWith('Catatan Sekcam'))?.instruction;
-    return {
-      nomor: i + 1,
-      nomorAgenda: l.agendaNumber,
-      instansiDitujukan: l.addressedTo ?? '-',
-      instansiAsal: l.sender,
-      noSurat: l.letterNumber,
-      nomorSurat: l.letterNumber,
-      tanggalSurat: l.letterDate.toISOString().slice(0, 10),
-      tanggalDiterima: l.receivedDate.toISOString().slice(0, 10),
-      perihal: l.subject,
-      penanggungJawab,
-      klasifikasi: l.classification?.code ?? '-',
-      ket: camatInstruction ?? l.remarks ?? l.status,
-      keterangan: camatInstruction ?? l.remarks ?? l.status,
-      status: l.status,
-      petugasAgenda: l.agendaAssignments.map((a) => a.user.username),
-    };
-  });
+  const rows = items.map((l, i) => toBookRow(l, i));
   return ok(res, rows, 'ok', { total: rows.length });
 });
 
@@ -761,16 +788,25 @@ router.get('/archive-queue', requirePermission('archive.approve'), async (req, r
     }),
   ]);
   const rows = items.map((l) => ({
+    // Kontrak kanonik.
     id: l.id,
+    agendaNumber: l.agendaNumber,
+    letterNumber: l.letterNumber,
+    subject: l.subject,
+    sender: l.sender,
+    receivedDate: l.receivedDate.toISOString().slice(0, 10),
+    completedAt: l.completedAt ? l.completedAt.toISOString() : null,
+    status: l.status,
+    classification: l.classification ?? null,
+    archiveRecord: null,
+    // Alias lama dipertahankan untuk UI yang sudah berjalan.
     nomor: l.agendaNumber,
     nomorSurat: l.letterNumber,
     perihal: l.subject,
     asalTujuan: l.sender,
     tanggalSelesai: l.completedAt ? l.completedAt.toISOString().slice(0, 10) : null,
     tanggalDiterima: l.receivedDate.toISOString().slice(0, 10),
-    status: l.status,
     klasifikasi: l.classification?.code ?? null,
-    archiveRecord: null,
   }));
   return ok(res, rows, 'ok', { page: p, limit: l, total });
 });

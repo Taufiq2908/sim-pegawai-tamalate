@@ -119,7 +119,8 @@ Tidak ada role baru; tetap 5 role: `EMPLOYEE`, `VERIFIER`, `SUPERVISOR`,
   memakai `letter.followup`. Grant lama `letter.complete` untuk `VERIFIER`
   dihapus dari seed.
 - `archive.approve`/`archive.reject`: `LEADER` + posisi `SEKCAM`/`CAMAT`
-  (atau `SUPER_ADMIN`).
+  (atau `SUPER_ADMIN`). Permission saja tidak cukup; route antrean, batch,
+  reject, dan resubmit tetap memeriksa posisi/role.
 - `archive.update` tidak memberi akses edit metadata; `PATCH /archives/:id`
   tetap dibatasi `SUPER_ADMIN`.
 
@@ -166,6 +167,20 @@ cd backend
 npx prisma migrate deploy
 npm run prisma:seed
 ```
+
+Pipeline deploy wajib menjalankan migrasi dan generate Prisma sebelum build:
+
+```bash
+npm ci
+npm run prisma:deploy   # prisma migrate deploy
+npm run prisma:generate
+npm run build
+npm start
+```
+
+`postinstall` dan `prebuild` sudah memanggil `prisma generate`, tetapi migrasi
+tetap harus menjadi langkah eksplisit. Jangan hanya mengandalkan Prisma Client
+lokal; schema baru tanpa `prisma generate` akan membuat endpoint 500.
 
 ## 7. Handoff frontend
 
@@ -248,6 +263,17 @@ Halaman `/arsip/baru` harus dihapus beserta link/menu-nya karena
 - `availableActions[]` berisi nilai `submit`, `forward`, `dispose`, `accept`,
   `complete`, `archive`, atau `upload`.
 
+`GET /letters` dan `GET /letters/:id` sama-sama mengembalikan `dispositions[]`
+dengan bentuk kanonik `from`/`to` (bukan `fromUser`/`toUser`). Frontend tidak
+perlu lagi menangani dua bentuk.
+
+`GET /outgoing-letters/:id` dan response mutasi surat keluar mengembalikan
+`availableActions[]`: `issue`, `cancel`, `upload`, dan `resubmit_archive`.
+Gunakan field ini sebagai sumber tombol, bukan kombinasi status + permission.
+Aksi `upload` hanya muncul jika user punya `outgoing.create`; `issue`/`cancel`
+hanya untuk status `RESERVED`; `resubmit_archive` hanya saat
+`archiveRejectedAt` terisi.
+
 Catatan penting:
 
 - Backend mengirim `forward`, bukan `paraf`. Jangan cek
@@ -325,6 +351,17 @@ Preview dokumen:
 - Antrean surat masuk: `GET /letters/archive-queue` (`MENUNGGU_ARSIP`).
 - Antrean surat keluar: `GET /outgoing-letters/archive-queue` (`TERKIRIM`,
   belum punya `ArchiveRecord`, `archiveRejectedAt=null`).
+- Baris antrean surat masuk memakai field kanonik `agendaNumber`,
+  `letterNumber`, `subject`, `sender`, `receivedDate`, `completedAt`, `status`,
+  `classification`; baris surat keluar memakai `letterNumber`, `subject`,
+  `recipient`, `letterDate`, `issuedAt`, `status`, `classification`. Alias lama
+  (`nomor`, `nomorSurat`, `perihal`, `asalTujuan`, `tanggalSelesai`, dsb.) tetap
+  ada untuk kompatibilitas, tetapi field kanonik yang dipakai UI baru.
+- `/letters/agenda` dan `/letters/agenda/tomorrow` memakai kolom yang sama
+  dengan `/letters/register-book`, ditambah field mentah dan `assignedStaff[]`.
+  `nomor` adalah urutan hasil query, bukan nomor agenda.
+- `POST /letters/:id/archive` masih tersedia untuk persetujuan satu surat
+  (legacy). Alur UI utama tetap memakai antrean dan batch.
 - Batch approve/reject maksimal 15 ID; response parsial:
   `approved[]`/`skipped[]` atau `rejected[]`/`skipped[]`. HTTP dapat `200`
   walau sebagian gagal.
@@ -350,7 +387,8 @@ Polling memakai:
 
 - `GET /notifications/unread-count` → `{ unread }`;
 - `GET /notifications?unread=true&page=&limit=`;
-- `PATCH /notifications/:id/read`.
+- `PATCH /notifications/:id/read`;
+- `PATCH /notifications/read-all` → `{ updated }` untuk tandai semua dibaca.
 
 Polling saat mount, saat window focus, dan setelah aksi workflow. Tidak perlu
 WebSocket.
@@ -374,6 +412,10 @@ WebSocket.
     `ARCHIVE_APPROVAL`, `LETTER_REVISION`, dan `ARCHIVE_REJECTED`.
 12. Teks “Unduhan dokumen surat keluar belum tersedia” sudah usang; backend
     mengirim `downloadUrl`.
+13. Detail surat keluar belum memakai `availableActions`; masih menebak dari
+    status + permission.
+14. UI notifikasi belum menyediakan aksi tandai semua dibaca
+    (`PATCH /notifications/read-all`).
 
 ### 7.8 UAT minimal frontend
 
@@ -390,5 +432,9 @@ WebSocket.
 9. Non-admin tidak bisa edit metadata arsip; admin bisa mengisi
    `physicalLocation`.
 10. Filter arsip tahun, klasifikasi, pengirim/tujuan, dan kata kunci bekerja.
-11. Badge notifikasi bertambah dan deep link membuka halaman yang benar.
+11. Badge notifikasi bertambah, deep link membuka halaman yang benar, dan
+    “tandai semua dibaca” menurunkan badge ke 0.
 12. Tidak ada lagi link aktif ke `/arsip/baru`.
+
+Catatan data UAT: `AGENDA-2026-0040` berubah dari `DITERUSKAN` menjadi `PROSES`
+karena disposisi kasi diuji **Terima & Baca**. Itu data uji, bukan bug kode.

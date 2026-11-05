@@ -283,10 +283,11 @@ PATCH /letters/:id/agenda {activityDate?, activityStartTime?, activityEndTime?,
 GET  /letters?status=&q=                  → scoped: admin/verifier semua, Sekcam tahap REVIEW_SEKCAM,
                                             Camat tahap DISPOSISI_CAMAT, penerima surat terkait
 GET  /letters/:id                        → detail + dispositions[] + agendaAssignments[] + availableActions
+  → dispositions[] memakai bentuk kanonik `from`/`to` (sama dengan GET /letters)
 GET  /letters/classifications            → kode klasifikasi arsip aktif (letter.view)
 GET  /letters/disposition-targets        → 9 tujuan disposisi + mappedPosition + recipients[] + available (letter.dispose)
-GET  /letters/agenda?date=&from=&to=      → agenda kegiatan; default hari ini (letter.view)
-GET  /letters/agenda/tomorrow             → agenda kegiatan esok hari + assignedStaff[] (letter.view)
+GET  /letters/agenda?date=&from=&to=      → baris register-book + field mentah + assignedStaff[] (letter.view)
+GET  /letters/agenda/tomorrow             → bentuk sama, untuk agenda esok hari (letter.view)
 ```
 
 Status surat masuk:
@@ -327,6 +328,11 @@ GET /letters/expedition-book?from=&to=&q=&letterId=
       paraf, jamTerima, waktuTerima, asalSurat, catatan}]
 ```
 
+`GET /letters/agenda` dan `/letters/agenda/tomorrow` memakai kolom yang sama
+dengan `register-book`, ditambah field mentah surat (mis. `sender`, `subject`,
+`letterDate`, `activityDate`) dan `assignedStaff[]`. `nomor` adalah urutan hasil
+query, bukan nomor agenda.
+
 ### Surat keluar + reservasi nomor (format `kode surat / seq / KT / romawi / tahun`)
 
 ```text
@@ -344,6 +350,7 @@ POST /outgoing-letters/:id/cancel {reason} → CANCELLED, nomor tidak dipakai ul
 POST /outgoing-letters/:id/documents (multipart, 10MB)
 GET  /outgoing-letters/:id/documents/:docId/download            (outgoing.view)
 GET  /outgoing-letters?status=&q=  |  GET /outgoing-letters/:id
+  → detail dan response mutasi memuat availableActions[]: issue, cancel, upload, resubmit_archive
 GET  /outgoing-letters/register-book?year=&from=&to=&q=&status=
   → [{nomor, nomorUrut, instansiDituju, nomorTujuan, nomorSurat, tanggalSurat, tanggalCatat,
       perihal, penanggungJawab, kodeSurat, klasifikasi, penandatangan, ket, status}]
@@ -414,11 +421,20 @@ POST /outgoing-letters/:id/resubmit-archive            (outgoing.issue)
   → surat kembali ke antrean, flag reject dibersihkan
 ```
 
+Baris antrean surat masuk memakai field kanonik `agendaNumber`,
+`letterNumber`, `subject`, `sender`, `receivedDate`, `completedAt`, `status`,
+dan `classification`. Baris antrean surat keluar memakai `letterNumber`,
+`subject`, `recipient`, `letterDate`, `issuedAt`, `status`, dan `classification`.
+Keduanya masih menyertakan alias lama (`nomor`, `nomorSurat`, `perihal`,
+`asalTujuan`, `tanggalSelesai`, `tanggalDiterima`/`tanggalSurat`, `klasifikasi`)
+untuk kompatibilitas UI; field kanonik adalah sumber utama.
+
 Surat masuk memakai `MENUNGGU_ARSIP` sebagai antrean dan `DIARSIPKAN`
 setelah disetujui. Surat keluar memakai `TERKIRIM` sebagai antrean dan
 `DIARSIPKAN` setelah disetujui; `archiveRejectedAt` menandakan perlu revisi.
-Sekcam atau Camat boleh menyetujui; approver pertama menentukan. Batch
-mendukung partial success, maksimal 15 ID per request. ID memakai UUID, bukan
+Permission `archive.approve`/`archive.reject` tidak cukup: route juga
+mensyaratkan posisi `SEKCAM`/`CAMAT` atau role `SUPER_ADMIN`. Approver pertama
+menentukan. Batch mendukung partial success, maksimal 15 ID per request. ID memakai UUID, bukan
 integer. Approve membuat `ArchiveRecord` otomatis dan menyalin metadata yang
 sudah ada. Setiap surat yang masuk antrean mengirim notifikasi tipe
 `ARCHIVE_APPROVAL` ke Sekcam/Camat.
@@ -427,6 +443,7 @@ sudah ada. Setiap surat yang masuk antrean mengirim notifikasi tipe
 
 ```text
 GET /notifications?unread=true  |  GET /notifications/unread-count  |  PATCH /notifications/:id/read
+PATCH /notifications/read-all   → { updated } semua notifikasi user login
 ```
 Disposisi baru otomatis membuat notifikasi untuk penerima.
 

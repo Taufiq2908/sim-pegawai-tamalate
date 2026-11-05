@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
 import { authRequired, requirePermission } from '../middleware/auth';
+import { can } from '../lib/permissions';
 import { ok, fail } from '../utils/response';
 import { todayYMD, parseYMD } from '../services/attendance.service';
 import { formatLetterNumber, letterUnitCode } from '../services/numbering.service';
@@ -88,6 +89,30 @@ function withDocumentUrls(letter: any) {
   };
 }
 
+/**
+ * Aksi surat keluar dari backend, sejajar dengan availableActions surat masuk.
+ * Frontend tidak perlu menebak dari status + permission.
+ */
+function outgoingAvailableActions(letter: any, perms: string[]): string[] {
+  const actions: string[] = [];
+  if (letter.status === 'RESERVED') {
+    if (can(perms, 'outgoing.issue')) actions.push('issue');
+    if (can(perms, 'outgoing.cancel')) actions.push('cancel');
+  }
+  if (letter.status !== 'CANCELLED' && can(perms, 'outgoing.create')) actions.push('upload');
+  if (letter.status === 'TERKIRIM' && letter.archiveRejectedAt && can(perms, 'outgoing.issue')) {
+    actions.push('resubmit_archive');
+  }
+  return actions;
+}
+
+function withOutgoingView(letter: any, user: any) {
+  return {
+    ...withDocumentUrls(letter),
+    availableActions: outgoingAvailableActions(letter, user.permissions ?? []),
+  };
+}
+
 function notFuture(letterDate: string): boolean {
   return letterDate <= todayYMD();
 }
@@ -139,7 +164,7 @@ router.post('/reserve', requirePermission('outgoing.reserve'), async (req, res) 
       await claimOutgoingBuffer(tx, alloc.bufferId, created.id);
       return tx.outgoingLetter.findUniqueOrThrow({ where: { id: created.id }, include: includeDetail });
     });
-    return res.status(201).json({ success: true, message: 'Nomor berhasil direservasi', data: withDocumentUrls(letter), meta: null, errors: null });
+    return res.status(201).json({ success: true, message: 'Nomor berhasil direservasi', data: withOutgoingView(letter, req.user!), meta: null, errors: null });
   } catch (e: any) {
     if (e instanceof NumberingError) return fail(res, e.status, e.message);
     if (e?.code === 'P2002') return fail(res, 409, 'Nomor bentrok, ulangi reservasi');
@@ -206,7 +231,7 @@ router.post('/reserve-bulk', requirePermission('outgoing.reserve'), async (req, 
     return res.status(201).json({
       success: true,
       message: `${letters.length} nomor berhasil direservasi`,
-      data: letters.map(withDocumentUrls),
+      data: letters.map((letter) => withOutgoingView(letter, req.user!)),
       meta: null,
       errors: null,
     });
@@ -307,7 +332,7 @@ router.post('/', requirePermission('outgoing.create'), (req, res) => {
         return tx.outgoingLetter.findUniqueOrThrow({ where: { id: created.id }, include: includeDetail });
       });
       await notifyOutgoingArchiveQueue(letter);
-      return res.status(201).json({ success: true, message: 'Surat keluar diterbitkan', data: withDocumentUrls(letter), meta: null, errors: null });
+      return res.status(201).json({ success: true, message: 'Surat keluar diterbitkan', data: withOutgoingView(letter, req.user!), meta: null, errors: null });
     } catch (e: any) {
       cleanupFile();
       if (storedPath) fs.rmSync(storedPath, { force: true });
@@ -368,7 +393,7 @@ router.post('/:id/issue', requirePermission('outgoing.issue'), async (req, res) 
     include: includeDetail,
   });
   await notifyOutgoingArchiveQueue(updated);
-  return ok(res, withDocumentUrls(updated), 'Reservasi diterbitkan (nomor tetap)');
+  return ok(res, withOutgoingView(updated, req.user!), 'Reservasi diterbitkan (nomor tetap)');
 });
 
 // ---------- POST /outgoing-letters/:id/cancel ----------
@@ -385,7 +410,7 @@ router.post('/:id/cancel', requirePermission('outgoing.cancel'), async (req, res
     data: { status: 'CANCELLED', cancelReason: parsed.data.reason, cancelledAt: new Date() },
     include: includeDetail,
   });
-  return ok(res, withDocumentUrls(updated), 'Reservasi dibatalkan (nomor tidak dipakai ulang)');
+  return ok(res, withOutgoingView(updated, req.user!), 'Reservasi dibatalkan (nomor tidak dipakai ulang)');
 });
 
 // ---------- POST /outgoing-letters/:id/documents ----------
@@ -565,16 +590,24 @@ router.get('/archive-queue', requirePermission('archive.approve'), async (req, r
     }),
   ]);
   const rows = items.map((l) => ({
+    // Kontrak kanonik, sama dengan endpoint surat keluar lain.
     id: l.id,
+    letterNumber: l.letterNumber,
+    subject: l.subject,
+    recipient: l.recipient,
+    letterDate: l.letterDate.toISOString().slice(0, 10),
+    issuedAt: l.issuedAt ? l.issuedAt.toISOString() : null,
+    status: l.status,
+    classification: l.classification ?? null,
+    archiveRecord: null,
+    // Alias lama dipertahankan untuk UI yang sudah berjalan.
     nomor: l.letterNumber,
     nomorSurat: l.letterNumber,
     perihal: l.subject,
     asalTujuan: l.recipient,
     tanggalSelesai: (l.issuedAt ?? l.letterDate).toISOString().slice(0, 10),
     tanggalSurat: l.letterDate.toISOString().slice(0, 10),
-    status: l.status,
     klasifikasi: l.classification?.code ?? null,
-    archiveRecord: null,
   }));
   return ok(res, rows, 'ok', { page: p, limit: l, total });
 });
@@ -719,14 +752,14 @@ router.post('/:id/resubmit-archive', requirePermission('outgoing.issue'), async 
     include: includeDetail,
   });
   await notifyOutgoingArchiveQueue(updated);
-  return ok(res, withDocumentUrls(updated), 'Surat diajukan ulang ke antrean arsip');
+  return ok(res, withOutgoingView(updated, req.user!), 'Surat diajukan ulang ke antrean arsip');
 });
 
 // ---------- GET /outgoing-letters/:id ----------
 router.get('/:id', requirePermission('outgoing.view'), async (req, res) => {
   const l = await prisma.outgoingLetter.findUnique({ where: { id: req.params.id }, include: includeDetail });
   if (!l) return fail(res, 404, 'Surat keluar tidak ditemukan');
-  return ok(res, withDocumentUrls(l));
+  return ok(res, withOutgoingView(l, req.user!));
 });
 
 export default router;

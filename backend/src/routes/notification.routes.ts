@@ -35,6 +35,15 @@ router.get('/', async (req, res) => {
   return ok(res, items, 'ok', { page: p, limit: l, total });
 });
 
+// ---------- PATCH /notifications/read-all ----------
+router.patch('/read-all', async (req, res) => {
+  const result = await prisma.notification.updateMany({
+    where: { userId: req.user!.id, isRead: false },
+    data: { isRead: true, readAt: new Date() },
+  });
+  return ok(res, { updated: result.count }, 'Semua notifikasi ditandai dibaca');
+});
+
 // ---------- PATCH /notifications/:id/read ----------
 router.patch('/:id/read', async (req, res) => {
   const n = await prisma.notification.findFirst({
