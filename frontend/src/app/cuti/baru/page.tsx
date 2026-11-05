@@ -20,7 +20,7 @@ function inclusiveDays(a: string, b: string): number | null {
 
 export default function CutiBaruPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [types, setTypes] = useState<LeaveType[]>([]);
   const [form, setForm] = useState({
     leaveTypeCode: "TAHUNAN",
@@ -40,6 +40,7 @@ export default function CutiBaruPage() {
   const [error, setError] = useState("");
 
   const isEmployee = user?.role === "EMPLOYEE";
+  const canSubmit = hasPermission("leave.submit");
   const pegawai = isEmployee || !selectedEmployee ? user?.employee ?? null : selectedEmployee;
   const durasi = useMemo(() => inclusiveDays(form.startDate, form.endDate), [form.startDate, form.endDate]);
   const selectedType = types.find((t) => t.code === form.leaveTypeCode);
@@ -63,15 +64,29 @@ export default function CutiBaruPage() {
         }
       })
       .catch(() => {});
-    if (user?.employee?.id) {
-      apiFetch<{ entitlement: number; used: number; remaining: number }>(
-        `/employees/${user.employee.id}/leave-balance`,
-      )
-        .then(({ data }) => setBalance(data))
-        .catch(() => {});
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.employee?.id]);
+  }, []);
+
+  // Saldo mengikuti pegawai yang dipilih: pemilik untuk EMPLOYEE, dan
+  // pegawai pilihan operator bila punya employee.view (backend yang menilai).
+  useEffect(() => {
+    const employeeId = pegawai?.id;
+    setBalance(null);
+    if (!employeeId) return;
+    let alive = true;
+    apiFetch<{ entitlement: number; used: number; remaining: number }>(
+      `/employees/${employeeId}/leave-balance`,
+    )
+      .then(({ data }) => {
+        if (alive) setBalance(data);
+      })
+      .catch(() => {
+        if (alive) setBalance(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [pegawai?.id]);
 
   async function save(draftOnly: boolean) {
     setError("");
@@ -150,7 +165,10 @@ export default function CutiBaruPage() {
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-    void save(submitter?.value === "draft");
+    // Hanya tombol "Ajukan" eksplisit yang memanggil endpoint submit.
+    // Enter/default submit dan operator tanpa leave.submit selalu menyimpan draft.
+    const wantsSubmit = submitter?.value === "ajukan" && canSubmit;
+    void save(!wantsSubmit);
   }
 
   const set =
@@ -183,7 +201,7 @@ export default function CutiBaruPage() {
             <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Jabatan</dt><dd className="font-medium">{pegawai?.position ?? user?.position ?? "—"}</dd></div>
             <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Unit kerja</dt><dd className="font-medium">{pegawai?.orgUnit?.name ?? user?.orgUnit?.name ?? "—"}</dd></div>
             <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Masa kerja</dt><dd className="font-medium">{masaKerja}</dd></div>
-            {balance && (!selectedEmployee || selectedEmployee.id === user?.employee?.id) ? (
+            {balance ? (
               <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Sisa cuti tahunan</dt><dd className="font-medium">{balance.remaining} hari <span className="font-normal text-muted">(hak {balance.entitlement}, terpakai {balance.used})</span></dd></div>
             ) : null}
           </dl>
@@ -226,8 +244,10 @@ export default function CutiBaruPage() {
         <section className="mt-8 space-y-4">
           <h2 className="border-b border-line pb-2 text-xs font-semibold tracking-wider text-muted">DOKUMEN — DIPERLUKAN SAAT DIAJUKAN</h2>
           <p className="text-sm text-muted">
-            Draf boleh disimpan tanpa berkas. Saat menekan “Ajukan cuti”, wajib ada minimal 2 berkas
-            dan salah satunya SK terakhir.
+            Draf boleh disimpan tanpa berkas.{" "}
+            {canSubmit
+              ? "Saat menekan “Ajukan cuti”, wajib ada minimal 2 berkas dan salah satunya SK terakhir."
+              : "Anda hanya dapat menyimpan draft; pengajuan diajukan oleh pemilik atau petugas berwenang."}
           </p>
           <Field label="1. SK terakhir (wajib saat diajukan)"> 
             <FileButton hint="PDF/JPG/PNG, maks 5MB" onSelect={setFileSk} />
@@ -262,19 +282,23 @@ export default function CutiBaruPage() {
               name="aksi"
               value="draft"
               disabled={loading}
-              className="rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-paper disabled:opacity-50"
+              className={`rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-paper disabled:opacity-50 ${
+                canSubmit ? "" : "flex-1"
+              }`}
             >
               {loading ? "Memproses…" : "Simpan draft"}
             </button>
-            <button
-              type="submit"
-              name="aksi"
-              value="ajukan"
-              disabled={loading}
-              className="flex-1 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
-            >
-              {loading ? "Memproses…" : "Ajukan cuti"}
-            </button>
+            {canSubmit ? (
+              <button
+                type="submit"
+                name="aksi"
+                value="ajukan"
+                disabled={loading}
+                className="flex-1 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+              >
+                {loading ? "Memproses…" : "Ajukan cuti"}
+              </button>
+            ) : null}
           </div>
         </div>
       </form>

@@ -278,19 +278,19 @@ export default function CutiDetailPage() {
 
             <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Keputusan</h2>
+              {canManageDraft ? (
+                <a
+                  href={`/cuti/${detail.id}/edit`}
+                  className="mt-2 inline-block rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-paper"
+                >
+                  Ubah pengajuan
+                </a>
+              ) : null}
               {visibleActions.length ? (
                 <>
                   <p className="mt-1 border-l-2 border-warn-700 pl-3 text-sm text-secondary">
                     Menunggu keputusan Anda — permohonan ini berada pada tahap Anda.
                   </p>
-                  {(detail.status === "DRAFT" || detail.status === "REVISION") ? (
-                    <a
-                      href={`/cuti/${detail.id}/edit`}
-                      className="mt-2 inline-block rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-paper"
-                    >
-                      Ubah pengajuan
-                    </a>
-                  ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {visibleActions.map((a) => (
                       <button
@@ -316,7 +316,7 @@ export default function CutiDetailPage() {
                     rows={2}
                     className="mt-3 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700"
                   />
-                  {detail.status === "DRAFT" && isOwner ? (
+                  {detail.status === "DRAFT" && (isOwner || user?.role === "SUPER_ADMIN") ? (
                     <div className="mt-2 flex gap-2">
                       <button
                         disabled={acting !== null}

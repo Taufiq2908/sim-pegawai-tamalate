@@ -25,7 +25,7 @@ const DOKUMEN_OPSIONAL = [
 
 export default function KgbBaruPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [form, setForm] = useState({
     oldRank: "",
     newRank: "",
@@ -40,6 +40,7 @@ export default function KgbBaruPage() {
   const [error, setError] = useState("");
 
   const isEmployee = user?.role === "EMPLOYEE";
+  const canSubmit = hasPermission("kgb.submit");
 
   // Deep link dari monitoring: /kgb/baru?employeeId=...
   useEffect(() => {
@@ -54,7 +55,9 @@ export default function KgbBaruPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-    const draftOnly = submitter?.value === "draft";
+    // Hanya tombol "Ajukan" eksplisit yang memanggil endpoint submit.
+    // Enter/default submit dan operator tanpa kgb.submit selalu menyimpan draft.
+    const draftOnly = !(submitter?.value === "ajukan" && canSubmit);
     setError("");
     if (!isEmployee && !selectedEmployee && !user?.employee) {
       setError("Pilih pegawai yang akan diajukan KGB-nya.");
@@ -119,7 +122,9 @@ export default function KgbBaruPage() {
     <RequirePerm perm="kgb.create" label="Pengajuan KGB">
       <h1 className="text-xl font-bold">Ajukan KGB</h1>
       <p className="mt-1 text-sm text-muted">
-        Dapat disimpan sebagai draft atau langsung diajukan setelah berkas wajib lengkap.
+        {canSubmit
+          ? "Dapat disimpan sebagai draft atau langsung diajukan setelah berkas wajib lengkap."
+          : "Anda dapat menyimpan draft dan melengkapi berkas; pengajuan dilakukan oleh pemilik atau petugas berwenang."}
       </p>
       <form onSubmit={onSubmit} className="mt-4 max-w-2xl space-y-4 rounded-lg border border-line bg-surface p-5">
         {!isEmployee ? (
@@ -192,19 +197,23 @@ export default function KgbBaruPage() {
             name="aksi"
             value="draft"
             disabled={loading}
-            className="rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-paper disabled:opacity-50"
+            className={`rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-paper disabled:opacity-50 ${
+              canSubmit ? "" : "flex-1"
+            }`}
           >
             {loading ? "Memproses…" : "Simpan draft"}
           </button>
-          <button
-            type="submit"
-            name="aksi"
-            value="ajukan"
-            disabled={loading}
-            className="flex-1 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
-          >
-            {loading ? "Memproses…" : "Ajukan KGB"}
-          </button>
+          {canSubmit ? (
+            <button
+              type="submit"
+              name="aksi"
+              value="ajukan"
+              disabled={loading}
+              className="flex-1 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+            >
+              {loading ? "Memproses…" : "Ajukan KGB"}
+            </button>
+          ) : null}
         </div>
       </form>
     </RequirePerm>
