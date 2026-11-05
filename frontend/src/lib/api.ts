@@ -54,6 +54,14 @@ export async function apiFetch<T>(
   return { data: body.data, meta: body.meta, raw: body };
 }
 
+/** Pesan seragam untuk aksi cuti yang hanya boleh dilakukan pemilik pengajuan. */
+export function ownerActionMessage(err: unknown, fallback: string): string {
+  if ((err as { status?: number } | null)?.status === 403) {
+    return "Hanya pemilik pengajuan yang dapat melakukan aksi ini.";
+  }
+  return err instanceof Error ? err.message : fallback;
+}
+
 /** Upload multipart (dokumen cuti/KGB/surat) lewat proxy yang sama. */
 export async function apiUpload<T>(
   path: string,

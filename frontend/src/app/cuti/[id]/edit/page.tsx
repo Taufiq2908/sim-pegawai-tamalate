@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
-import { apiFetch, apiUpload } from "@/lib/api";
+import { apiFetch, apiUpload, ownerActionMessage } from "@/lib/api";
 import { fileUrl } from "@/lib/file-url";
 import type { LeaveDetail, LeaveType } from "@/lib/types";
 import { Field, FileButton, SubmitButton } from "@/components/form";
@@ -68,7 +68,7 @@ export default function CutiEditPage() {
     void load();
   }, [load]);
 
-  const isOwner = !!user?.employee && !!detail && user.employee.id === detail.employee?.id;
+  const isOwner = !!user?.employee && !!detail && user.employee.id === detail.employeeId;
   // Backend menerapkan self-service: hanya pemilik employee yang boleh mengubah.
   const editable =
     !!detail &&
@@ -95,7 +95,7 @@ export default function CutiEditPage() {
       toast.success("Perubahan tersimpan.");
       router.replace(`/cuti/${id}`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Gagal menyimpan";
+      const msg = ownerActionMessage(err, "Gagal menyimpan");
       setError(msg);
       toast.error(msg);
     } finally {
@@ -124,7 +124,7 @@ export default function CutiEditPage() {
       const { data } = await apiFetch<LeaveDetail>(`/leave-requests/${id}`);
       setDetail(data);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Unggah berkas gagal");
+      toast.error(ownerActionMessage(err, "Unggah berkas gagal"));
     } finally {
       setUploading(false);
     }

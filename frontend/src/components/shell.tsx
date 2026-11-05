@@ -815,15 +815,12 @@ export function RequirePerm({
   label,
   children,
   denyForEmployee = false,
-  denyRoles = [],
 }: {
   perm: string;
   label: string;
   children: React.ReactNode;
   /** Halaman buku/petugas yang backend-nya menolak akun EMPLOYEE. */
   denyForEmployee?: boolean;
-  /** Pengecualian role eksplisit untuk halaman yang masih perlu dijaga sebelum permission backend berubah. */
-  denyRoles?: string[];
 }) {
   const { user, loading, hasPermission } = useAuth();
   if (loading) {
@@ -833,7 +830,7 @@ export function RequirePerm({
       </AppShell>
     );
   }
-  if (!hasPermission(perm) || (denyForEmployee && user?.role === "EMPLOYEE") || denyRoles.includes(user?.role ?? "")) {
+  if (!hasPermission(perm) || (denyForEmployee && user?.role === "EMPLOYEE")) {
     return (
       <AppShell>
         <EmptyState

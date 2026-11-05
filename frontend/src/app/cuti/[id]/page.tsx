@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
-import { apiFetch, apiUpload } from "@/lib/api";
+import { apiFetch, apiUpload, ownerActionMessage } from "@/lib/api";
 import { fileUrl } from "@/lib/file-url";
 import type { LeaveDetail } from "@/lib/types";
 import { EmptyState, ErrorBox, ProcessTrail, Skeleton, StatusBadge } from "@/components/ui";
@@ -98,7 +98,13 @@ export default function CutiDetailPage() {
       setDetail(data);
       setNote("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Aksi gagal");
+      toast.error(
+        action === "submit"
+          ? ownerActionMessage(err, "Aksi gagal")
+          : err instanceof Error
+            ? err.message
+            : "Aksi gagal",
+      );
     } finally {
       setActing(null);
     }
@@ -139,7 +145,7 @@ export default function CutiDetailPage() {
       toast.success("Berkas perbaikan diunggah.");
       await load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Unggah berkas gagal");
+      toast.error(ownerActionMessage(err, "Unggah berkas gagal"));
     } finally {
       setActing(null);
     }
@@ -153,13 +159,13 @@ export default function CutiDetailPage() {
       toast.success("Draf dihapus.");
       router.replace("/cuti");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal menghapus");
+      toast.error(ownerActionMessage(err, "Gagal menghapus"));
     } finally {
       setActing(null);
     }
   }
 
-  const isOwner = !!user?.employee && !!detail && user.employee.id === detail.employee?.id;
+  const isOwner = !!user?.employee && !!detail && user.employee.id === detail.employeeId;
   // availableActions dari backend sudah sadar jabatan pemohon (forward hanya Camat,
   // approve-di-VERIFIED hanya Sekcam, dst.) — frontend render apa adanya.
   const visibleActions = detail?.availableActions ?? [];

@@ -29,9 +29,8 @@ const FILTERS: Array<{ value: "" | LeaveStatus; label: string }> = [
 const LIMIT = 10;
 
 export default function CutiListPage() {
-  const { user, hasPermission } = useAuth();
-  // Verifier hanya memproses/melihat, tidak membuat pengajuan cuti.
-  const canCreate = hasPermission("leave.create") && user?.role !== "VERIFIER";
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission("leave.create");
   const [items, setItems] = useState<LeaveItem[]>([]);
   const [meta, setMeta] = useState<PageMeta | null>(null);
   const [types, setTypes] = useState<LeaveType[]>([]);

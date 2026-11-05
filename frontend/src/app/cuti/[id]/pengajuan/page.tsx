@@ -133,7 +133,7 @@ export default function SuratPengantarCutiPage() {
     if (isNaN(months) || months < 0) return "";
     return `${Math.floor(months / 12)} tahun ${months % 12} bulan`;
   })();
-  const isOwner = user?.employee?.id === detail.employee?.id;
+  const isOwner = user?.employee?.id === detail.employeeId;
   const unitKerja =
     emp.orgUnit?.name ??
     (isOwner ? user?.orgUnit?.name : null) ??

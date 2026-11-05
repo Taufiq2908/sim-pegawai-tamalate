@@ -172,7 +172,7 @@ export default function CutiBaruPage() {
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
   return (
-    <RequirePerm perm="leave.create" label="Pengajuan Cuti" denyRoles={["VERIFIER"]}>
+    <RequirePerm perm="leave.create" label="Pengajuan Cuti">
       <h1>Pengajuan cuti</h1>
       <p className="mt-1 text-sm text-muted">Lengkapi data di bawah. Pengajuan hanya untuk pegawai yang sedang login.</p>
 
