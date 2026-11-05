@@ -97,7 +97,7 @@ const SECTIONS: Array<{
         icon: Icons.send,
         perm: "outgoing.view",
         children: [
-          { href: "/surat-keluar/baru", label: "Buat Surat Baru", perm: "outgoing.create" },
+          { href: "/surat-keluar/baru", label: "Buat / Booking Nomor", perm: "outgoing.view" },
           { href: "/surat-keluar/agenda", label: "Buku Agenda", perm: "outgoing.view" },
         ],
       },
@@ -112,7 +112,6 @@ const SECTIONS: Array<{
         icon: Icons.archive,
         perm: "archive.view",
         children: [
-          { href: "/arsip/baru", label: "Catat Arsip", perm: "archive.create" },
           { href: "/arsip/daftar", label: "Daftar Arsip", perm: "archive.view" },
         ],
       },
@@ -168,7 +167,6 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/kgb\/[^/]+\/edit$/, "Ubah Pengajuan KGB"],
   [/^\/kgb\/.+$/, "Detail Pengajuan KGB"],
   [/^\/kgb$/, "Kenaikan Gaji Berkala"],
-  [/^\/arsip\/baru$/, "Catat Arsip"],
   [/^\/arsip\/daftar$/, "Daftar Arsip"],
   [/^\/arsip$/, "Buku Arsip"],
   [/^\/notifikasi$/, "Notifikasi"],
@@ -253,7 +251,7 @@ function SidebarRow({
           href={item.href}
           className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-lg pl-2.5 pr-1"
         >
-          <Icon className={`h-4 w-4 shrink-0 ${active ? "text-white" : "text-slate-500"}`} />
+          <Icon className={`h-4 w-4 shrink-0 ${active ? "text-white" : "text-muted"}`} />
           <span className="min-w-0 flex-1 truncate">{item.label}</span>
           {item.href === "/notifikasi" && unread ? (
             <span className="mr-1 shrink-0 rounded-md bg-bad-700 px-1.5 py-px text-[10px] font-semibold leading-4 text-white">
@@ -322,7 +320,7 @@ function DrawerRow({
             active ? "" : "hover:bg-brand-50"
           }`}
         >
-          <Icon className={`h-4 w-4 shrink-0 ${active ? "text-white" : "text-slate-500"}`} />
+          <Icon className={`h-4 w-4 shrink-0 ${active ? "text-white" : "text-muted"}`} />
           <span className="min-w-0 flex-1 truncate">{item.label}</span>
           {item.href === "/notifikasi" && unread ? (
             <span className="mr-1 shrink-0 rounded-md bg-bad-700 px-1.5 py-px text-[10px] font-semibold leading-4 text-white">
@@ -369,6 +367,25 @@ function DrawerRow({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function BrandMark() {
+  const [logoOk, setLogoOk] = useState(true);
+  return logoOk ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/logo-kota-makassar.png"
+      alt="Logo Pemerintah Kota Makassar"
+      width={40}
+      height={40}
+      className="h-10 w-10 shrink-0 rounded-lg bg-surface object-contain ring-1 ring-white/20"
+      onError={() => setLogoOk(false)}
+    />
+  ) : (
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/15 text-[10px] font-semibold text-chrome-ink ring-1 ring-white/20">
+      KT
+    </span>
   );
 }
 
@@ -420,18 +437,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     [canSee],
   );
 
-  /* ---- unread badge ---- */
+  /* ---- unread badge: polling ringan, fokus, dan event setelah aksi workflow ---- */
   useEffect(() => {
     let alive = true;
-    apiFetch<{ unread?: number; count?: number } | number>("/notifications/unread-count")
-      .then(({ data }) => {
-        if (!alive) return;
-        const n = typeof data === "number" ? data : (data?.unread ?? data?.count ?? null);
-        setUnread(n);
-      })
-      .catch(() => {});
+    const refresh = () => {
+      apiFetch<{ unread?: number; count?: number } | number>("/notifications/unread-count")
+        .then(({ data }) => {
+          if (!alive) return;
+          const n = typeof data === "number" ? data : (data?.unread ?? data?.count ?? null);
+          setUnread(n);
+        })
+        .catch(() => {});
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("notifications:refresh", refresh);
     return () => {
       alive = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("notifications:refresh", refresh);
     };
   }, [pathname]);
 
@@ -552,12 +578,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="app-shell flex h-dvh overflow-hidden bg-paper text-ink">
+    <div className="app-shell flex h-dvh overflow-hidden bg-canvas text-ink">
       {/* ---------------- Sidebar desktop ---------------- */}
-      <aside className="hidden w-[264px] shrink-0 flex-col border-r border-line bg-white lg:flex">
-        <div className="shrink-0 border-b border-line px-5 py-4">
-          <p className="text-sm font-semibold tracking-wide text-ink">SIMPEG Tamalate</p>
-          <p className="mt-0.5 text-xs text-muted">Kecamatan Tamalate</p>
+      <aside className="hidden w-[264px] shrink-0 flex-col border-r border-line bg-surface lg:flex">
+        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-chrome-line bg-chrome px-4">
+          <BrandMark />
+          <div className="min-w-0 leading-tight">
+            <p className="truncate text-sm font-semibold tracking-wide text-chrome-ink">SIMPEG Tamalate</p>
+            <p className="mt-0.5 truncate text-[11px] text-chrome-muted">Kecamatan Tamalate</p>
+          </div>
         </div>
 
         <nav aria-label="Menu utama" className="min-h-0 flex-1 overflow-y-auto py-2">
@@ -613,7 +642,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onMouseEnter={cancelClose}
           onMouseLeave={scheduleClose}
           style={{ top: flyout.top, left: SIDEBAR_WIDTH - 4 }}
-          className="fixed z-[90] hidden w-60 rounded-xl border border-line bg-white p-1.5 shadow-xl lg:block"
+          className="fixed z-[90] hidden w-60 rounded-xl border border-line bg-surface p-1.5 shadow-xl lg:block"
         >
           <p className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
             {flyoutGroup.label}
@@ -655,19 +684,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           role="dialog"
           aria-modal="true"
           aria-label="Menu navigasi"
-          className={`absolute inset-y-0 left-0 flex w-[280px] max-w-[86vw] flex-col border-r border-line bg-white shadow-2xl transition-transform duration-200 ${
+          className={`absolute inset-y-0 left-0 flex w-[280px] max-w-[86vw] flex-col border-r border-line bg-surface shadow-2xl transition-transform duration-200 ${
             drawerOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3.5">
-            <div>
-              <p className="text-sm font-semibold tracking-wide text-ink">SIMPEG Tamalate</p>
-              <p className="mt-0.5 text-[11px] text-muted">Kecamatan Tamalate</p>
+          <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-chrome-line bg-chrome px-4">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <BrandMark />
+              <div className="min-w-0 leading-tight">
+                <p className="truncate text-sm font-semibold tracking-wide text-chrome-ink">SIMPEG Tamalate</p>
+                <p className="mt-0.5 truncate text-[11px] text-chrome-muted">Kecamatan Tamalate</p>
+              </div>
             </div>
             <button
               onClick={() => setDrawerOpen(false)}
               aria-label="Tutup menu"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-brand-50 hover:text-ink"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-chrome-muted hover:bg-white/10 hover:text-chrome-ink"
             >
               <Icons.close className="h-5 w-5" />
             </button>
@@ -722,41 +754,45 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* ---------------- Kolom konten ---------------- */}
       <div className="flex h-dvh min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="sticky top-0 z-30 shrink-0 border-b border-line bg-white">
+        <header className="sticky top-0 z-30 shrink-0 border-b border-chrome-line bg-chrome">
           <div className="flex h-14 items-center gap-2 px-3 sm:px-4 lg:px-6">
             <button
               onClick={() => setDrawerOpen(true)}
               aria-label="Buka menu"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-brand-50 hover:text-ink lg:hidden"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-chrome-muted transition-colors hover:bg-white/10 hover:text-chrome-ink lg:hidden"
             >
               <Icons.menu className="h-5 w-5" />
             </button>
 
+            <div className="shrink-0 lg:hidden">
+              <BrandMark />
+            </div>
+
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-sm font-semibold text-ink sm:text-[15px]">{title}</h1>
+              <h1 className="truncate text-sm font-semibold text-chrome-ink sm:text-[15px]">{title}</h1>
               {subtitle ? (
-                <p className="hidden truncate text-[11px] text-muted sm:block">{subtitle}</p>
+                <p className="hidden truncate text-[11px] text-chrome-muted sm:block">{subtitle}</p>
               ) : null}
             </div>
 
             <Link
               href="/notifikasi"
               aria-label="Notifikasi"
-              className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-white text-muted transition-colors hover:text-ink"
+              className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-chrome-ink transition-colors hover:bg-white/15"
             >
               <Icons.bell className="h-[18px] w-[18px]" />
               {unread ? (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-bad-700 px-1 text-[10px] font-semibold text-white">
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-gold-400 px-1 text-[10px] font-semibold text-brand-950">
                   {unread > 9 ? "9+" : unread}
                 </span>
               ) : null}
             </Link>
 
-            <div className="flex shrink-0 items-center gap-2 rounded-lg border border-line bg-white py-1 pl-1 pr-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-brand-900 text-[10px] font-semibold text-white">
+            <div className="flex shrink-0 items-center gap-2 rounded-lg border border-white/20 bg-white/10 py-1 pl-1 pr-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/15 text-[10px] font-semibold text-chrome-ink">
                 {initials(displayName)}
               </span>
-              <span className="hidden max-w-[120px] truncate text-xs font-medium text-secondary sm:inline">
+              <span className="hidden max-w-[120px] truncate text-xs font-medium text-chrome-ink sm:inline">
                 {displayName.split(" ")[0]}
               </span>
             </div>

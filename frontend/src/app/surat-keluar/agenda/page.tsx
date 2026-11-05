@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { apiFetch } from "@/lib/api";
-import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
+import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
 interface RegisterRow {
   nomor: number;
@@ -71,7 +71,7 @@ export default function RegisterSuratKeluarPage() {
           <EmptyState title="Tidak ada baris agenda" hint="Ubah tahun." />
         ) : (
           <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-            <table className="w-full min-w-360 text-left text-sm">
+            <table className="w-full min-w-max text-left text-sm">
               <thead>
                 <tr className="border-b bg-paper text-xs text-muted">
                   <th className="px-3 py-2">No</th>
@@ -98,7 +98,7 @@ export default function RegisterSuratKeluarPage() {
                     <td className="px-3 py-2">{r.penanggungJawab ?? "-"}</td>
                     <td className="px-3 py-2">{r.kodeSurat ?? "-"}</td>
                     <td className="px-3 py-2">{r.ket}</td>
-                    <td className="px-3 py-2">{r.status}</td>
+                    <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
                   </tr>
                 ))}
               </tbody>

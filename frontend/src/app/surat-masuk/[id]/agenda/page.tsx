@@ -128,6 +128,11 @@ export default function AturAgendaSuratPage() {
         <EmptyState title="Surat tidak ditemukan" />
       ) : (
         <form onSubmit={onSubmit} className="mt-4 max-w-3xl space-y-4">
+          {detail.letterType === "BIASA" ? (
+            <p className="rounded-lg border border-line bg-paper px-3 py-2 text-sm text-muted">
+              Surat ini berjenis biasa. Bagian kegiatan biasanya hanya dipakai untuk surat undangan; tetap dapat diubah bila diperlukan.
+            </p>
+          ) : null}
           <div className="rounded-lg border border-line bg-surface p-4">
             <h2 className="mb-3 font-semibold">Kegiatan</h2>
             <div className="grid gap-4 sm:grid-cols-3">

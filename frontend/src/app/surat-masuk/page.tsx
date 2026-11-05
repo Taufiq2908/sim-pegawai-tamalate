@@ -5,19 +5,45 @@ import { useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import type { IncomingLetter, LetterStatus, PageMeta } from "@/lib/types";
+import type { Disposition, IncomingLetter, LetterStatus, PageMeta } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
 const FILTERS: Array<{ value: "" | LetterStatus; label: string }> = [
   { value: "", label: "Semua" },
-  { value: "RECEIVED", label: "Diterima" },
-  { value: "PARAF", label: "Diparaaf" },
-  { value: "DISPOSED", label: "Didisposisi" },
-  { value: "COMPLETED", label: "Selesai" },
-  { value: "ARCHIVED", label: "Arsip" },
+  { value: "DRAFT_TU", label: "Draft TU" },
+  { value: "REVIEW_SEKCAM", label: "Menunggu Sekcam" },
+  { value: "DISPOSISI_CAMAT", label: "Menunggu Disposisi Camat" },
+  { value: "DITERUSKAN", label: "Diteruskan" },
+  { value: "PROSES", label: "Diproses" },
+  { value: "MENUNGGU_ARSIP", label: "Menunggu Arsip" },
+  { value: "DIARSIPKAN", label: "Diarsipkan" },
 ];
 
+const STATUS_VALUES = new Set<string>(FILTERS.map((f) => f.value).filter(Boolean));
 const LIMIT = 10;
+
+function targetSummary(letter: IncomingLetter) {
+  // Response list backend memakai fromUser/toUser, sedangkan detail memakai
+  // from/to. Tangani keduanya agar ringkasan target tidak pecah di halaman list.
+  const actionable = (letter.dispositions ?? []).filter((d) => {
+    const raw = d as Disposition & {
+      fromUser?: { id: string };
+      toUser?: { id: string };
+    };
+    const fromId = raw.from?.id ?? raw.fromUser?.id;
+    const toId = raw.to?.id ?? raw.toUser?.id;
+    return Boolean(fromId && toId && fromId !== toId);
+  });
+  const targets = [
+    ...new Set(
+      actionable.map((d) => {
+        const raw = d as Disposition & { toUser?: { username: string } };
+        return d.targetName ?? raw.to?.username ?? raw.toUser?.username;
+      }).filter(Boolean),
+    ),
+  ];
+  return { count: actionable.length, targets };
+}
 
 export default function SuratMasukListPage() {
   const { user, hasPermission } = useAuth();
@@ -31,7 +57,7 @@ export default function SuratMasukListPage() {
 
   useEffect(() => {
     const st = new URLSearchParams(window.location.search).get("status") ?? "";
-    if (st) setStatus(st);
+    if (STATUS_VALUES.has(st)) setStatus(st);
   }, []);
 
   async function load(p: number, st: string, query: string) {
@@ -108,7 +134,7 @@ export default function SuratMasukListPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Cari perihal / pengirim / nomor…"
-          className="min-w-44 flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-brand-700"
+          className="min-w-44 flex-1 rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none placeholder:text-muted/60 focus:border-brand-700"
         />
       </form>
 
@@ -118,36 +144,50 @@ export default function SuratMasukListPage() {
         ) : error ? (
           <ErrorBox message={error} onRetry={() => void load(page, status, q)} />
         ) : items.length === 0 ? (
-          <EmptyState title="Belum ada surat" />
+          <EmptyState title="Belum ada surat" hint="Ubah filter status atau kata kunci." />
         ) : (
           <>
             <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-              <table className="w-full min-w-[820px] text-left text-sm">
+              <table className="w-full min-w-[920px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-line text-xs text-muted">
                     <th className="px-3 py-2 font-medium">No. Agenda</th>
                     <th className="px-3 py-2 font-medium">Asal Surat</th>
                     <th className="px-3 py-2 font-medium">Perihal</th>
                     <th className="px-3 py-2 font-medium">Tgl. Surat</th>
-                    <th className="px-3 py-2 font-medium">Disposisi</th>
+                    <th className="px-3 py-2 font-medium">Target Disposisi</th>
+                    <th className="px-3 py-2 font-medium">Jumlah</th>
                     <th className="px-3 py-2 font-medium">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((it) => (
-                    <tr key={it.id} className="border-b border-line last:border-0 hover:bg-paper">
-                      <td className="px-3 py-2.5">
-                        <Link href={`/surat-masuk/${it.id}`} className="font-medium text-brand-800 hover:underline">
-                          {it.agendaNumber}
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2.5">{it.sender}<span className="block text-xs text-muted">{it.letterNumber}</span></td>
-                      <td className="max-w-64 truncate px-3 py-2.5">{it.subject}</td>
-                      <td className="px-3 py-2.5 tabular-nums text-muted">{it.letterDate?.slice(0, 10)}</td>
-                      <td className="px-3 py-2.5 tabular-nums">{it.dispositions?.length ?? 0}×</td>
-                      <td className="px-3 py-2.5"><StatusBadge status={it.status} /></td>
-                    </tr>
-                  ))}
+                  {items.map((it) => {
+                    const { count, targets } = targetSummary(it);
+                    return (
+                      <tr key={it.id} className="border-b border-line last:border-0 hover:bg-paper">
+                        <td className="px-3 py-2.5">
+                          <Link href={`/surat-masuk/${it.id}`} className="font-medium text-brand-800 hover:underline">
+                            {it.agendaNumber}
+                          </Link>
+                          <span className="mt-0.5 block text-[11px] text-muted">
+                            {it.letterType === "UNDANGAN" ? "Undangan" : "Biasa"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5">{it.sender}<span className="block text-xs text-muted">{it.letterNumber}</span></td>
+                        <td className="max-w-64 truncate px-3 py-2.5">{it.subject}</td>
+                        <td className="px-3 py-2.5 tabular-nums text-muted">{it.letterDate?.slice(0, 10)}</td>
+                        <td className="max-w-64 px-3 py-2.5">
+                          {targets.length ? (
+                            <span className="line-clamp-2 text-secondary">{targets.join(", ")}</span>
+                          ) : (
+                            <span className="text-xs text-muted">Belum ada disposisi</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 tabular-nums">{count}×</td>
+                        <td className="px-3 py-2.5"><StatusBadge status={it.status} /></td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

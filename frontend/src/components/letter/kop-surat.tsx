@@ -11,8 +11,8 @@ export function KopSurat({ compact = false }: { compact?: boolean }) {
         {logoOk ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src="/logo-tamalate.png"
-            alt="Logo Kecamatan Tamalate"
+            src="/logo-kota-makassar.png"
+            alt="Logo Pemerintah Kota Makassar"
             className="h-20 w-20 shrink-0 object-contain"
             onError={() => setLogoOk(false)}
           />

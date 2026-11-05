@@ -17,9 +17,18 @@ export const STATUS_LABEL: Record<string, string> = {
   REJECTED: "Ditolak",
   RECEIVED: "Diterima",
   DISPOSED: "Didisposisikan",
+  DRAFT_TU: "Draft TU",
+  REVIEW_SEKCAM: "Menunggu Sekcam",
+  DISPOSISI_CAMAT: "Menunggu Disposisi Camat",
+  DITERUSKAN: "Diteruskan",
+  PROSES: "Diproses",
+  MENUNGGU_ARSIP: "Menunggu Arsip",
+  DIARSIPKAN: "Diarsipkan",
   RESERVED: "Dipesan",
   ISSUED: "Terbit",
+  TERKIRIM: "Terkirim",
   CANCELLED: "Dibatalkan",
+  ACCEPTED: "Diterima & dibaca",
   HADIR: "Hadir",
   TERLAMBAT: "Terlambat",
   IZIN: "Izin",
@@ -34,12 +43,12 @@ export const STATUS_LABEL: Record<string, string> = {
 
 /** Warna muted per status: hijau = selesai/setuju, kuning = menunggu, merah = tolak/absen. */
 const STATUS_TONE: Record<string, string> = {
-  DRAFT: "bg-slate-100 text-slate-600",
+  DRAFT: "bg-paper text-muted",
   LEGALIZED: "bg-info-100 text-info-700",
   SUBMITTED: "bg-warn-100 text-warn-700",
   REVIEWED: "bg-info-100 text-info-700",
   REVISION: "bg-warn-100 text-warn-700",
-  POSTPONED: "bg-slate-100 text-slate-600",
+  POSTPONED: "bg-paper text-muted",
   VERIFIED: "bg-info-100 text-info-700",
   PARAF: "bg-info-100 text-info-700",
   APPROVED: "bg-ok-100 text-ok-700",
@@ -47,13 +56,22 @@ const STATUS_TONE: Record<string, string> = {
   SUBMITTED_BKPSDMD: "bg-info-100 text-info-700",
   FORWARDED: "bg-info-100 text-info-700",
   COMPLETED: "bg-ok-100 text-ok-700",
-  ARCHIVED: "bg-slate-100 text-slate-600",
+  ARCHIVED: "bg-paper text-muted",
   REJECTED: "bg-bad-100 text-bad-700",
   RECEIVED: "bg-warn-100 text-warn-700",
   DISPOSED: "bg-info-100 text-info-700",
+  DRAFT_TU: "bg-paper text-muted",
+  REVIEW_SEKCAM: "bg-warn-100 text-warn-700",
+  DISPOSISI_CAMAT: "bg-warn-100 text-warn-700",
+  DITERUSKAN: "bg-info-100 text-info-700",
+  PROSES: "bg-info-100 text-info-700",
+  MENUNGGU_ARSIP: "bg-warn-100 text-warn-700",
+  DIARSIPKAN: "bg-ok-100 text-ok-700",
   RESERVED: "bg-warn-100 text-warn-700",
   ISSUED: "bg-ok-100 text-ok-700",
+  TERKIRIM: "bg-ok-100 text-ok-700",
   CANCELLED: "bg-bad-100 text-bad-700",
+  ACCEPTED: "bg-info-100 text-info-700",
   HADIR: "bg-ok-100 text-ok-700",
   TERLAMBAT: "bg-warn-100 text-warn-700",
   IZIN: "bg-info-100 text-info-700",
@@ -65,7 +83,7 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  const cls = STATUS_TONE[status] ?? "bg-slate-100 text-slate-600";
+  const cls = STATUS_TONE[status] ?? "bg-paper text-muted";
   return (
     <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${cls}`}>
       {STATUS_LABEL[status] ?? status}
@@ -87,7 +105,7 @@ export function TrailBadge({ text }: { text: string }) {
 }
 
 export function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-lg bg-slate-200/70 ${className}`} />;
+  return <div className={`animate-pulse rounded-lg bg-line/40 ${className}`} />;
 }
 
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
@@ -129,7 +147,7 @@ export function ProcessTrail({ items }: { items: TrailEntry[] }) {
           <span className="flex flex-col items-center">
             <span
               className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${
-                t.state === "done" ? "bg-ok-700" : t.state === "now" ? "bg-warn-700 ring-4 ring-warn-100" : "border border-slate-300 bg-white"
+                t.state === "done" ? "bg-ok-700" : t.state === "now" ? "bg-warn-700 ring-4 ring-warn-100" : "border border-line bg-surface"
               }`}
             />
             {i < items.length - 1 ? <span className="w-px flex-1 bg-line" /> : null}

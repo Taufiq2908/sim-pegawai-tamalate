@@ -15,7 +15,7 @@ export function EyeIcon({ open }: { open: boolean }) {
   );
 }
 
-const INPUT = "w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none transition placeholder:text-slate-400 focus:border-brand-700";
+const INPUT = "w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none transition placeholder:text-muted/60 focus:border-brand-700";
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${INPUT} ${props.className ?? ""}`} />;

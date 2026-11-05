@@ -225,7 +225,16 @@ export interface WarningLetterDetail {
   employee?: { name: string; position: string; nip: string | null };
 }
 
-export type LetterStatus = "RECEIVED" | "PARAF" | "DISPOSED" | "COMPLETED" | "ARCHIVED";
+export type LetterType = "BIASA" | "UNDANGAN";
+
+export type LetterStatus =
+  | "DRAFT_TU"
+  | "REVIEW_SEKCAM"
+  | "DISPOSISI_CAMAT"
+  | "DITERUSKAN"
+  | "PROSES"
+  | "MENUNGGU_ARSIP"
+  | "DIARSIPKAN";
 
 export interface Disposition {
   id: string;
@@ -235,11 +244,41 @@ export interface Disposition {
   targetName: string | null;
   instruction: string;
   deadline: string | null;
-  status: "PENDING" | "DONE";
+  status: "PENDING" | "ACCEPTED" | "DONE";
+  acceptedAt: string | null;
   responseNote: string | null;
   respondedAt: string | null;
   createdAt: string;
+  canAccept: boolean;
+  canComplete: boolean;
   canFollowUp: boolean;
+}
+
+export interface DispositionTargetRecipient {
+  id: string;
+  username: string;
+  name: string;
+  nip: string | null;
+}
+
+export interface DispositionTarget {
+  id: string;
+  code: string;
+  name: string;
+  mappedPosition: string;
+  recipients: DispositionTargetRecipient[];
+  available: boolean;
+  sortOrder?: number;
+}
+
+export interface LetterDocument {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  downloadUrl: string;
+  uploadedBy?: string;
+  createdAt?: string;
 }
 
 export interface IncomingLetter {
@@ -253,14 +292,22 @@ export interface IncomingLetter {
   receivedDate: string;
   priority: string;
   secrecy: string;
+  letterType: LetterType;
   addressedTo: string | null;
   pic: string | null;
   remarks: string | null;
   status: LetterStatus;
+  submittedAt?: string | null;
+  distributedAt?: string | null;
+  completedAt?: string | null;
+  completionNote?: string | null;
+  resolutionDate?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
   availableActions?: string[];
   dispositions?: Disposition[];
   _count?: { documents: number };
-  documents?: Array<{ id: string; originalName: string; mimeType: string; sizeBytes: number; downloadUrl: string }>;
+  documents?: LetterDocument[];
   activityDate?: string | null;
   activityStartTime?: string | null;
   activityEndTime?: string | null;
@@ -284,9 +331,17 @@ export interface IncomingLetter {
     position: string | null;
     note: string | null;
   }>;
-  archiveRecord?: { id: string; archiveNumber: string; listId: string | null } | null;
+  archiveRecord?: {
+    id: string;
+    archiveNumber: string;
+    listId: string | null;
+    archiveDate?: string;
+    list?: { id: string; listNumber: string; status: string } | null;
+  } | null;
   classification?: { code: string; name: string } | null;
 }
+
+export type OutgoingLetterStatus = "RESERVED" | "TERKIRIM" | "DIARSIPKAN" | "CANCELLED";
 
 export interface OutgoingLetter {
   id: string;
@@ -303,11 +358,25 @@ export interface OutgoingLetter {
   priority: string;
   secrecy: string;
   signerName: string | null;
-  status: "RESERVED" | "ISSUED" | "CANCELLED";
+  status: OutgoingLetterStatus;
   reservationReason: string | null;
   cancelReason: string | null;
-  documents?: Array<{ id: string; originalName: string; mimeType: string; sizeBytes: number; downloadUrl: string }>;
-  archiveRecord?: { id: string; archiveNumber: string; listId: string | null } | null;
+  reservedAt?: string | null;
+  issuedAt?: string | null;
+  cancelledAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  archiveRejectedAt?: string | null;
+  archiveRejectionNote?: string | null;
+  classification?: { id: string; code: string; name: string } | null;
+  documents?: LetterDocument[];
+  archiveRecord?: {
+    id: string;
+    archiveNumber: string;
+    listId: string | null;
+    archiveDate?: string;
+    list?: { id: string; listNumber: string; status: string } | null;
+  } | null;
 }
 
 export type KgbStatus =
@@ -391,6 +460,7 @@ export interface ArchiveRecord {
   archiveDate: string;
   category: ArchiveCategory;
   location: ArchiveLocation;
+  physicalLocation: string | null;
   retentionUntil: string | null;
   notes: string | null;
   listId: string | null;

@@ -1,77 +1,98 @@
 "use client";
-import { FileButton } from "@/components/form";
-import { toast } from "@/components/toast";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
-import { fileUrl } from "@/lib/file-url";
-import type { IncomingLetter } from "@/lib/types";
+import type { ApiError } from "@/lib/api";
+import { DocumentPreview } from "@/components/document-preview";
+import { Field, FileButton } from "@/components/form";
+import { toast } from "@/components/toast";
+import { refreshNotificationBadge } from "@/lib/notification-refresh";
+import type {
+  Disposition,
+  DispositionTarget,
+  IncomingLetter,
+  LetterDocument,
+  NotificationItem,
+} from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
+
+const STATUS_RANK: Record<string, number> = {
+  DRAFT_TU: 1,
+  REVIEW_SEKCAM: 2,
+  DISPOSISI_CAMAT: 3,
+  DITERUSKAN: 4,
+  PROSES: 5,
+  MENUNGGU_ARSIP: 6,
+  DIARSIPKAN: 7,
+};
+
+function fmtDateTime(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function fmtDate(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
+}
+
+async function resolveLetterId(dispId: string): Promise<string | null> {
+  const { data: notifications } = await apiFetch<NotificationItem[]>("/notifications?page=1&limit=100");
+  const linked = notifications.find((n) => n.referenceId === dispId);
+  if (linked?.referenceType === "incoming_letter" && linked.referenceId) return linked.referenceId;
+
+  const subject = linked?.title.replace(/^Disposisi baru:\s*/i, "").trim();
+  if (subject) {
+    const { data: letters } = await apiFetch<IncomingLetter[]>(`/letters?q=${encodeURIComponent(subject)}&limit=50`);
+    const found = letters.find((l) => (l.dispositions ?? []).some((d) => d.id === dispId));
+    if (found) return found.id;
+  }
+
+  const { data: letters } = await apiFetch<IncomingLetter[]>("/letters?limit=100");
+  return letters.find((l) => (l.dispositions ?? []).some((d) => d.id === dispId))?.id ?? null;
+}
 
 export default function SuratMasukDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { user, hasPermission } = useAuth();
+
   const canRegister = hasPermission("letter.register");
-  const canExpedition = hasPermission("letter.expedition");
+  // Backend membatasi approver arsip ke Sekcam/Camat (atau SUPER_ADMIN),
+  // meskipun permission archive.approve juga dimiliki jabatan LEADER lain.
+  const archiveApprover =
+    user?.role === "SUPER_ADMIN" || ["SEKCAM", "CAMAT"].includes(user?.position ?? "");
+  const isSekcamUser = user?.role === "SUPER_ADMIN" || user?.position === "SEKCAM";
+  const isCamatUser = user?.role === "SUPER_ADMIN" || user?.position === "CAMAT";
   const [detail, setDetail] = useState<IncomingLetter | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [acting, setActing] = useState<string | null>(null);
 
-  const [toUserId, setToUserId] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [forwardNote, setForwardNote] = useState("");
+  const [archiveNote, setArchiveNote] = useState("");
+  const [followNotes, setFollowNotes] = useState<Record<string, string>>({});
+
+  const [targets, setTargets] = useState<DispositionTarget[]>([]);
+  const [targetsLoading, setTargetsLoading] = useState(false);
+  const [selectedTargets, setSelectedTargets] = useState<Set<string>>(new Set());
   const [instruction, setInstruction] = useState("");
   const [deadline, setDeadline] = useState("");
-  const [targetCodes, setTargetCodes] = useState<string[]>([]);
-  const [targets, setTargets] = useState<Array<{ code: string; name: string; available: boolean }>>([]);
-  const [followNote, setFollowNote] = useState("");
-  const [completeNote, setCompleteNote] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [expName, setExpName] = useState("");
-  const [expSign, setExpSign] = useState("");
-  const [expNote, setExpNote] = useState("");
-  // Deep-link notifikasi disposisi membawa ID disposisi (bukan ID surat).
-  const [highlightId, setHighlightId] = useState<string | null>(null);
-  const highlightRef = useRef<HTMLLIElement | null>(null);
-
-  useEffect(() => {
-    const p = new URLSearchParams(window.location.search);
-    const d = p.get("disposition");
-    if (d) setHighlightId(d);
-  }, []);
-
-  useEffect(() => {
-    if (highlightId && highlightRef.current) {
-      highlightRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [highlightId, detail]);
-
-  /**
-   * URL detail bisa berisi ID disposisi (referenceId notifikasi bulk disposisi).
-   * Resolusi frontend-only: judul notifikasi = "Disposisi baru: {perihal}",
-   * lalu cari surat berdasarkan perihal dan pastikan disposisi ber-ID itu ada.
-   */
-  async function resolveLetterFromDisposition(dispId: string): Promise<string | null> {
-    const { data: notifs } = await apiFetch<
-      Array<{ referenceType: string | null; referenceId: string | null; title: string }>
-    >("/notifications?limit=100");
-    const hit = (Array.isArray(notifs) ? notifs : []).find(
-      (n) => n.referenceType === "letter_disposition" && n.referenceId === dispId,
-    );
-    if (!hit) return null;
-    const subject = hit.title.replace(/^Disposisi baru:\s*/i, "").trim();
-    if (!subject) return null;
-    const { data: letters } = await apiFetch<IncomingLetter[]>(
-      `/letters?q=${encodeURIComponent(subject)}&limit=100`,
-    );
-    const letter = (Array.isArray(letters) ? letters : []).find((l) =>
-      (l.dispositions ?? []).some((d) => d.id === dispId),
-    );
-    return letter?.id ?? null;
-  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,97 +101,93 @@ export default function SuratMasukDetailPage() {
       const { data } = await apiFetch<IncomingLetter>(`/letters/${id}`);
       setDetail(data);
     } catch (err) {
-      try {
-        const letterId = await resolveLetterFromDisposition(id);
-        if (letterId) {
-          router.replace(`/surat-masuk/${letterId}?disposition=${id}`);
-          return;
+      const apiError = err as Partial<ApiError>;
+      if (apiError.status === 404) {
+        try {
+          const resolved = await resolveLetterId(id);
+          if (resolved && resolved !== id) {
+            const { data } = await apiFetch<IncomingLetter>(`/letters/${resolved}`);
+            setDetail(data);
+            router.replace(`/surat-masuk/${resolved}`);
+            return;
+          }
+        } catch {
+          // fall through to the regular error message
         }
-      } catch {
-        /* resolusi gagal — tampilkan error asli */
       }
-      setError(err instanceof Error ? err.message : "Gagal memuat detail");
+      setError(err instanceof Error ? err.message : "Gagal memuat surat");
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, router]);
 
   useEffect(() => {
     void load();
-    apiFetch<Array<{ code: string; name: string; available: boolean }>>(
-      "/letters/disposition-targets",
-    )
-      .then(({ data }) => setTargets(Array.isArray(data) ? data : []))
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
 
-  async function toggleTarget(code: string) {
-    setTargetCodes((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
-  }
+  const available = detail?.availableActions ?? [];
+  const canDispose = available.includes("dispose") && isCamatUser;
+  const canSubmit = available.includes("submit");
+  const canForward = available.includes("forward") && isSekcamUser;
+  const canUpload = available.includes("upload");
+  const canArchive = available.includes("archive") && archiveApprover;
 
-  async function dispose() {
-    if (!instruction.trim() || instruction.trim().length < 5) {
-      toast.error("Isi instruksi minimal 5 karakter.");
-      return;
-    }
-    if (!toUserId.trim() && targetCodes.length === 0) {
-      toast.error("Pilih penerima atau tujuan disposisi.");
-      return;
-    }
-    setActing("dispose");
-    try {
-      const body: Record<string, unknown> = {
-        instruction: instruction.trim(),
-        ...(deadline ? { deadline } : {}),
-        ...(targetCodes.length ? { targetCodes } : {}),
-        ...(toUserId.trim() ? { toUserIds: [toUserId.trim()] } : {}),
-      };
-      await apiFetch(`/letters/${id}/dispositions`, {
-        method: "POST",
-        body: JSON.stringify(body),
+  useEffect(() => {
+    if (!canDispose) return;
+    let alive = true;
+    setTargetsLoading(true);
+    apiFetch<DispositionTarget[]>("/letters/disposition-targets")
+      .then(({ data }) => {
+        if (alive) setTargets(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (alive) setTargets([]);
+      })
+      .finally(() => {
+        if (alive) setTargetsLoading(false);
       });
-      setToUserId("");
-      setInstruction("");
-      setDeadline("");
-      setTargetCodes([]);
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Disposisi gagal");
-    } finally {
-      setActing(null);
-    }
-  }
+    return () => {
+      alive = false;
+    };
+  }, [canDispose, detail?.id]);
 
-  async function followup(dispId: string) {
-    if (followNote.trim().length < 3) {
-      toast.error("Catatan tindak lanjut wajib (min 3 karakter).");
-      return;
-    }
-    setActing(dispId);
-    try {
-      await apiFetch(`/letters/dispositions/${dispId}/followup`, {
-        method: "POST",
-        body: JSON.stringify({ note: followNote.trim() }),
-      });
-      setFollowNote("");
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Tindak lanjut gagal");
-    } finally {
-      setActing(null);
-    }
-  }
+  const dispositionGroups = useMemo(() => {
+    const list = detail?.dispositions ?? [];
+    return {
+      selfNotes: list.filter((d) => d.from.id === d.to.id),
+      targets: list.filter((d) => d.from.id !== d.to.id),
+    };
+  }, [detail]);
 
-  async function simple(action: string, body: unknown) {
+  const doneCount = dispositionGroups.targets.filter((d) => d.status === "DONE").length;
+  const acceptedCount = dispositionGroups.targets.filter((d) => d.status === "ACCEPTED").length;
+  const progress = dispositionGroups.targets.length
+    ? Math.round((doneCount / dispositionGroups.targets.length) * 100)
+    : 0;
+
+  const earliestAccepted = dispositionGroups.targets
+    .map((d) => d.acceptedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()[0];
+
+  const currentRank = detail ? STATUS_RANK[detail.status] ?? 0 : 0;
+  const timeline = detail
+    ? [
+        { stage: 1, label: "Draft TU", description: "Surat dicatat oleh pelaksana/TU.", at: detail.createdAt },
+        { stage: 2, label: "Diajukan ke Sekcam", description: "Berkas dikirim untuk pemeriksaan Sekcam.", at: detail.submittedAt },
+        { stage: 3, label: "Diteruskan ke Camat", description: "Sekcam meneruskan surat kepada Camat.", at: undefined },
+        { stage: 4, label: "Disposisi Camat", description: "Camat menentukan target dan instruksi disposisi.", at: detail.distributedAt },
+        { stage: 5, label: "Diterima penerima", description: "Penerima disposisi menekan Terima & Baca.", at: earliestAccepted },
+        { stage: 6, label: "Tindak lanjut selesai", description: "Semua target menyelesaikan disposisi.", at: detail.completedAt },
+        { stage: 7, label: "Diarsipkan", description: "Sekcam/Camat menyetujui arsip.", at: detail.archiveRecord?.archiveDate },
+      ]
+    : [];
+
+  async function run(action: string, fn: () => Promise<void>) {
     setActing(action);
     try {
-      const { data } = await apiFetch<IncomingLetter>(`/letters/${id}/${action}`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      setDetail(data);
+      await fn();
+      refreshNotificationBadge();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Aksi gagal");
     } finally {
@@ -178,271 +195,563 @@ export default function SuratMasukDetailPage() {
     }
   }
 
-  async function upload() {
+  function uploadDocument() {
     if (!file) {
-      toast.error("Pilih file dulu (pdf/jpg/png, max 10MB).");
+      toast.error("Pilih file terlebih dahulu.");
       return;
     }
-    setActing("upload");
-    try {
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File maksimal 10 MB.");
+      return;
+    }
+    if (!/\.(pdf|jpe?g|png)$/i.test(file.name)) {
+      toast.error("File harus PDF, JPG, atau PNG.");
+      return;
+    }
+    void run("upload", async () => {
       const fd = new FormData();
       fd.append("file", file);
-      await apiUpload(`/letters/${id}/documents`, fd);
+      await apiUpload<LetterDocument>(`/letters/${id}/documents`, fd);
       setFile(null);
+      toast.success("Dokumen ditambahkan.");
       await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Unggah gagal");
-    } finally {
-      setActing(null);
-    }
+    });
   }
 
-  async function recordExpedition() {
-    if (!expName.trim()) {
-      toast.error("Nama penerima surat wajib diisi.");
+  function submitLetter() {
+    if (!detail?.documents?.length) {
+      toast.error("Unggah file surat terlebih dahulu sebelum mengirim.");
       return;
     }
-    setActing("expedition");
-    try {
-      const { data } = await apiFetch<{ regNumber: string }>(`/letters/${id}/expedition`, {
-        method: "POST",
-        body: JSON.stringify({
-          receiverName: expName.trim(),
-          signatureName: expSign.trim() || undefined,
-          note: expNote.trim() || undefined,
-        }),
-      });
-      toast.success(`Tanda terima dicatat: ${data.regNumber}`);
-      setExpName("");
-      setExpSign("");
-      setExpNote("");
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal mencatat ekspedisi");
-    } finally {
-      setActing(null);
+    if (!detail.summary?.trim()) {
+      toast.error("Ringkasan isi belum diisi.");
+      return;
     }
+    if (!detail.classification) {
+      toast.error("Klasifikasi arsip belum dipilih.");
+      return;
+    }
+    void run("submit", async () => {
+      const { data } = await apiFetch<IncomingLetter>(`/letters/${id}/submit`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setDetail(data);
+      toast.success("Surat dikirim ke Sekcam.");
+    });
   }
 
-  const actions = detail?.availableActions ?? [];
-  const canUpload = hasPermission("letter.document.upload") && actions.includes("upload");
+  function forwardLetter() {
+    void run("forward", async () => {
+      const { data } = await apiFetch<IncomingLetter>(`/letters/${id}/forward`, {
+        method: "POST",
+        body: JSON.stringify({ note: forwardNote.trim() || undefined }),
+      });
+      setDetail(data);
+      setForwardNote("");
+      toast.success("Surat diteruskan ke Camat.");
+    });
+  }
 
-  const activityLines = detail ? [
-    detail.activityDate ? `Tanggal: ${detail.activityDate.slice(0, 10)}` : null,
-    detail.activityStartTime ? `Mulai: ${detail.activityStartTime}` : null,
-    detail.activityEndTime ? `Selesai: ${detail.activityEndTime}` : null,
-    detail.activityLocation ? `Tempat: ${detail.activityLocation}` : null,
-  ].filter(Boolean) : [];
+  function disposeLetter() {
+    if (selectedTargets.size === 0) {
+      toast.error("Pilih minimal satu target disposisi.");
+      return;
+    }
+    if (instruction.trim().length < 5) {
+      toast.error("Isi disposisi minimal 5 karakter.");
+      return;
+    }
+    void run("dispose", async () => {
+      const { data } = await apiFetch<{ dispositions: Disposition[]; letter: IncomingLetter }>(
+        `/letters/${id}/dispositions`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            instruction: instruction.trim(),
+            targetCodes: Array.from(selectedTargets),
+            deadline: deadline || undefined,
+          }),
+        },
+      );
+      setDetail(data.letter);
+      setSelectedTargets(new Set());
+      setInstruction("");
+      setDeadline("");
+      toast.success("Disposisi dikirim.");
+    });
+  }
+
+  function acceptDisposition(d: Disposition) {
+    void run(`accept-${d.id}`, async () => {
+      const { data } = await apiFetch<IncomingLetter>(`/letters/dispositions/${d.id}/accept`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setDetail(data);
+      toast.success("Surat diterima dan tercatat di buku ekspedisi.");
+    });
+  }
+
+  function completeDisposition(d: Disposition) {
+    const note = (followNotes[d.id] ?? "").trim();
+    if (note.length < 3) {
+      toast.error("Catatan tindak lanjut minimal 3 karakter.");
+      return;
+    }
+    void run(`complete-${d.id}`, async () => {
+      const { data } = await apiFetch<{ disposition: Disposition; letter: IncomingLetter }>(
+        `/letters/dispositions/${d.id}/followup`,
+        { method: "POST", body: JSON.stringify({ note }) },
+      );
+      setDetail(data.letter);
+      setFollowNotes((prev) => ({ ...prev, [d.id]: "" }));
+      toast.success("Tindak lanjut dicatat.");
+    });
+  }
+
+  function archiveLetter() {
+    void run("archive", async () => {
+      const { data } = await apiFetch<IncomingLetter>(`/letters/${id}/archive`, {
+        method: "POST",
+        body: JSON.stringify({ notes: archiveNote.trim() || undefined }),
+      });
+      setDetail(data);
+      setArchiveNote("");
+      toast.success("Surat diarsipkan.");
+    });
+  }
+
+  function toggleTarget(code: string) {
+    setSelectedTargets((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  }
 
   return (
-    <RequirePerm perm="letter.view" label="Surat Masuk">
-      <button onClick={() => router.back()} className="text-sm font-semibold text-muted hover:text-slate-900">
-        ← Kembali
-      </button>
-      <div className="mt-2">
+    <RequirePerm perm="letter.view" label="Detail Surat Masuk">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm hover:bg-paper"
+        >
+          ← Kembali
+        </button>
+        {canRegister && detail && detail.status !== "DIARSIPKAN" ? (
+          <Link
+            href={`/surat-masuk/${detail.id}/agenda`}
+            className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm hover:bg-paper"
+          >
+            Atur agenda
+          </Link>
+        ) : null}
+        <Link
+          href={`/surat-masuk/${id}/lembar-disposisi`}
+          className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm hover:bg-paper"
+        >
+          Lembar disposisi
+        </Link>
+      </div>
+
+      <div className="mt-3">
         {loading ? (
-          <div className="space-y-2"><Skeleton className="h-32 w-full" /><Skeleton className="h-48 w-full" /></div>
+          <div className="space-y-2">
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-48 w-full" />
+          </div>
         ) : error ? (
           <ErrorBox message={error} onRetry={load} />
         ) : !detail ? (
           <EmptyState title="Data tidak ditemukan" />
         ) : (
           <div className="space-y-4">
-            <div className="rounded-lg border border-line bg-surface p-5">
+            <section className="rounded-lg border border-line bg-surface p-5">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-bold">{detail.agendaNumber}</h1>
                 <StatusBadge status={detail.status} />
+                <span className="rounded-full bg-paper px-2 py-0.5 text-xs font-semibold text-secondary">
+                  {detail.letterType === "UNDANGAN" ? "Undangan" : "Biasa"}
+                </span>
                 {detail.archiveRecord ? (
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
-                    Sudah diarsipkan ({detail.archiveRecord.archiveNumber})
+                  <span className="rounded-full bg-ok-100 px-2 py-0.5 text-xs font-semibold text-ok-700">
+                    Diarsipkan ({detail.archiveRecord.archiveNumber})
                   </span>
                 ) : null}
-                <span className="text-xs text-muted">{detail.priority} • {detail.secrecy}</span>
+                <span className="text-xs text-muted">
+                  {detail.priority} • {detail.secrecy}
+                </span>
               </div>
-              <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                <div><dt className="text-muted">Perihal</dt><dd className="font-medium">{detail.subject}</dd></div>
-                <div><dt className="text-muted">Pengirim</dt><dd className="font-medium">{detail.sender} ({detail.letterNumber})</dd></div>
-                <div><dt className="text-muted">Tanggal surat / diterima</dt><dd className="font-medium">{detail.letterDate?.slice(0, 10)} / {detail.receivedDate?.slice(0, 10)}</dd></div>
-                <div><dt className="text-muted">Ditujukan / PIC</dt><dd className="font-medium">{detail.addressedTo ?? "-"} / {detail.pic ?? "-"}</dd></div>
-                {detail.summary ? <div className="sm:col-span-2"><dt className="text-muted">Ringkasan</dt><dd className="font-medium">{detail.summary}</dd></div> : null}
-                {detail.classification ? (
-                  <div className="sm:col-span-2"><dt className="text-muted">Klasifikasi</dt><dd className="font-medium">{detail.classification.code} — {detail.classification.name}</dd></div>
-                ) : null}
-                {activityLines.length ? (
-                  <div className="sm:col-span-2"><dt className="text-muted">Kegiatan</dt><dd className="font-medium">{activityLines.join(" • ")}</dd></div>
-                ) : null}
-                {detail.assignedStaff?.length ? (
-                  <div className="sm:col-span-2"><dt className="text-muted">Petugas agenda</dt><dd className="font-medium">{detail.assignedStaff.map((a) => a.name).join(", ")}</dd></div>
-                ) : null}
-                {detail.archiveRecord ? (
-                  <div className="sm:col-span-2"><dt className="text-muted">Arsip</dt><dd className="font-medium">{detail.archiveRecord.archiveNumber}</dd></div>
-                ) : null}
-              </dl>
-            </div>
+              <h2 className="mt-2 text-base font-semibold">{detail.subject}</h2>
+              <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <Info label="Pengirim" value={detail.sender} />
+                <Info label="Nomor surat" value={detail.letterNumber} />
+                <Info label="Tanggal surat" value={fmtDate(detail.letterDate)} />
+                <Info label="Tanggal diterima" value={fmtDate(detail.receivedDate)} />
+                <Info label="Ditujukan ke" value={detail.addressedTo ?? "—"} />
+                <Info label="Penanggung jawab" value={detail.pic ?? "—"} />
+                <Info label="Klasifikasi" value={detail.classification ? `${detail.classification.code} — ${detail.classification.name}` : "—"} />
+                <Info label="Keterangan" value={detail.remarks ?? "—"} />
+              </div>
+              {detail.summary ? (
+                <div className="mt-4 rounded-lg bg-paper p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted">Ringkasan isi</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm">{detail.summary}</p>
+                </div>
+              ) : null}
+            </section>
 
-            <div className="rounded-lg border border-line bg-surface p-5">
-              <h2 className="font-semibold">Rantai disposisi ({detail.dispositions?.length ?? 0})</h2>
-              {(detail.dispositions ?? []).length === 0 ? (
-                <p className="mt-2 text-sm text-muted">Belum ada disposisi.</p>
-              ) : (
-                <ol className="mt-3 space-y-3">
-                  {(detail.dispositions ?? []).map((d) => (
-                    <li
-                      key={d.id}
-                      ref={highlightId === d.id ? highlightRef : undefined}
-                      className={`rounded-lg bg-paper px-3 py-2 text-sm ${
-                        highlightId === d.id ? "ring-2 ring-brand-700" : ""
-                      }`}
-                    >
-                      <p><b>{d.from.username}</b> → <b>{d.to.username}</b>{d.targetName ? ` (${d.targetName})` : ""} <StatusBadge status={d.status} /></p>
-                      <p className="mt-1 text-muted">{d.instruction}</p>
-                      {d.deadline ? <p className="text-xs text-muted">Batas: {d.deadline.slice(0, 10)}</p> : null}
-                      {d.responseNote ? <p className="text-xs text-ok-700">Tindak lanjut: {d.responseNote}</p> : null}
-                      {d.canFollowUp && d.status === "PENDING" ? (
-                        <div className="mt-2 flex gap-2">
-                          <input
-                            value={followNote}
-                            onChange={(e) => setFollowNote(e.target.value)}
-                            placeholder="Catatan tindak lanjut…"
-                            className="flex-1 rounded-lg border border-line px-3 py-1.5 text-sm outline-none focus:border-brand-700"
-                          />
-                          <button
-                            disabled={acting !== null}
-                            onClick={() => void followup(d.id)}
-                            className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-                          >
-                            {acting === d.id ? "…" : "Selesai"}
-                          </button>
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)]">
+              <section className="rounded-lg border border-line bg-surface p-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="font-semibold">Progres disposisi</h2>
+                  <span className="text-sm text-muted">
+                    {doneCount} selesai • {acceptedCount} diterima • {dispositionGroups.targets.length} target
+                  </span>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-paper">
+                  <div className="h-full rounded-full bg-brand-800 transition-all" style={{ width: `${progress}%` }} />
+                </div>
+                <p className="mt-1 text-xs text-muted">{progress}% target disposisi selesai.</p>
+
+                <div className="mt-5 divide-y divide-line">
+                  {dispositionGroups.targets.length === 0 ? (
+                    <p className="py-4 text-sm text-muted">Belum ada disposisi target.</p>
+                  ) : (
+                    dispositionGroups.targets.map((d) => (
+                      <div key={d.id} className="py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">
+                            {d.targetName ?? d.targetCode ?? d.to.username}
+                          </span>
+                          <span className="text-xs text-muted">@{d.to.username}</span>
+                          <StatusBadge status={d.status} />
+                          {d.deadline ? <span className="text-xs text-muted">Batas {fmtDate(d.deadline)}</span> : null}
                         </div>
-                      ) : null}
-                    </li>
-                  ))}
+                        <p className="mt-1 whitespace-pre-wrap text-sm">{d.instruction}</p>
+                        <p className="mt-1 text-xs text-muted">
+                          Dikirim {fmtDateTime(d.createdAt)}
+                          {d.acceptedAt ? ` • Dibaca ${fmtDateTime(d.acceptedAt)}` : ""}
+                          {d.respondedAt ? ` • Selesai ${fmtDateTime(d.respondedAt)}` : ""}
+                        </p>
+                        {d.responseNote ? (
+                          <p className="mt-2 rounded-md bg-paper px-2.5 py-2 text-sm">
+                            <span className="font-medium">Tindak lanjut: </span>
+                            {d.responseNote}
+                          </p>
+                        ) : null}
+
+                        {d.canAccept ? (
+                          <button
+                            type="button"
+                            disabled={acting !== null}
+                            onClick={() => acceptDisposition(d)}
+                            className="mt-2 rounded-lg bg-brand-900 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                          >
+                            {acting === `accept-${d.id}` ? "Memproses…" : "Terima & Baca"}
+                          </button>
+                        ) : null}
+
+                        {d.canComplete || d.canFollowUp ? (
+                          <div className="mt-2 space-y-2">
+                            <textarea
+                              value={followNotes[d.id] ?? ""}
+                              onChange={(e) => setFollowNotes((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                              rows={2}
+                              placeholder="Catatan tindak lanjut (wajib, minimal 3 karakter)"
+                              className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
+                            />
+                            <button
+                              type="button"
+                              disabled={acting !== null}
+                              onClick={() => completeDisposition(d)}
+                              className="rounded-lg bg-brand-900 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                            >
+                              {acting === `complete-${d.id}` ? "Memproses…" : "Selesai & Ajukan Arsip"}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-line bg-surface p-5">
+                <h2 className="font-semibold">Alur surat</h2>
+                <ol className="mt-4 space-y-0">
+                  {timeline.map((step, index) => {
+                    const done = currentRank > step.stage;
+                    const current = currentRank === step.stage;
+                    return (
+                      <li key={step.label} className="relative flex gap-3 pb-4 last:pb-0">
+                        {index < timeline.length - 1 ? (
+                          <span
+                            aria-hidden
+                            className={`absolute left-[9px] top-5 h-[calc(100%-8px)] w-px ${done || current ? "bg-brand-800" : "bg-line"}`}
+                          />
+                        ) : null}
+                        <span
+                          className={`relative z-10 mt-0.5 flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border text-[10px] font-bold ${
+                            done
+                              ? "border-brand-800 bg-brand-900 text-white"
+                              : current
+                                ? "border-brand-800 bg-surface text-brand-900"
+                                : "border-line bg-surface text-muted"
+                          }`}
+                        >
+                          {done ? "✓" : step.stage}
+                        </span>
+                        <div className={current ? "text-ink" : done ? "text-secondary" : "text-muted"}>
+                          <p className="text-sm font-medium">{step.label}</p>
+                          <p className="text-xs">{step.description}</p>
+                          {step.at ? <p className="mt-0.5 text-[11px] text-muted">{fmtDateTime(step.at)}</p> : null}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ol>
-              )}
+              </section>
+            </div>
 
-              {actions.includes("dispose") ? (
-                <div className="mt-4 border-t pt-4">
-                  <h3 className="text-sm font-semibold">Teruskan disposisi</h3>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    <input
-                      value={toUserId}
-                      onChange={(e) => setToUserId(e.target.value)}
-                      placeholder="UUID penerima spesifik (opsional)"
-                      className="rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700"
-                    />
-                    <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
+            <section className="rounded-lg border border-line bg-surface p-5">
+              <h2 className="font-semibold">Tindakan</h2>
+
+              {canSubmit ? (
+                <div className="mt-3 rounded-lg border border-line p-3">
+                  <p className="text-sm font-medium">Kirim ke Sekcam</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    Pastikan berkas, ringkasan, dan klasifikasi sudah lengkap.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={acting !== null}
+                    onClick={submitLetter}
+                    className="mt-2 rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                  >
+                    {acting === "submit" ? "Mengirim…" : "Simpan & Kirim ke Sekcam"}
+                  </button>
+                </div>
+              ) : null}
+
+              {canUpload ? (
+                <div className="mt-3 rounded-lg border border-line p-3">
+                  <p className="text-sm font-medium">Unggah dokumen</p>
+                  <p className="mt-0.5 text-xs text-muted">Hanya saat status Draft TU.</p>
+                  <div className="mt-2">
+                    <FileButton hint="PDF/JPG/PNG, maksimal 10 MB." onSelect={setFile} />
                   </div>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-4">
-                    {targets.map((t) => (
-                      <button
-                        key={t.code}
-                        type="button"
-                        onClick={() => void toggleTarget(t.code)}
-                        className={`rounded-lg border p-2 text-sm transition ${
-                          targetCodes.includes(t.code)
-                            ? "bg-brand-900 border-brand-900 text-white"
-                            : t.available ? "border-line bg-surface text-ink hover:bg-paper" : "border-line text-slate-400"
-                        }`}
-                        disabled={!t.available}
-                      >
-                        <div className="font-medium">{t.code}</div>
-                        <div className="text-xs text-muted">{t.name}</div>
-                        {!t.available ? <div className="text-xs text-muted">Tidak tersedia</div> : null}
-                      </button>
-                    ))}
+                  <button
+                    type="button"
+                    disabled={acting !== null || !file}
+                    onClick={uploadDocument}
+                    className="mt-2 rounded-lg border border-line bg-field px-3 py-2 text-sm font-semibold hover:bg-paper disabled:opacity-50"
+                  >
+                    {acting === "upload" ? "Mengunggah…" : "Unggah dokumen"}
+                  </button>
+                </div>
+              ) : null}
+
+              {canForward ? (
+                <div className="mt-3 rounded-lg border border-line p-3">
+                  <p className="text-sm font-medium">Teruskan ke Camat</p>
+                  <textarea
+                    value={forwardNote}
+                    onChange={(e) => setForwardNote(e.target.value)}
+                    rows={2}
+                    placeholder="Catatan untuk Camat (opsional)"
+                    className="mt-2 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
+                  />
+                  <button
+                    type="button"
+                    disabled={acting !== null}
+                    onClick={forwardLetter}
+                    className="mt-2 rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                  >
+                    {acting === "forward" ? "Meneruskan…" : "Teruskan ke Camat"}
+                  </button>
+                </div>
+              ) : null}
+
+              {canDispose ? (
+                <div className="mt-3 rounded-lg border border-line p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">Disposisi Camat</p>
+                      <p className="mt-0.5 text-xs text-muted">Centang tujuan, lalu tulis satu instruksi untuk semua target.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedTargets(
+                          new Set(targets.filter((t) => t.available).map((t) => t.code)),
+                        )
+                      }
+                      className="text-xs font-semibold text-brand-800 hover:underline"
+                    >
+                      Pilih semua tujuan tersedia
+                    </button>
                   </div>
-                  <textarea value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Instruksi disposisi (min 5 karakter)*" rows={2} className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  <button disabled={acting !== null} onClick={() => void dispose()} className="mt-2 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
-                    {acting === "dispose" ? "Memproses…" : "Kirim disposisi"}
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {targetsLoading ? (
+                      <p className="text-sm text-muted">Memuat tujuan disposisi…</p>
+                    ) : targets.length === 0 ? (
+                      <p className="text-sm text-muted">Tujuan disposisi belum tersedia.</p>
+                    ) : (
+                      targets.map((t) => (
+                        <label
+                          key={t.code}
+                          className={`cursor-pointer rounded-lg border p-2.5 text-sm ${
+                            !t.available
+                              ? "cursor-not-allowed border-line bg-paper text-muted"
+                              : selectedTargets.has(t.code)
+                                ? "border-brand-900 bg-brand-900 text-white"
+                                : "border-line bg-surface hover:bg-paper"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="sr-only"
+                            disabled={!t.available}
+                            checked={selectedTargets.has(t.code)}
+                            onChange={() => toggleTarget(t.code)}
+                          />
+                          <span className="block font-medium">{t.name}</span>
+                          <span className={`block text-xs ${selectedTargets.has(t.code) ? "text-white/75" : "text-muted"}`}>
+                            {t.available ? `${t.recipients.length} penerima aktif` : "Belum ada penerima aktif"}
+                          </span>
+                          {t.recipients.length ? (
+                            <span className={`mt-1 block truncate text-[11px] ${selectedTargets.has(t.code) ? "text-white/70" : "text-muted"}`}>
+                              {t.recipients.map((r) => r.name).join(", ")}
+                            </span>
+                          ) : null}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_200px]">
+                    <Field label="Instruksi disposisi*">
+                      <textarea
+                        value={instruction}
+                        onChange={(e) => setInstruction(e.target.value)}
+                        rows={3}
+                        placeholder="Contoh: Tindak lanjuti dan laporkan hasilnya."
+                        className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
+                      />
+                    </Field>
+                    <Field label="Batas waktu">
+                      <input
+                        type="date"
+                        value={deadline}
+                        onChange={(e) => setDeadline(e.target.value)}
+                        className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
+                      />
+                    </Field>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={acting !== null}
+                    onClick={disposeLetter}
+                    className="mt-2 rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                  >
+                    {acting === "dispose" ? "Mengirim…" : "Kirim disposisi"}
                   </button>
                 </div>
               ) : null}
 
-              {actions.includes("paraf") ? (
-                <div className="mt-4 rounded-xl border border-warn-700/30 bg-warn-100 p-4">
-                  <h3 className="text-sm font-semibold">Pemeriksaan Sekcam — paraf</h3>
-                  <p className="mt-1 text-xs text-muted">Paraf hanya dari status RECEIVED. Catatan opsional.</p>
-                  <button disabled={acting !== null} onClick={() => void simple("paraf", { note: completeNote || undefined })} className="mt-2 rounded-lg bg-warn-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
-                    {acting === "paraf" ? "Memproses…" : "Paraf & teruskan ke Camat"}
-                  </button>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="rounded-lg border border-line bg-surface p-5">
-              <h2 className="font-semibold">Dokumen ({detail.documents?.length ?? 0})</h2>
-              <ul className="mt-2 space-y-2 text-sm">
-                {(detail.documents ?? []).map((d) => (
-                  <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-paper px-3 py-2">
-                    <span className="font-semibold">{d.originalName}</span>
-                    <span className="text-xs text-muted">{d.mimeType || "berkas"} • {(d.sizeBytes / 1024).toFixed(1)} KB</span>
-                    <a href={fileUrl(d.downloadUrl)} className="ml-auto rounded-md border border-line bg-white px-2 py-1 text-[11px] font-medium text-brand-900 hover:bg-paper">Unduh</a>
-                  </li>
-                ))}
-                {(detail.documents ?? []).length === 0 ? (
-                  <li className="text-muted">Belum ada dokumen.</li>
-                ) : null}
-              </ul>
-              <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
-                {canUpload ? (
-                  <>
-                    <FileButton hint="PDF/JPG/PNG, maks 10MB" onSelect={setFile} />
-                    <button disabled={acting !== null} onClick={() => void upload()} className="rounded-lg border border-line px-3 py-1.5 text-sm font-semibold hover:bg-paper disabled:opacity-50">
-                      {acting === "upload" ? "…" : "Unggah dokumen"}
+              {canArchive ? (
+                <div className="mt-3 rounded-lg border border-line p-3">
+                  <p className="text-sm font-medium">Persetujuan arsip</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    Surat sudah antre arsip. Setujui di sini atau buka antrean untuk menolak dengan catatan.
+                  </p>
+                  <textarea
+                    value={archiveNote}
+                    onChange={(e) => setArchiveNote(e.target.value)}
+                    rows={2}
+                    placeholder="Catatan arsip (opsional)"
+                    className="mt-2 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
+                  />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={acting !== null}
+                      onClick={archiveLetter}
+                      className="rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                    >
+                      {acting === "archive" ? "Memproses…" : "Setujui & Arsipkan"}
                     </button>
-                  </>
-                ) : null}
-                <a href={`/surat-masuk/${detail.id}/lembar-disposisi`} target="_blank" rel="noreferrer" className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
-                  Lembar disposisi (cetak)
-                </a>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-line bg-surface p-5">
-              <h2 className="font-semibold">Penyelesaian & arsip</h2>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {actions.includes("complete") ? (
-                  <>
-                    <input value={completeNote} onChange={(e) => setCompleteNote(e.target.value)} placeholder="Catatan penyelesaian (opsional)" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                    <button disabled={acting !== null} onClick={() => void simple("complete", { note: completeNote || undefined })} className="rounded-lg bg-ok-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
-                      {acting === "complete" ? "…" : "Selesaikan"}
-                    </button>
-                  </>
-                ) : null}
-                {actions.includes("archive") ? (
-                  <button disabled={acting !== null} onClick={() => void simple("archive", {})} className="rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
-                    {acting === "archive" ? "…" : "Arsipkan"}
-                  </button>
-                ) : null}
-                {!actions.includes("complete") && !actions.includes("archive") ? (
-                  <p className="text-sm text-muted">Tidak ada aksi penyelesaian untuk Anda.</p>
-                ) : null}
-              </div>
-              {canRegister ? (
-                <div className="mt-3 border-t pt-3">
-                  <button onClick={() => void router.push(`/surat-masuk/${detail.id}/agenda`)} className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:bg-paper">
-                    Atur agenda kegiatan & petugas
-                  </button>
+                    <Link
+                      href="/arsip?tab=antrean"
+                      className="rounded-lg border border-line bg-field px-3 py-2 text-sm font-medium hover:bg-paper"
+                    >
+                      Buka antrean arsip
+                    </Link>
+                  </div>
                 </div>
               ) : null}
-            </div>
 
-            {canExpedition ? (
-              <div className="rounded-lg border border-line bg-surface p-5">
-                <h2 className="font-semibold">Buku ekspedisi — catat tanda terima</h2>
-                <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                  <input value={expName} onChange={(e) => setExpName(e.target.value)} placeholder="Nama penerima*" className="rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  <input value={expSign} onChange={(e) => setExpSign(e.target.value)} placeholder="Paraf / nama penandatangan" className="rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  <input value={expNote} onChange={(e) => setExpNote(e.target.value)} placeholder="Catatan (opsional)" className="rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
+              {!canSubmit && !canUpload && !canForward && !canDispose && !canArchive &&
+              !dispositionGroups.targets.some((d) => d.canAccept || d.canComplete) ? (
+                <p className="mt-3 text-sm text-muted">Tidak ada tindakan yang tersedia untuk akun ini.</p>
+              ) : null}
+            </section>
+
+            {dispositionGroups.selfNotes.length ? (
+              <section className="rounded-lg border border-line bg-surface p-5">
+                <h2 className="font-semibold">Catatan Sekcam</h2>
+                <div className="mt-2 space-y-2">
+                  {dispositionGroups.selfNotes.map((d) => (
+                    <div key={d.id} className="rounded-md bg-paper px-3 py-2 text-sm">
+                      <p>{d.instruction}</p>
+                      <p className="mt-1 text-xs text-muted">{fmtDateTime(d.createdAt)}</p>
+                    </div>
+                  ))}
                 </div>
-                <button disabled={acting !== null} onClick={() => void recordExpedition()} className="mt-2 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
-                  {acting === "expedition" ? "…" : "Catat tanda terima"}
-                </button>
-              </div>
+              </section>
             ) : null}
+
+            <section className="rounded-lg border border-line bg-surface p-5">
+              <h2 className="font-semibold">Dokumen</h2>
+              <div className="mt-2 space-y-2">
+                {detail.documents?.length ? (
+                  detail.documents.map((doc) => <DocumentPreview key={doc.id} document={doc} />)
+                ) : (
+                  <p className="text-sm text-muted">Belum ada dokumen.</p>
+                )}
+              </div>
+            </section>
+
+            {detail.letterType === "UNDANGAN" ? (
+              <section className="rounded-lg border border-line bg-surface p-5">
+                <h2 className="font-semibold">Kegiatan undangan</h2>
+                <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                  <Info label="Tanggal kegiatan" value={fmtDate(detail.activityDate)} />
+                  <Info label="Waktu" value={detail.activityStartTime ? `${detail.activityStartTime}${detail.activityEndTime ? ` – ${detail.activityEndTime}` : ""}` : "—"} />
+                  <Info label="Tempat" value={detail.activityLocation ?? "—"} />
+                  <Info label="Petugas agenda" value={detail.assignedStaff?.map((s) => s.name).join(", ") || "—"} />
+                </div>
+              </section>
+            ) : null}
+
+            <p className="text-xs text-muted">
+              Status surat diperbarui otomatis oleh backend setelah setiap tindakan.
+            </p>
           </div>
         )}
       </div>
     </RequirePerm>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
+      <p className="mt-0.5 break-words text-sm">{value || "—"}</p>
+    </div>
   );
 }

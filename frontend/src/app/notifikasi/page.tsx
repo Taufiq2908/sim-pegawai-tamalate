@@ -1,13 +1,70 @@
 "use client";
-import { toast } from "@/components/toast";
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import { toast } from "@/components/toast";
+import { refreshNotificationBadge } from "@/lib/notification-refresh";
 import type { NotificationItem } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
+
+function notificationLink(n: NotificationItem, isEmployee: boolean): { href: string; label: string } | null {
+  if (n.referenceType === "incoming_letter" && n.referenceId) {
+    return { href: `/surat-masuk/${n.referenceId}`, label: "Buka surat masuk" };
+  }
+  if (n.referenceType === "outgoing_letter" && n.referenceId) {
+    return { href: `/surat-keluar/${n.referenceId}`, label: "Buka surat keluar" };
+  }
+  if (n.referenceType === "letter_disposition" && n.referenceId) {
+    // referenceId adalah ID disposisi; detail surat masuk me-resolve ke surat induk.
+    return { href: `/surat-masuk/${n.referenceId}`, label: "Buka surat masuk" };
+  }
+  if (n.referenceType === "leave_request" && n.referenceId) {
+    return { href: `/cuti/${n.referenceId}`, label: "Buka pengajuan cuti" };
+  }
+  if ((n.referenceType === "kgb_request" || n.referenceType === "KGB") && n.referenceId) {
+    return { href: `/kgb/${n.referenceId}`, label: "Buka pengajuan KGB" };
+  }
+  if (n.referenceType === "kgb_reminder") {
+    return isEmployee
+      ? { href: "/kgb", label: "Buka KGB" }
+      : { href: "/kgb/monitoring", label: "Buka monitoring KGB" };
+  }
+  if (n.referenceType === "archive_list" && n.referenceId) {
+    return { href: `/arsip/daftar/${n.referenceId}`, label: "Buka daftar arsip" };
+  }
+  if (n.referenceType === "warning_letter" && n.referenceId) {
+    return { href: `/presensi/teguran/${n.referenceId}`, label: "Buka surat teguran" };
+  }
+  return null;
+}
+
+function notificationBadge(n: NotificationItem): { label: string; className: string } | null {
+  if (n.referenceType === "kgb_reminder") {
+    return { label: "Pengingat KGB", className: "bg-warn-100 text-warn-700" };
+  }
+  if (n.type === "ARCHIVE_APPROVAL") {
+    return { label: "Antrean Arsip", className: "bg-info-100 text-info-700" };
+  }
+  if (n.type === "ARCHIVE_REJECTED") {
+    return { label: "Revisi Arsip", className: "bg-bad-100 text-bad-700" };
+  }
+  if (n.type === "LETTER_REVISION") {
+    return { label: "Revisi Surat", className: "bg-bad-100 text-bad-700" };
+  }
+  if (n.type === "LETTER_REVIEW") {
+    return { label: "Surat Masuk", className: "bg-warn-100 text-warn-700" };
+  }
+  if (n.type === "LETTER_DISPOSITION" || n.type === "DISPOSITION") {
+    return { label: "Disposisi", className: "bg-info-100 text-info-700" };
+  }
+  if (n.type === "ARCHIVE" || n.referenceType === "archive_list") {
+    return { label: "Arsip", className: "bg-info-100 text-info-700" };
+  }
+  return null;
+}
 
 export default function NotifikasiPage() {
   const { user } = useAuth();
@@ -16,18 +73,18 @@ export default function NotifikasiPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError("");
     try {
       const { data } = await apiFetch<NotificationItem[]>(
-        `/notifications?${onlyUnread ? "unread=true&" : ""}page=1&limit=20`,
+        `/notifications?${onlyUnread ? "unread=true&" : ""}page=1&limit=50`,
       );
       setItems(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal memuat notifikasi");
+      if (!silent) setError(err instanceof Error ? err.message : "Gagal memuat notifikasi");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [onlyUnread]);
 
@@ -35,10 +92,23 @@ export default function NotifikasiPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const refresh = () => void load(true);
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("notifications:refresh", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("notifications:refresh", refresh);
+    };
+  }, [load]);
+
   async function markRead(id: string) {
     try {
       await apiFetch(`/notifications/${id}/read`, { method: "PATCH", body: JSON.stringify({}) });
       setItems((list) => list.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+      refreshNotificationBadge();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Gagal menandai dibaca");
     }
@@ -46,7 +116,7 @@ export default function NotifikasiPage() {
 
   return (
     <AppShell>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold">Notifikasi</h1>
         <label className="ml-auto flex items-center gap-2 text-sm text-muted">
           <input type="checkbox" checked={onlyUnread} onChange={(e) => setOnlyUnread(e.target.checked)} />
@@ -63,78 +133,54 @@ export default function NotifikasiPage() {
           <EmptyState title="Tidak ada notifikasi" />
         ) : (
           <ul className="space-y-2">
-            {items.map((n) => (
-              <li
-                key={n.id}
-                className={`rounded-xl border px-4 py-3 ${n.isRead ? "border-line bg-white" : "border-brand-700 bg-surface"}`}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-semibold">{n.title}</p>
-                  {n.referenceType === "kgb_reminder" ? (
-                    <span className="rounded-full bg-warn-100 px-2 py-0.5 text-xs font-semibold text-warn-700">
-                      Pengingat KGB
+            {items.map((n) => {
+              const link = notificationLink(n, user?.role === "EMPLOYEE");
+              const badge = notificationBadge(n);
+              return (
+                <li
+                  key={n.id}
+                  className={`rounded-xl border px-4 py-3 ${n.isRead ? "border-line bg-surface" : "border-brand-700 bg-surface"}`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold">{n.title}</p>
+                    {badge ? (
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badge.className}`}>
+                        {badge.label}
+                      </span>
+                    ) : null}
+                    {!n.isRead ? (
+                      <span className="rounded-full bg-brand-900 px-2 py-0.5 text-xs font-semibold text-white">Baru</span>
+                    ) : null}
+                    <span className="ml-auto text-xs text-muted">
+                      {new Date(n.createdAt).toLocaleString("id-ID")}
                     </span>
-                  ) : null}
-                  {n.type === "ARCHIVE" ? (
-                    <span className="rounded-full bg-info-100 px-2 py-0.5 text-xs font-semibold text-info-700">
-                      Arsip
-                    </span>
-                  ) : null}
-                  {!n.isRead ? (
-                    <span className="rounded-full bg-brand-900 px-2 py-0.5 text-xs font-semibold text-white">Baru</span>
-                  ) : null}
-                  <span className="ml-auto text-xs text-slate-400">
-                    {new Date(n.createdAt).toLocaleString("id-ID")}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-muted">{n.body}</p>
-                <div className="mt-2 flex gap-2">
-                  {n.referenceType === "letter_disposition" ? (
-                    // referenceId = ID disposisi; halaman detail surat masuk
-                    // me-resolve ke surat induk dan menandai disposisi terkait.
-                    <Link
-                      href={n.referenceId ? `/surat-masuk/${n.referenceId}` : "/surat-masuk"}
-                      className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110"
-                    >
-                      Buka surat masuk
-                    </Link>
-                  ) : null}
-                  {n.referenceType === "leave_request" && n.referenceId ? (
-                    <Link href={`/cuti/${n.referenceId}`} className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
-                      Buka pengajuan cuti
-                    </Link>
-                  ) : null}
-                  {(n.referenceType === "kgb_request" || n.referenceType === "KGB") && n.referenceId ? (
-                    <Link href={`/kgb/${n.referenceId}`} className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
-                      Buka pengajuan KGB
-                    </Link>
-                  ) : null}
-                  {n.referenceType === "kgb_reminder" ? (
-                    <Link
-                      href={user?.role === "EMPLOYEE" ? "/kgb" : "/kgb/monitoring"}
-                      className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110"
-                    >
-                      {user?.role === "EMPLOYEE" ? "Buka KGB" : "Buka monitoring KGB"}
-                    </Link>
-                  ) : null}
-                  {n.referenceType === "archive_list" && n.referenceId ? (
-                    <Link href={`/arsip/daftar/${n.referenceId}`} className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
-                      Buka daftar arsip
-                    </Link>
-                  ) : null}
-                  {n.referenceType === "warning_letter" && n.referenceId ? (
-                    <Link href={`/presensi/teguran/${n.referenceId}`} className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110">
-                      Buka surat teguran
-                    </Link>
-                  ) : null}
-                  {!n.isRead ? (
-                    <button onClick={() => void markRead(n.id)} className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm font-semibold text-ink hover:bg-paper">
-                      Tandai dibaca
-                    </button>
-                  ) : null}
-                </div>
-              </li>
-            ))}
+                  </div>
+                  <p className="mt-1 text-sm text-muted">{n.body}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {link ? (
+                      <Link
+                        href={link.href}
+                        onClick={() => {
+                          if (!n.isRead) void markRead(n.id);
+                        }}
+                        className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110"
+                      >
+                        {link.label}
+                      </Link>
+                    ) : null}
+                    {!n.isRead ? (
+                      <button
+                        type="button"
+                        onClick={() => void markRead(n.id)}
+                        className="rounded-lg border border-line bg-field px-3 py-1.5 text-sm font-semibold text-ink hover:bg-paper"
+                      >
+                        Tandai dibaca
+                      </button>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

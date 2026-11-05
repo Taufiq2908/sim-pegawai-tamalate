@@ -113,14 +113,14 @@ export default function DashboardPage() {
         const [reg, bkpsdm, surat, notif] = await Promise.all([
           get("/leave-requests?status=APPROVED"),
           get("/leave-requests?status=REGISTERED"),
-          get("/letters?status=RECEIVED"),
+          get("/letters?status=DRAFT_TU"),
           unread(),
         ]);
         if (!alive) return;
         setMetrics([
           M(num(reg), "Cuti", "siap registrasi", "amber", "/cuti?status=APPROVED"),
           M(num(bkpsdm), "Cuti", "menunggu ke BKPSDM", "amber", "/cuti?status=REGISTERED"),
-          M(num(surat), "Surat baru", "belum dicatat", "amber", "/surat-masuk?status=RECEIVED"),
+          M(num(surat), "Draft surat", "belum dikirim ke Sekcam", "amber", "/surat-masuk?status=DRAFT_TU"),
           M(notif, "Notifikasi", "belum dibaca", "blue", "/notifikasi"),
         ]);
       } else if (role === "SUPERVISOR") {
@@ -160,8 +160,8 @@ export default function DashboardPage() {
         const [cuti, kgb, suratA, suratB, notif, prob] = await Promise.all([
           get(isSekcam ? "/leave-requests?status=VERIFIED" : "/leave-requests?status=PARAF"),
           get(isSekcam ? "/kgb-requests?status=VERIFIED" : "/kgb-requests?status=PARAF"),
-          get(isSekcam ? "/letters?status=RECEIVED" : "/letters?status=PARAF"),
-          isSekcam ? Promise.resolve(null) : get("/letters?status=DISPOSED"),
+          get(isSekcam ? "/letters?status=REVIEW_SEKCAM" : "/letters?status=DISPOSISI_CAMAT"),
+          isSekcam ? Promise.resolve(null) : get("/letters?status=PROSES"),
           unread(),
           problematic(),
         ]);
@@ -169,9 +169,9 @@ export default function DashboardPage() {
         const list: Metric[] = [
           M(num(cuti), "Cuti", isSekcam ? "menunggu paraf" : "menunggu keputusan", "amber", "/cuti"),
           M(num(kgb), "KGB", isSekcam ? "menunggu paraf" : "menunggu keputusan", "amber", "/kgb"),
-          M(num(suratA), "Surat", isSekcam ? "menunggu paraf" : "menunggu disposisi", "amber", "/surat-masuk"),
+          M(num(suratA), "Surat", isSekcam ? "menunggu diteruskan" : "menunggu disposisi", "amber", `/surat-masuk?status=${isSekcam ? "REVIEW_SEKCAM" : "DISPOSISI_CAMAT"}`),
         ];
-        if (!isSekcam) list.push(M(num(suratB), "Surat", "dalam tindak lanjut", "blue", "/surat-masuk?status=DISPOSED"));
+        if (!isSekcam) list.push(M(num(suratB), "Surat", "dalam proses", "blue", "/surat-masuk?status=PROSES"));
         list.push(M(prob, "Bermasalah", "pegawai pekan ini", "red", "/presensi"));
         list.push(M(notif, "Notifikasi", "belum dibaca", "blue", "/notifikasi"));
         setMetrics(list);
@@ -180,7 +180,7 @@ export default function DashboardPage() {
         setHeading("Gambaran sistem hari ini.");
         const [cuti, surat, users, notif, prob] = await Promise.all([
           get("/leave-requests?status=SUBMITTED"),
-          get("/letters?status=RECEIVED"),
+          get("/letters?status=REVIEW_SEKCAM"),
           get("/users?limit=1"),
           unread(),
           problematic(),
@@ -188,7 +188,7 @@ export default function DashboardPage() {
         if (!alive) return;
         setMetrics([
           M(num(cuti), "Cuti", "menunggu pemeriksaan", "amber", "/cuti?status=SUBMITTED"),
-          M(num(surat), "Surat baru", "belum didisposisikan", "amber", "/surat-masuk?status=RECEIVED"),
+          M(num(surat), "Surat", "menunggu Sekcam", "amber", "/surat-masuk?status=REVIEW_SEKCAM"),
           M(num(users), "Pengguna", "terdaftar", "gray", "/notifikasi"),
           M(prob, "Bermasalah", "pegawai pekan ini", "red", "/presensi"),
           M(notif, "Notifikasi", "belum dibaca", "blue", "/notifikasi"),

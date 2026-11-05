@@ -269,8 +269,8 @@ export default function SuratPengantarCutiPage() {
           {logoOk ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src="/logo-tamalate.png"
-              alt="Logo"
+              src="/logo-kota-makassar.png"
+              alt="Logo Pemerintah Kota Makassar"
               className="h-20 w-20 shrink-0 object-contain"
               onError={() => setLogoOk(false)}
             />
