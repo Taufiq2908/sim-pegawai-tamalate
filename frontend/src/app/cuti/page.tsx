@@ -29,7 +29,9 @@ const FILTERS: Array<{ value: "" | LeaveStatus; label: string }> = [
 const LIMIT = 10;
 
 export default function CutiListPage() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
+  // Verifier hanya memproses/melihat, tidak membuat pengajuan cuti.
+  const canCreate = hasPermission("leave.create") && user?.role !== "VERIFIER";
   const [items, setItems] = useState<LeaveItem[]>([]);
   const [meta, setMeta] = useState<PageMeta | null>(null);
   const [types, setTypes] = useState<LeaveType[]>([]);
@@ -85,7 +87,7 @@ export default function CutiListPage() {
   return (
     <RequirePerm perm="leave.view" label="Cuti">
       <div className="flex flex-wrap items-center gap-3">
-        {hasPermission("leave.create") ? (
+        {canCreate ? (
           <Link
             href="/cuti/baru"
             className="ml-auto rounded-lg bg-brand-900 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brand-800"

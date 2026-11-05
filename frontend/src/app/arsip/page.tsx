@@ -16,14 +16,18 @@ import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
 interface ArchiveQueueRow {
   id: string;
-  nomor: string;
-  nomorSurat: string;
-  perihal: string;
-  asalTujuan: string | null;
-  tanggalSelesai: string | null;
-  tanggalDiterima?: string;
+  // Kontrak kanonik antrean arsip.
+  agendaNumber?: string | null;
+  letterNumber: string;
+  subject: string;
+  sender?: string | null;
+  recipient?: string | null;
+  receivedDate?: string;
+  completedAt?: string | null;
+  letterDate?: string;
+  issuedAt?: string | null;
   status: string;
-  klasifikasi: string | null;
+  classification?: { code: string; name?: string } | null;
   archiveRecord: null;
 }
 
@@ -157,6 +161,16 @@ export default function ArsipPage() {
   const sourceLabel = (s: ArchiveRecord["sourceType"]): string =>
     s === "INCOMING" ? "Masuk" : "Keluar";
 
+  const queueNumber = (row: ArchiveQueueRow): string =>
+    queueType === "incoming" ? row.agendaNumber ?? row.letterNumber : row.letterNumber;
+  const queueParty = (row: ArchiveQueueRow): string =>
+    queueType === "incoming" ? row.sender ?? "—" : row.recipient ?? "—";
+  const queueDate = (row: ArchiveQueueRow): string => {
+    const value = queueType === "incoming" ? row.completedAt : row.issuedAt ?? row.letterDate;
+    return value ? value.slice(0, 10) : "—";
+  };
+  const queueClassification = (row: ArchiveQueueRow): string => row.classification?.code ?? "—";
+
   const pageCount = Math.max(1, Math.ceil((meta?.total ?? 0) / (meta?.limit ?? 20)));
 
   function toggleSelected(id: string) {
@@ -195,7 +209,7 @@ export default function ArsipPage() {
     }
 
     const labels = Object.fromEntries(
-      queueRows.filter((row) => selected.has(row.id)).map((row) => [row.id, `${row.nomor} — ${row.perihal}`]),
+      queueRows.filter((row) => selected.has(row.id)).map((row) => [row.id, `${queueNumber(row)} — ${row.subject}`]),
     );
     const ids = Array.from(selected);
     const base =
@@ -302,7 +316,14 @@ export default function ArsipPage() {
             ) : queueLoading ? (
               <Skeleton className="h-32 w-full" />
             ) : queueRows.length === 0 ? (
-              <EmptyState title="Antrean kosong" hint="Surat akan muncul setelah semua target disposisi selesai." />
+              <EmptyState
+                title="Antrean kosong"
+                hint={
+                  queueType === "incoming"
+                    ? "Surat akan muncul setelah semua target disposisi selesai."
+                    : "Surat akan muncul setelah surat terkirim dan siap diarsipkan."
+                }
+              />
             ) : (
               <>
                 <div className="overflow-x-auto rounded-lg border border-line">
@@ -332,16 +353,16 @@ export default function ArsipPage() {
                           <td className="px-3 py-2">
                             <input
                               type="checkbox"
-                              aria-label={`Pilih ${row.nomor}`}
+                              aria-label={`Pilih ${queueNumber(row)}`}
                               checked={selected.has(row.id)}
                               onChange={() => toggleSelected(row.id)}
                             />
                           </td>
-                          <td className="px-3 py-2 font-medium">{row.nomor}</td>
-                          <td className="max-w-72 px-3 py-2">{row.perihal}</td>
-                          <td className="px-3 py-2">{row.asalTujuan ?? "—"}</td>
-                          <td className="px-3 py-2 tabular-nums text-muted">{row.tanggalSelesai ?? "—"}</td>
-                          <td className="px-3 py-2">{row.klasifikasi ?? "—"}</td>
+                          <td className="px-3 py-2 font-medium">{queueNumber(row)}</td>
+                          <td className="max-w-72 px-3 py-2">{row.subject}</td>
+                          <td className="px-3 py-2">{queueParty(row)}</td>
+                          <td className="px-3 py-2 tabular-nums text-muted">{queueDate(row)}</td>
+                          <td className="px-3 py-2">{queueClassification(row)}</td>
                           <td className="px-3 py-2"><StatusBadge status={row.status} /></td>
                           <td className="px-3 py-2">
                             <Link

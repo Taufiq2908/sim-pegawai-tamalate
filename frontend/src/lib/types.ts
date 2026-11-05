@@ -368,6 +368,7 @@ export interface OutgoingLetter {
   updatedAt?: string;
   archiveRejectedAt?: string | null;
   archiveRejectionNote?: string | null;
+  availableActions?: string[];
   classification?: { id: string; code: string; name: string } | null;
   documents?: LetterDocument[];
   archiveRecord?: {

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
-import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
 import { DocumentPreview } from "@/components/document-preview";
 import { Field, FileButton } from "@/components/form";
@@ -33,7 +32,6 @@ function fmtDateTime(value?: string | null) {
 export default function SuratKeluarDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { hasPermission } = useAuth();
 
   const [detail, setDetail] = useState<OutgoingLetter | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,6 +89,13 @@ export default function SuratKeluarDetailPage() {
     (key: keyof typeof issueForm) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setIssueForm((form) => ({ ...form, [key]: e.target.value }));
+
+  // Sumber kebenaran tombol aksi: availableActions dari backend.
+  const actions = detail?.availableActions ?? [];
+  const canIssue = actions.includes("issue");
+  const canCancel = actions.includes("cancel");
+  const canUpload = actions.includes("upload");
+  const canResubmit = actions.includes("resubmit_archive");
 
   async function issue() {
     if (!issueForm.recipient.trim()) {
@@ -264,7 +269,7 @@ export default function SuratKeluarDetailPage() {
                 <h2 className="font-semibold text-bad-700">Arsip dikembalikan untuk revisi</h2>
                 <p className="mt-1 text-sm">{detail.archiveRejectionNote || "Tidak ada catatan revisi."}</p>
                 <p className="mt-1 text-xs text-muted">Dikembalikan {fmtDateTime(detail.archiveRejectedAt)}</p>
-                {hasPermission("outgoing.issue") ? (
+                {canResubmit ? (
                   <button
                     type="button"
                     disabled={acting !== null}
@@ -277,64 +282,68 @@ export default function SuratKeluarDetailPage() {
               </section>
             ) : null}
 
-            {detail.status === "RESERVED" && hasPermission("outgoing.issue") ? (
+            {canIssue || canCancel ? (
               <section className="rounded-lg border border-line bg-surface p-5">
-                <h2 className="font-semibold">Terbitkan reservasi</h2>
-                <p className="mt-0.5 text-sm text-muted">
-                  Nomor tetap. Tanggal boleh dikoreksi; backend menghitung ulang segmen tanggal tanpa mengubah urutan nomor.
-                </p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <Field label="Perihal*">
-                    <input value={issueForm.subject} onChange={setIssue("subject")} placeholder="Isi perihal surat" className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  </Field>
-                  <Field label="Tujuan*">
-                    <input value={issueForm.recipient} onChange={setIssue("recipient")} placeholder="Instansi/pegawai tujuan" className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  </Field>
-                  <Field label="Tanggal surat*">
-                    <input type="date" max={today()} value={issueForm.letterDate} onChange={setIssue("letterDate")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  </Field>
-                  <Field label="Prioritas">
-                    <select value={issueForm.priority} onChange={setIssue("priority")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700">
-                      <option value="BIASA">Biasa</option>
-                      <option value="SEGERA">Segera</option>
-                      <option value="SANGAT_SEGERA">Sangat segera</option>
-                    </select>
-                  </Field>
-                  <Field label="Sifat">
-                    <select value={issueForm.secrecy} onChange={setIssue("secrecy")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700">
-                      <option value="B">Biasa</option>
-                      <option value="R">Rahasia</option>
-                      <option value="SR">Sangat rahasia</option>
-                    </select>
-                  </Field>
-                  <Field label="Penandatangan">
-                    <input value={issueForm.signerName} onChange={setIssue("signerName")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  </Field>
-                  <Field label="Kode surat">
-                    <input value={issueForm.letterCode} onChange={setIssue("letterCode")} placeholder="cth: 800.1" className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  </Field>
-                  <Field label="Nomor tujuan">
-                    <input value={issueForm.destinationNumber} onChange={setIssue("destinationNumber")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  </Field>
-                  <Field label="Penanggung jawab">
-                    <input value={issueForm.personInCharge} onChange={setIssue("personInCharge")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  </Field>
-                  <Field label="Keterangan">
-                    <input value={issueForm.remarks} onChange={setIssue("remarks")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  </Field>
-                </div>
-                <button
-                  type="button"
-                  disabled={acting !== null}
-                  onClick={() => void issue()}
-                  className="mt-3 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
-                >
-                  {acting === "issue" ? "Menerbitkan…" : "Terbitkan surat"}
-                </button>
+                <h2 className="font-semibold">{canIssue ? "Terbitkan reservasi" : "Batalkan reservasi"}</h2>
+                {canIssue ? (
+                  <>
+                    <p className="mt-0.5 text-sm text-muted">
+                      Nomor tetap. Tanggal boleh dikoreksi; backend menghitung ulang segmen tanggal tanpa mengubah urutan nomor.
+                    </p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <Field label="Perihal*">
+                        <input value={issueForm.subject} onChange={setIssue("subject")} placeholder="Isi perihal surat" className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Tujuan*">
+                        <input value={issueForm.recipient} onChange={setIssue("recipient")} placeholder="Instansi/pegawai tujuan" className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Tanggal surat*">
+                        <input type="date" max={today()} value={issueForm.letterDate} onChange={setIssue("letterDate")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Prioritas">
+                        <select value={issueForm.priority} onChange={setIssue("priority")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700">
+                          <option value="BIASA">Biasa</option>
+                          <option value="SEGERA">Segera</option>
+                          <option value="SANGAT_SEGERA">Sangat segera</option>
+                        </select>
+                      </Field>
+                      <Field label="Sifat">
+                        <select value={issueForm.secrecy} onChange={setIssue("secrecy")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700">
+                          <option value="B">Biasa</option>
+                          <option value="R">Rahasia</option>
+                          <option value="SR">Sangat rahasia</option>
+                        </select>
+                      </Field>
+                      <Field label="Penandatangan">
+                        <input value={issueForm.signerName} onChange={setIssue("signerName")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Kode surat">
+                        <input value={issueForm.letterCode} onChange={setIssue("letterCode")} placeholder="cth: 800.1" className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Nomor tujuan">
+                        <input value={issueForm.destinationNumber} onChange={setIssue("destinationNumber")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Penanggung jawab">
+                        <input value={issueForm.personInCharge} onChange={setIssue("personInCharge")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Keterangan">
+                        <input value={issueForm.remarks} onChange={setIssue("remarks")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={acting !== null}
+                      onClick={() => void issue()}
+                      className="mt-3 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                    >
+                      {acting === "issue" ? "Menerbitkan…" : "Terbitkan surat"}
+                    </button>
+                  </>
+                ) : null}
 
-                {hasPermission("outgoing.cancel") ? (
-                  <div className="mt-4 border-t border-line pt-3">
-                    <h3 className="text-sm font-semibold">Batalkan reservasi</h3>
+                {canCancel ? (
+                  <div className={canIssue ? "mt-4 border-t border-line pt-3" : "mt-3"}>
+                    {canIssue ? <h3 className="text-sm font-semibold">Batalkan reservasi</h3> : null}
                     <div className="mt-2 flex flex-wrap gap-2">
                       <input
                         value={cancelReason}
@@ -365,7 +374,7 @@ export default function SuratKeluarDetailPage() {
                   <p className="text-sm text-muted">Belum ada dokumen.</p>
                 )}
               </div>
-              {detail.status !== "CANCELLED" && hasPermission("outgoing.create") ? (
+              {canUpload ? (
                 <div className="mt-3 border-t border-line pt-3">
                   <FileButton hint="PDF/JPG/PNG, maksimal 10 MB." onSelect={setFile} />
                   <button

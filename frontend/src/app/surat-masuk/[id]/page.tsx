@@ -517,188 +517,201 @@ export default function SuratMasukDetailPage() {
               </section>
             </div>
 
-            <section className="rounded-lg border border-line bg-surface p-5">
-              <h2 className="font-semibold">Tindakan</h2>
-
-              {canSubmit ? (
-                <div className="mt-3 rounded-lg border border-line p-3">
-                  <p className="text-sm font-medium">Kirim ke Sekcam</p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    Pastikan berkas, ringkasan, dan klasifikasi sudah lengkap.
-                  </p>
-                  <button
-                    type="button"
-                    disabled={acting !== null}
-                    onClick={submitLetter}
-                    className="mt-2 rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
-                  >
-                    {acting === "submit" ? "Mengirim…" : "Simpan & Kirim ke Sekcam"}
-                  </button>
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(300px,1fr)]">
+              <section className="min-w-0 rounded-lg border border-line bg-surface p-5">
+                <h2 className="font-semibold">Dokumen</h2>
+                <div className="mt-2 space-y-2">
+                  {detail.documents?.length ? (
+                    detail.documents.map((doc) => <DocumentPreview key={doc.id} document={doc} />)
+                  ) : (
+                    <p className="text-sm text-muted">Belum ada dokumen.</p>
+                  )}
                 </div>
-              ) : null}
+              </section>
 
-              {canUpload ? (
-                <div className="mt-3 rounded-lg border border-line p-3">
-                  <p className="text-sm font-medium">Unggah dokumen</p>
-                  <p className="mt-0.5 text-xs text-muted">Hanya saat status Draft TU.</p>
-                  <div className="mt-2">
-                    <FileButton hint="PDF/JPG/PNG, maksimal 10 MB." onSelect={setFile} />
-                  </div>
-                  <button
-                    type="button"
-                    disabled={acting !== null || !file}
-                    onClick={uploadDocument}
-                    className="mt-2 rounded-lg border border-line bg-field px-3 py-2 text-sm font-semibold hover:bg-paper disabled:opacity-50"
-                  >
-                    {acting === "upload" ? "Mengunggah…" : "Unggah dokumen"}
-                  </button>
-                </div>
-              ) : null}
+              <section className="min-w-0 rounded-lg border border-line bg-surface p-5">
+                <h2 className="font-semibold">Tindakan</h2>
 
-              {canForward ? (
-                <div className="mt-3 rounded-lg border border-line p-3">
-                  <p className="text-sm font-medium">Teruskan ke Camat</p>
-                  <textarea
-                    value={forwardNote}
-                    onChange={(e) => setForwardNote(e.target.value)}
-                    rows={2}
-                    placeholder="Catatan untuk Camat (opsional)"
-                    className="mt-2 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
-                  />
-                  <button
-                    type="button"
-                    disabled={acting !== null}
-                    onClick={forwardLetter}
-                    className="mt-2 rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
-                  >
-                    {acting === "forward" ? "Meneruskan…" : "Teruskan ke Camat"}
-                  </button>
-                </div>
-              ) : null}
-
-              {canDispose ? (
-                <div className="mt-3 rounded-lg border border-line p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-medium">Disposisi Camat</p>
-                      <p className="mt-0.5 text-xs text-muted">Centang tujuan, lalu tulis satu instruksi untuk semua target.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelectedTargets(
-                          new Set(targets.filter((t) => t.available).map((t) => t.code)),
-                        )
-                      }
-                      className="text-xs font-semibold text-brand-800 hover:underline"
-                    >
-                      Pilih semua tujuan tersedia
-                    </button>
-                  </div>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {targetsLoading ? (
-                      <p className="text-sm text-muted">Memuat tujuan disposisi…</p>
-                    ) : targets.length === 0 ? (
-                      <p className="text-sm text-muted">Tujuan disposisi belum tersedia.</p>
-                    ) : (
-                      targets.map((t) => (
-                        <label
-                          key={t.code}
-                          className={`cursor-pointer rounded-lg border p-2.5 text-sm ${
-                            !t.available
-                              ? "cursor-not-allowed border-line bg-paper text-muted"
-                              : selectedTargets.has(t.code)
-                                ? "border-brand-900 bg-brand-900 text-white"
-                                : "border-line bg-surface hover:bg-paper"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="sr-only"
-                            disabled={!t.available}
-                            checked={selectedTargets.has(t.code)}
-                            onChange={() => toggleTarget(t.code)}
-                          />
-                          <span className="block font-medium">{t.name}</span>
-                          <span className={`block text-xs ${selectedTargets.has(t.code) ? "text-white/75" : "text-muted"}`}>
-                            {t.available ? `${t.recipients.length} penerima aktif` : "Belum ada penerima aktif"}
-                          </span>
-                          {t.recipients.length ? (
-                            <span className={`mt-1 block truncate text-[11px] ${selectedTargets.has(t.code) ? "text-white/70" : "text-muted"}`}>
-                              {t.recipients.map((r) => r.name).join(", ")}
-                            </span>
-                          ) : null}
-                        </label>
-                      ))
-                    )}
-                  </div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_200px]">
-                    <Field label="Instruksi disposisi*">
-                      <textarea
-                        value={instruction}
-                        onChange={(e) => setInstruction(e.target.value)}
-                        rows={3}
-                        placeholder="Contoh: Tindak lanjuti dan laporkan hasilnya."
-                        className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
-                      />
-                    </Field>
-                    <Field label="Batas waktu">
-                      <input
-                        type="date"
-                        value={deadline}
-                        onChange={(e) => setDeadline(e.target.value)}
-                        className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
-                      />
-                    </Field>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={acting !== null}
-                    onClick={disposeLetter}
-                    className="mt-2 rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
-                  >
-                    {acting === "dispose" ? "Mengirim…" : "Kirim disposisi"}
-                  </button>
-                </div>
-              ) : null}
-
-              {canArchive ? (
-                <div className="mt-3 rounded-lg border border-line p-3">
-                  <p className="text-sm font-medium">Persetujuan arsip</p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    Surat sudah antre arsip. Setujui di sini atau buka antrean untuk menolak dengan catatan.
-                  </p>
-                  <textarea
-                    value={archiveNote}
-                    onChange={(e) => setArchiveNote(e.target.value)}
-                    rows={2}
-                    placeholder="Catatan arsip (opsional)"
-                    className="mt-2 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
-                  />
-                  <div className="mt-2 flex flex-wrap gap-2">
+                {canSubmit ? (
+                  <div className="mt-3 rounded-lg border border-line p-3">
+                    <p className="text-sm font-medium">Kirim ke Sekcam</p>
+                    <p className="mt-0.5 text-xs text-muted">
+                      Pastikan berkas, ringkasan, dan klasifikasi sudah lengkap.
+                    </p>
                     <button
                       type="button"
                       disabled={acting !== null}
-                      onClick={archiveLetter}
-                      className="rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                      onClick={submitLetter}
+                      className="mt-2 rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
                     >
-                      {acting === "archive" ? "Memproses…" : "Setujui & Arsipkan"}
+                      {acting === "submit" ? "Mengirim…" : "Simpan & Kirim ke Sekcam"}
                     </button>
-                    <Link
-                      href="/arsip?tab=antrean"
-                      className="rounded-lg border border-line bg-field px-3 py-2 text-sm font-medium hover:bg-paper"
-                    >
-                      Buka antrean arsip
-                    </Link>
                   </div>
-                </div>
-              ) : null}
+                ) : null}
 
-              {!canSubmit && !canUpload && !canForward && !canDispose && !canArchive &&
-              !dispositionGroups.targets.some((d) => d.canAccept || d.canComplete) ? (
-                <p className="mt-3 text-sm text-muted">Tidak ada tindakan yang tersedia untuk akun ini.</p>
-              ) : null}
-            </section>
+                {canUpload ? (
+                  <div className="mt-3 rounded-lg border border-line p-3">
+                    <p className="text-sm font-medium">Unggah dokumen</p>
+                    <p className="mt-0.5 text-xs text-muted">Hanya saat status Draft TU.</p>
+                    <div className="mt-2">
+                      <FileButton hint="PDF/JPG/PNG, maksimal 10 MB." onSelect={setFile} />
+                    </div>
+                    <button
+                      type="button"
+                      disabled={acting !== null || !file}
+                      onClick={uploadDocument}
+                      className="mt-2 rounded-lg border border-line bg-field px-3 py-2 text-sm font-semibold hover:bg-paper disabled:opacity-50"
+                    >
+                      {acting === "upload" ? "Mengunggah…" : "Unggah dokumen"}
+                    </button>
+                  </div>
+                ) : null}
+
+                {canForward ? (
+                  <div className="mt-3 rounded-lg border border-line p-3">
+                    <p className="text-sm font-medium">Teruskan ke Camat</p>
+                    <textarea
+                      value={forwardNote}
+                      onChange={(e) => setForwardNote(e.target.value)}
+                      rows={2}
+                      placeholder="Catatan untuk Camat (opsional)"
+                      className="mt-2 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
+                    />
+                    <button
+                      type="button"
+                      disabled={acting !== null}
+                      onClick={forwardLetter}
+                      className="mt-2 rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                    >
+                      {acting === "forward" ? "Meneruskan…" : "Teruskan ke Camat"}
+                    </button>
+                  </div>
+                ) : null}
+
+                {canDispose ? (
+                  <div className="mt-3 rounded-lg border border-line p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium">Disposisi Camat</p>
+                        <p className="mt-0.5 text-xs text-muted">Centang tujuan, lalu tulis satu instruksi untuk semua target.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedTargets(
+                            new Set(targets.filter((t) => t.available).map((t) => t.code)),
+                          )
+                        }
+                        className="text-xs font-semibold text-brand-800 hover:underline"
+                      >
+                        Pilih semua tujuan tersedia
+                      </button>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {targetsLoading ? (
+                        <p className="text-sm text-muted">Memuat tujuan disposisi…</p>
+                      ) : targets.length === 0 ? (
+                        <p className="text-sm text-muted">Tujuan disposisi belum tersedia.</p>
+                      ) : (
+                        targets.map((t) => (
+                          <label
+                            key={t.code}
+                            className={`cursor-pointer rounded-lg border p-2.5 text-sm ${
+                              !t.available
+                                ? "cursor-not-allowed border-line bg-paper text-muted"
+                                : selectedTargets.has(t.code)
+                                  ? "border-brand-900 bg-brand-900 text-white"
+                                  : "border-line bg-surface hover:bg-paper"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="sr-only"
+                              disabled={!t.available}
+                              checked={selectedTargets.has(t.code)}
+                              onChange={() => toggleTarget(t.code)}
+                            />
+                            <span className="block font-medium">{t.name}</span>
+                            <span className={`block text-xs ${selectedTargets.has(t.code) ? "text-white/75" : "text-muted"}`}>
+                              {t.available ? `${t.recipients.length} penerima aktif` : "Belum ada penerima aktif"}
+                            </span>
+                            {t.recipients.length ? (
+                              <span className={`mt-1 block truncate text-[11px] ${selectedTargets.has(t.code) ? "text-white/70" : "text-muted"}`}>
+                                {t.recipients.map((r) => r.name).join(", ")}
+                              </span>
+                            ) : null}
+                          </label>
+                        ))
+                      )}
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_200px]">
+                      <Field label="Instruksi disposisi*">
+                        <textarea
+                          value={instruction}
+                          onChange={(e) => setInstruction(e.target.value)}
+                          rows={3}
+                          placeholder="Contoh: Tindak lanjuti dan laporkan hasilnya."
+                          className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
+                        />
+                      </Field>
+                      <Field label="Batas waktu">
+                        <input
+                          type="date"
+                          value={deadline}
+                          onChange={(e) => setDeadline(e.target.value)}
+                          className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
+                        />
+                      </Field>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={acting !== null}
+                      onClick={disposeLetter}
+                      className="mt-2 rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                    >
+                      {acting === "dispose" ? "Mengirim…" : "Kirim disposisi"}
+                    </button>
+                  </div>
+                ) : null}
+
+                {canArchive ? (
+                  <div className="mt-3 rounded-lg border border-line p-3">
+                    <p className="text-sm font-medium">Persetujuan arsip</p>
+                    <p className="mt-0.5 text-xs text-muted">
+                      Surat sudah antre arsip. Setujui di sini atau buka antrean untuk menolak dengan catatan.
+                    </p>
+                    <textarea
+                      value={archiveNote}
+                      onChange={(e) => setArchiveNote(e.target.value)}
+                      rows={2}
+                      placeholder="Catatan arsip (opsional)"
+                      className="mt-2 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
+                    />
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={acting !== null}
+                        onClick={archiveLetter}
+                        className="rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                      >
+                        {acting === "archive" ? "Memproses…" : "Setujui & Arsipkan"}
+                      </button>
+                      <Link
+                        href="/arsip?tab=antrean"
+                        className="rounded-lg border border-line bg-field px-3 py-2 text-sm font-medium hover:bg-paper"
+                      >
+                        Buka antrean arsip
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+
+                {!canSubmit && !canUpload && !canForward && !canDispose && !canArchive &&
+                !dispositionGroups.targets.some((d) => d.canAccept || d.canComplete) ? (
+                  <p className="mt-3 text-sm text-muted">Tidak ada tindakan yang tersedia untuk akun ini.</p>
+                ) : null}
+              </section>
+            </div>
 
             {dispositionGroups.selfNotes.length ? (
               <section className="rounded-lg border border-line bg-surface p-5">
@@ -713,17 +726,6 @@ export default function SuratMasukDetailPage() {
                 </div>
               </section>
             ) : null}
-
-            <section className="rounded-lg border border-line bg-surface p-5">
-              <h2 className="font-semibold">Dokumen</h2>
-              <div className="mt-2 space-y-2">
-                {detail.documents?.length ? (
-                  detail.documents.map((doc) => <DocumentPreview key={doc.id} document={doc} />)
-                ) : (
-                  <p className="text-sm text-muted">Belum ada dokumen.</p>
-                )}
-              </div>
-            </section>
 
             {detail.letterType === "UNDANGAN" ? (
               <section className="rounded-lg border border-line bg-surface p-5">

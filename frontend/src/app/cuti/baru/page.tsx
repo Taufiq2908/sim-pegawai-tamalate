@@ -5,9 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
-import type { EmployeeRef, LeaveType } from "@/lib/types";
+import type { LeaveType } from "@/lib/types";
 import { Field, FileButton } from "@/components/form";
-import { EmployeePicker } from "@/components/employee-picker";
 import { ErrorBox } from "@/components/ui";
 import { toast } from "@/components/toast";
 
@@ -34,14 +33,13 @@ export default function CutiBaruPage() {
   const [fileSecond, setFileSecond] = useState<File | null>(null);
   const [secondType, setSecondType] = useState("FORM_CUTI");
   const [fileDoctor, setFileDoctor] = useState<File | null>(null);
-  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeRef | null>(null);
   const [balance, setBalance] = useState<{ entitlement: number; used: number; remaining: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const isEmployee = user?.role === "EMPLOYEE";
   const canSubmit = hasPermission("leave.submit");
-  const pegawai = isEmployee || !selectedEmployee ? user?.employee ?? null : selectedEmployee;
+  // Cuti hanya untuk diri sendiri. Data pegawai selalu dari akun yang login.
+  const pegawai = user?.employee ?? null;
   const durasi = useMemo(() => inclusiveDays(form.startDate, form.endDate), [form.startDate, form.endDate]);
   const selectedType = types.find((t) => t.code === form.leaveTypeCode);
   const masaKerja = useMemo(() => {
@@ -67,8 +65,7 @@ export default function CutiBaruPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Saldo mengikuti pegawai yang dipilih: pemilik untuk EMPLOYEE, dan
-  // pegawai pilihan operator bila punya employee.view (backend yang menilai).
+  // Saldo selalu milik pegawai yang sedang login (cuti self-service).
   useEffect(() => {
     const employeeId = pegawai?.id;
     setBalance(null);
@@ -90,8 +87,8 @@ export default function CutiBaruPage() {
 
   async function save(draftOnly: boolean) {
     setError("");
-    if (!isEmployee && !pegawai?.id) {
-      const msg = "Pilih pegawai yang akan diajukan cutinya.";
+    if (!pegawai?.id) {
+      const msg = "Akun ini tidak terhubung ke data pegawai.";
       setError(msg);
       toast.error(msg);
       return;
@@ -121,7 +118,6 @@ export default function CutiBaruPage() {
           reason: form.reason,
           addressDuringLeave: form.addressDuringLeave || undefined,
           contactDuringLeave: form.contactDuringLeave || undefined,
-          employeeId: !isEmployee && selectedEmployee ? selectedEmployee.id : undefined,
         }),
       });
       const id = (data as { id: string }).id;
@@ -166,7 +162,7 @@ export default function CutiBaruPage() {
     e.preventDefault();
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     // Hanya tombol "Ajukan" eksplisit yang memanggil endpoint submit.
-    // Enter/default submit dan operator tanpa leave.submit selalu menyimpan draft.
+    // Enter/default submit dan akun tanpa leave.submit selalu menyimpan draft.
     const wantsSubmit = submitter?.value === "ajukan" && canSubmit;
     void save(!wantsSubmit);
   }
@@ -176,25 +172,13 @@ export default function CutiBaruPage() {
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
   return (
-    <RequirePerm perm="leave.create" label="Pengajuan Cuti">
+    <RequirePerm perm="leave.create" label="Pengajuan Cuti" denyRoles={["VERIFIER"]}>
       <h1>Pengajuan cuti</h1>
-      <p className="mt-1 text-sm text-muted">Lengkapi data di bawah. Data pegawai diambil dari profil.</p>
+      <p className="mt-1 text-sm text-muted">Lengkapi data di bawah. Pengajuan hanya untuk pegawai yang sedang login.</p>
 
       <form onSubmit={onSubmit} className="mt-6 max-w-2xl pb-28">
         <section>
           <h2 className="text-xs font-semibold tracking-wider text-muted">DATA PEGAWAI</h2>
-          {!isEmployee ? (
-            <div className="mt-3">
-              <p className="mb-1 text-sm font-medium text-ink">Pegawai yang diajukan</p>
-              <EmployeePicker
-                value={selectedEmployee?.id ?? user?.employee?.id ?? ""}
-                onChange={(_, employee) => setSelectedEmployee(employee)}
-              />
-              <p className="mt-1 text-xs text-muted">
-                Pilih pegawai lain bila membuat cuti untuk orang lain.
-              </p>
-            </div>
-          ) : null}
           <dl className="mt-3 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
             <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Nama</dt><dd className="font-medium">{pegawai?.name ?? user?.username}</dd></div>
             <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">NIP</dt><dd className="font-medium">{pegawai?.nip ?? "—"}</dd></div>

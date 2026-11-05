@@ -227,8 +227,9 @@ function SidebarRow({
   onToggle: (item: MenuItem, el: HTMLElement) => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const active = pathname === item.href;
-  const hasChildren = subItems.length > 0;
+  // Satu halaman anak tidak perlu submenu: halaman induk sudah mewakilinya.
+  const hasChildren = subItems.length > 1;
+  const active = pathname === item.href || (!hasChildren && subItems[0]?.href === pathname);
   const Icon = item.icon ?? Icons.file;
 
   return (
@@ -302,8 +303,8 @@ function DrawerRow({
   onToggle: () => void;
   onNavigate: () => void;
 }) {
-  const active = pathname === item.href;
-  const hasChildren = subItems.length > 0;
+  const active = pathname === item.href || (subItems.length === 1 && subItems[0]?.href === pathname);
+  const hasChildren = subItems.length > 1;
   const Icon = item.icon ?? Icons.file;
 
   return (
@@ -469,8 +470,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   /* ---- auto-buka accordion grup yang berisi halaman aktif ---- */
   useEffect(() => {
-    const group = SECTIONS.flatMap((s) => s.items).find((it) =>
-      it.children?.some((c) => c.href === pathname),
+    const group = SECTIONS.flatMap((s) => s.items).find(
+      (it) => childrenOf(it).length > 1 && it.children?.some((c) => c.href === pathname),
     );
     if (group) {
       setOpenGroups((prev) => {
@@ -480,7 +481,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         return next;
       });
     }
-  }, [pathname]);
+  }, [pathname, childrenOf]);
 
   /* ---- kunci scroll body saat drawer terbuka ---- */
   useEffect(() => {
@@ -523,7 +524,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const openFlyout = useCallback(
     (item: MenuItem, el: HTMLElement) => {
       const kids = childrenOf(item);
-      if (kids.length === 0) return;
+      if (kids.length <= 1) return;
       cancelClose();
       hoverOpened.current = { href: item.href, at: Date.now() };
       const rect = el.getBoundingClientRect();
@@ -544,7 +545,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setFlyout((cur) => {
         if (cur?.href === item.href) return null;
         const kids = childrenOf(item);
-        if (kids.length === 0) return null;
+        if (kids.length <= 1) return null;
         const rect = el.getBoundingClientRect();
         const approxHeight = kids.length * 36 + 44;
         return {
@@ -635,7 +636,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* ---------------- Flyout submenu desktop ---------------- */}
-      {flyout && flyoutGroup && flyoutChildren.length > 0 ? (
+      {flyout && flyoutGroup && flyoutChildren.length > 1 ? (
         <div
           role="menu"
           aria-label={`Submenu ${flyoutGroup.label}`}
@@ -814,12 +815,15 @@ export function RequirePerm({
   label,
   children,
   denyForEmployee = false,
+  denyRoles = [],
 }: {
   perm: string;
   label: string;
   children: React.ReactNode;
   /** Halaman buku/petugas yang backend-nya menolak akun EMPLOYEE. */
   denyForEmployee?: boolean;
+  /** Pengecualian role eksplisit untuk halaman yang masih perlu dijaga sebelum permission backend berubah. */
+  denyRoles?: string[];
 }) {
   const { user, loading, hasPermission } = useAuth();
   if (loading) {
@@ -829,7 +833,7 @@ export function RequirePerm({
       </AppShell>
     );
   }
-  if (!hasPermission(perm) || (denyForEmployee && user?.role === "EMPLOYEE")) {
+  if (!hasPermission(perm) || (denyForEmployee && user?.role === "EMPLOYEE") || denyRoles.includes(user?.role ?? "")) {
     return (
       <AppShell>
         <EmptyState

@@ -71,6 +71,7 @@ export default function NotifikasiPage() {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [markingAll, setMarkingAll] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async (silent = false) => {
@@ -114,14 +115,46 @@ export default function NotifikasiPage() {
     }
   }
 
+  async function markAllRead() {
+    if (markingAll) return;
+    setMarkingAll(true);
+    try {
+      const { data } = await apiFetch<{ updated: number }>("/notifications/read-all", {
+        method: "PATCH",
+        body: JSON.stringify({}),
+      });
+      if (onlyUnread) {
+        await load(true);
+      } else {
+        setItems((list) => list.map((n) => (n.isRead ? n : { ...n, isRead: true })));
+      }
+      refreshNotificationBadge();
+      toast.success(data?.updated ? `${data.updated} notifikasi ditandai dibaca.` : "Semua notifikasi sudah dibaca.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal menandai semua dibaca");
+    } finally {
+      setMarkingAll(false);
+    }
+  }
+
   return (
     <AppShell>
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold">Notifikasi</h1>
-        <label className="ml-auto flex items-center gap-2 text-sm text-muted">
-          <input type="checkbox" checked={onlyUnread} onChange={(e) => setOnlyUnread(e.target.checked)} />
-          Belum dibaca saja
-        </label>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={markingAll}
+            onClick={() => void markAllRead()}
+            className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-paper disabled:opacity-50"
+          >
+            {markingAll ? "Memproses…" : "Tandai semua dibaca"}
+          </button>
+          <label className="flex items-center gap-2 text-sm text-muted">
+            <input type="checkbox" checked={onlyUnread} onChange={(e) => setOnlyUnread(e.target.checked)} />
+            Belum dibaca saja
+          </label>
+        </div>
       </div>
 
       <div className="mt-4">

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import type { Disposition, IncomingLetter, LetterStatus, PageMeta } from "@/lib/types";
+import type { IncomingLetter, LetterStatus, PageMeta } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
 const FILTERS: Array<{ value: "" | LetterStatus; label: string }> = [
@@ -23,24 +23,10 @@ const STATUS_VALUES = new Set<string>(FILTERS.map((f) => f.value).filter(Boolean
 const LIMIT = 10;
 
 function targetSummary(letter: IncomingLetter) {
-  // Response list backend memakai fromUser/toUser, sedangkan detail memakai
-  // from/to. Tangani keduanya agar ringkasan target tidak pecah di halaman list.
-  const actionable = (letter.dispositions ?? []).filter((d) => {
-    const raw = d as Disposition & {
-      fromUser?: { id: string };
-      toUser?: { id: string };
-    };
-    const fromId = raw.from?.id ?? raw.fromUser?.id;
-    const toId = raw.to?.id ?? raw.toUser?.id;
-    return Boolean(fromId && toId && fromId !== toId);
-  });
+  // List dan detail sama-sama memakai bentuk kanonik from/to.
+  const actionable = (letter.dispositions ?? []).filter((d) => d.from.id !== d.to.id);
   const targets = [
-    ...new Set(
-      actionable.map((d) => {
-        const raw = d as Disposition & { toUser?: { username: string } };
-        return d.targetName ?? raw.to?.username ?? raw.toUser?.username;
-      }).filter(Boolean),
-    ),
+    ...new Set(actionable.map((d) => d.targetName ?? d.to.username).filter(Boolean)),
   ];
   return { count: actionable.length, targets };
 }
