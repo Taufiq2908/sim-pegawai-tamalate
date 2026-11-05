@@ -163,11 +163,10 @@ export default function CutiDetailPage() {
   // availableActions dari backend sudah sadar jabatan pemohon (forward hanya Camat,
   // approve-di-VERIFIED hanya Sekcam, dst.) — frontend render apa adanya.
   const visibleActions = detail?.availableActions ?? [];
-  const canManageDraft =
-    !!detail &&
-    ["DRAFT", "REVISION"].includes(detail.status) &&
-    (isOwner || (!!user && user.role !== "EMPLOYEE" && hasPermission("leave.create")));
-  const canUploadDraftDoc = canManageDraft && hasPermission("leave.document.upload");
+  const isDraftStage = !!detail && ["DRAFT", "REVISION"].includes(detail.status);
+  // Backend menolak patch/upload draft oleh non-pemilik, termasuk Camat/Super Admin.
+  const canEditDraft = isDraftStage && isOwner && hasPermission("leave.create");
+  const canUploadDraftDoc = isDraftStage && isOwner && hasPermission("leave.document.upload");
   const canAnswer =
     !!detail &&
     ["APPROVED", "REGISTERED", "SUBMITTED_BKPSDMD"].includes(detail.status) &&
@@ -278,7 +277,7 @@ export default function CutiDetailPage() {
 
             <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Keputusan</h2>
-              {canManageDraft ? (
+              {canEditDraft ? (
                 <a
                   href={`/cuti/${detail.id}/edit`}
                   className="mt-2 inline-block rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-paper"

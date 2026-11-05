@@ -69,12 +69,11 @@ export default function CutiEditPage() {
   }, [load]);
 
   const isOwner = !!user?.employee && !!detail && user.employee.id === detail.employee?.id;
-  const canManageAsOfficer =
-    !!user && user.role !== "EMPLOYEE" && hasPermission("leave.create");
+  // Backend menerapkan self-service: hanya pemilik employee yang boleh mengubah.
   const editable =
     !!detail &&
     ["DRAFT", "REVISION"].includes(detail.status) &&
-    (isOwner || canManageAsOfficer);
+    isOwner;
   const canUploadDoc = editable && hasPermission("leave.document.upload");
 
   async function onSubmit(e: React.FormEvent) {
@@ -147,7 +146,7 @@ export default function CutiEditPage() {
         <div className="mt-3 max-w-2xl">
           <EmptyState
             title="Tidak bisa diubah"
-            hint="Hanya pemilik atau petugas kepegawaian pada status Draft/Perlu perbaikan yang boleh mengubah."
+            hint="Hanya pemilik pengajuan pada status Draft/Perlu perbaikan yang boleh mengubah."
           />
         </div>
       ) : (

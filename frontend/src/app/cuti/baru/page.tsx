@@ -231,7 +231,7 @@ export default function CutiBaruPage() {
             Draf boleh disimpan tanpa berkas.{" "}
             {canSubmit
               ? "Saat menekan “Ajukan cuti”, wajib ada minimal 2 berkas dan salah satunya SK terakhir."
-              : "Anda hanya dapat menyimpan draft; pengajuan diajukan oleh pemilik atau petugas berwenang."}
+              : "Anda hanya dapat menyimpan draft karena akun ini tidak memiliki izin mengajukan."}
           </p>
           <Field label="1. SK terakhir (wajib saat diajukan)"> 
             <FileButton hint="PDF/JPG/PNG, maks 5MB" onSelect={setFileSk} />
