@@ -75,6 +75,7 @@ export interface CreateArchiveInput {
   archiveDate?: string;
   retentionUntil?: string;
   notes?: string;
+  physicalLocation?: string;
 }
 
 /**
@@ -82,7 +83,8 @@ export interface CreateArchiveInput {
  * - mencatat surat masuk/keluar ke buku arsip,
  * - mengisi kode arsip/berkas,
  * - menentukan kategori & lokasi simpan.
- * Surat masuk yang masih COMPLETED ikut dipindahkan ke ARCHIVED.
+ * Surat masuk yang masih MENUNGGU_ARSIP ikut dipindahkan ke DIARSIPKAN;
+ * surat keluar TERKIRIM ikut dipindahkan ke DIARSIPKAN.
  */
 export async function createArchiveRecord(input: CreateArchiveInput) {
   return prisma.$transaction(async (tx) => {
@@ -94,8 +96,8 @@ export async function createArchiveRecord(input: CreateArchiveInput) {
       });
       if (!source) throw new ArchiveError(404, 'Surat masuk tidak ditemukan');
       if (source.archiveRecord) throw new ArchiveError(409, 'Surat masuk sudah memiliki record arsip');
-      if (!['COMPLETED', 'ARCHIVED'].includes(source.status)) {
-        throw new ArchiveError(409, `Arsip hanya untuk surat COMPLETED (saat ini ${source.status})`);
+      if (!['MENUNGGU_ARSIP', 'DIARSIPKAN'].includes(source.status)) {
+        throw new ArchiveError(409, `Arsip hanya untuk surat MENUNGGU_ARSIP (saat ini ${source.status})`);
       }
     } else {
       source = await tx.outgoingLetter.findUnique({
@@ -104,8 +106,8 @@ export async function createArchiveRecord(input: CreateArchiveInput) {
       });
       if (!source) throw new ArchiveError(404, 'Surat keluar tidak ditemukan');
       if (source.archiveRecord) throw new ArchiveError(409, 'Surat keluar sudah memiliki record arsip');
-      if (source.status !== 'ISSUED') {
-        throw new ArchiveError(409, `Arsip hanya untuk surat ISSUED (saat ini ${source.status})`);
+      if (source.status !== 'TERKIRIM') {
+        throw new ArchiveError(409, `Arsip hanya untuk surat TERKIRIM (saat ini ${source.status})`);
       }
     }
 
@@ -142,16 +144,22 @@ export async function createArchiveRecord(input: CreateArchiveInput) {
         archiveDate,
         category,
         location: locationForCategory(category),
+        physicalLocation: input.physicalLocation?.trim() || null,
         retentionUntil,
         notes: input.notes?.trim() || null,
         createdBy: input.actorId,
       },
     });
 
-    if (input.sourceType === 'INCOMING' && source.status !== 'ARCHIVED') {
+    if (input.sourceType === 'INCOMING' && source.status !== 'DIARSIPKAN') {
       await tx.incomingLetter.update({
         where: { id: source.id },
-        data: { status: 'ARCHIVED', archivedAt: new Date() },
+        data: { status: 'DIARSIPKAN', archivedAt: new Date() },
+      });
+    } else if (input.sourceType === 'OUTGOING' && source.status !== 'DIARSIPKAN') {
+      await tx.outgoingLetter.update({
+        where: { id: source.id },
+        data: { status: 'DIARSIPKAN', archivedAt: new Date() },
       });
     }
 

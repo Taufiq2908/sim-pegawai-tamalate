@@ -1129,7 +1129,7 @@ router.post('/:id/:action', async (req, res) => {
               letterCode: b.letterCode?.trim() || null,
               letterDate,
               signerName: signer,
-              status: 'ISSUED',
+              status: 'TERKIRIM',
               issuedAt: now,
               createdBy: req.user!.id,
             },

@@ -58,6 +58,8 @@ const PERMS = [
   ['archive.create', 'archive', 'create'],
   ['archive.update', 'archive', 'update'],
   ['archive.sign', 'archive', 'sign'],
+  ['archive.approve', 'archive', 'approve'],
+  ['archive.reject', 'archive', 'reject'],
   ['pension.view', 'pension', 'view'],
   ['pension.create', 'pension', 'create'],
   ['pension.verify', 'pension', 'verify'],
@@ -84,11 +86,11 @@ const PERMS = [
 
 const ROLE_MAP: Record<string, string[]> = {
   // VERIFIER basis = operator (Staf Kepegawaian/Arsip). Pemeriksa (Kasubag) via GRANT per user.
-  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.create', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'letter.archive', 'kgb.view', 'kgb.create', 'kgb.document.upload', 'kgb.register', 'kgb.remind', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel', 'archive.view', 'archive.create', 'archive.update', 'pension.view', 'pension.create', 'pension.document.upload', 'pension.send', 'promotion.view', 'promotion.create', 'promotion.legalize', 'promotion.register', 'promotion.archive', 'promotion.document.upload'],
+  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.create', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'kgb.view', 'kgb.create', 'kgb.document.upload', 'kgb.register', 'kgb.remind', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel', 'archive.view', 'archive.update', 'pension.view', 'pension.create', 'pension.document.upload', 'pension.send', 'promotion.view', 'promotion.create', 'promotion.legalize', 'promotion.register', 'promotion.archive', 'promotion.document.upload'],
   // SUPERVISOR = atasan langsung (Kasi, Lurah, Seklur): melihat + pertimbangan.
   // Tanpa verify/approve/sign/dispose/complete/manage. Kasubag = SUPERVISOR + GRANT di bawah.
   SUPERVISOR: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.review', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.review', 'kgb.document.upload', 'archive.view', 'pension.view', 'promotion.view'],
-  LEADER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'leave.paraf', 'leave.approve', 'leave.reject', 'leave.forward', 'attendance.view', 'attendance.checkin', 'attendance.summary', 'attendance.forward', 'letter.view', 'letter.dispose', 'letter.followup', 'letter.complete', 'letter.paraf', 'kgb.view', 'kgb.paraf', 'kgb.approve', 'kgb.reject', 'outgoing.view', 'archive.view', 'archive.sign', 'pension.view', 'pension.paraf', 'pension.approve', 'pension.revise', 'pension.reject', 'promotion.view', 'promotion.paraf', 'promotion.approve', 'promotion.revise', 'promotion.reject'],
+  LEADER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'leave.paraf', 'leave.approve', 'leave.reject', 'leave.forward', 'attendance.view', 'attendance.checkin', 'attendance.summary', 'attendance.forward', 'letter.view', 'letter.dispose', 'letter.followup', 'letter.paraf', 'kgb.view', 'kgb.paraf', 'kgb.approve', 'kgb.reject', 'outgoing.view', 'archive.view', 'archive.sign', 'archive.approve', 'archive.reject', 'pension.view', 'pension.paraf', 'pension.approve', 'pension.revise', 'pension.reject', 'promotion.view', 'promotion.paraf', 'promotion.approve', 'promotion.revise', 'promotion.reject'],
   EMPLOYEE: ['auth.me', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.create', 'kgb.submit', 'kgb.document.upload', 'pension.view', 'promotion.view'],
 };
 

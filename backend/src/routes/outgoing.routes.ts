@@ -15,11 +15,29 @@ import {
   claimOutgoingBuffer,
   getNumberingStatus,
 } from '../services/outgoing-numbering.service';
+import { ArchiveError, createArchiveRecord } from '../services/archive.service';
+import { notifyArchiveApprovers, notifyUser } from '../services/notification.service';
 
 const router = Router();
 router.use(authRequired);
 
-const OUT_STATUS = ['RESERVED', 'ISSUED', 'CANCELLED'] as const;
+const OUT_STATUS = ['RESERVED', 'TERKIRIM', 'DIARSIPKAN', 'CANCELLED'] as const;
+const ARCHIVE_BATCH_MAX = 15;
+
+// Approver arsip: Sekcam atau Camat. SUPER_ADMIN tetap boleh.
+function isArchiveApprover(req: any): boolean {
+  return req.user?.role === 'SUPER_ADMIN'
+    || ['SEKCAM', 'CAMAT'].includes(req.user?.position ?? '');
+}
+
+function notifyOutgoingArchiveQueue(letter: { id: string; letterNumber: string; subject: string; recipient: string | null }) {
+  return notifyArchiveApprovers({
+    title: `Antrean arsip: ${letter.subject}`,
+    body: `Surat keluar ${letter.letterNumber} kepada ${letter.recipient ?? '-'} siap disetujui untuk diarsipkan.`,
+    referenceType: 'outgoing_letter',
+    referenceId: letter.id,
+  }).catch(() => undefined);
+}
 
 fs.mkdirSync(env.uploadDir, { recursive: true });
 const upload = multer({
@@ -27,7 +45,10 @@ const upload = multer({
   limits: { fileSize: 10_000_000 },
   fileFilter: (_req, file, cb) => {
     const allowed = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-    cb(null, allowed.includes(file.mimetype));
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error('File surat harus PDF/JPG/PNG'));
+    }
+    cb(null, true);
   },
 });
 
@@ -126,7 +147,77 @@ router.post('/reserve', requirePermission('outgoing.reserve'), async (req, res) 
   }
 });
 
-// ---------- POST /outgoing-letters (normal, langsung ISSUED; JSON atau multipart) ----------
+// ---------- POST /outgoing-letters/reserve-bulk (booking beberapa nomor) ----------
+router.post('/reserve-bulk', requirePermission('outgoing.reserve'), async (req, res) => {
+  const schema = z.object({
+    count: z.coerce.number().int().min(1, 'Minimal 1 nomor').max(50, 'Maksimal 50 nomor per booking'),
+    classificationCode: z.string().min(1),
+    letterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    reason: z.string().min(5, 'Alasan reservasi wajib (min 5 karakter)'),
+    signerName: z.string().max(150).optional(),
+    letterCode: z.string().max(30).optional(),
+    destinationNumber: z.string().max(100).optional(),
+    personInCharge: z.string().max(150).optional(),
+    remarks: z.string().max(500).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+  const b = parsed.data;
+  if (!parseYMD(b.letterDate)) return fail(res, 422, 'letterDate tidak valid');
+  if (!notFuture(b.letterDate)) return fail(res, 422, 'Tanggal surat tidak boleh masa depan');
+
+  try {
+    const letters = await prisma.$transaction(async (tx) => {
+      const cls = await tx.archiveClassification.findUnique({ where: { code: b.classificationCode } });
+      if (!cls || !cls.isActive) throw new NumberingError(422, 'Kode klasifikasi tidak dikenal');
+      const code = b.letterCode?.trim() || cls.code;
+      const createdIds: string[] = [];
+      for (let i = 0; i < b.count; i++) {
+        const alloc = await allocateOutgoingSequence(tx, b.letterDate);
+        const created = await tx.outgoingLetter.create({
+          data: {
+            letterNumber: formatLetterNumber(code, alloc.sequence, letterUnitCode(), b.letterDate),
+            sequenceNumber: alloc.sequence,
+            year: Number(b.letterDate.slice(0, 4)),
+            classificationId: cls.id,
+            subject: `(RESERVED) ${b.reason}`.slice(0, 500),
+            letterDate: parseYMD(b.letterDate)!,
+            signerName: b.signerName?.trim() || null,
+            letterCode: b.letterCode?.trim() || null,
+            destinationNumber: b.destinationNumber?.trim() || null,
+            personInCharge: b.personInCharge?.trim() || null,
+            remarks: b.remarks?.trim() || null,
+            status: 'RESERVED',
+            reservationReason: b.reason,
+            reservedBy: req.user!.id,
+            reservedAt: new Date(),
+            createdBy: req.user!.id,
+          },
+        });
+        await claimOutgoingBuffer(tx, alloc.bufferId, created.id);
+        createdIds.push(created.id);
+      }
+      return tx.outgoingLetter.findMany({
+        where: { id: { in: createdIds } },
+        include: includeDetail,
+        orderBy: { sequenceNumber: 'asc' },
+      });
+    });
+    return res.status(201).json({
+      success: true,
+      message: `${letters.length} nomor berhasil direservasi`,
+      data: letters.map(withDocumentUrls),
+      meta: null,
+      errors: null,
+    });
+  } catch (e: any) {
+    if (e instanceof NumberingError) return fail(res, e.status, e.message);
+    if (e?.code === 'P2002') return fail(res, 409, 'Nomor bentrok, ulangi reservasi');
+    throw e;
+  }
+});
+
+// ---------- POST /outgoing-letters (normal, langsung TERKIRIM; JSON atau multipart) ----------
 router.post('/', requirePermission('outgoing.create'), (req, res) => {
   upload.single('file')(req as any, res as any, async (err: any) => {
     const f = (req as any).file;
@@ -191,7 +282,7 @@ router.post('/', requirePermission('outgoing.create'), (req, res) => {
             priority: b.priority,
             secrecy: b.secrecy,
             signerName: b.signerName?.trim() || null,
-            status: 'ISSUED',
+            status: 'TERKIRIM',
             issuedAt: new Date(),
             createdBy: req.user!.id,
           },
@@ -215,6 +306,7 @@ router.post('/', requirePermission('outgoing.create'), (req, res) => {
         }
         return tx.outgoingLetter.findUniqueOrThrow({ where: { id: created.id }, include: includeDetail });
       });
+      await notifyOutgoingArchiveQueue(letter);
       return res.status(201).json({ success: true, message: 'Surat keluar diterbitkan', data: withDocumentUrls(letter), meta: null, errors: null });
     } catch (e: any) {
       cleanupFile();
@@ -270,11 +362,12 @@ router.post('/:id/issue', requirePermission('outgoing.issue'), async (req, res) 
       ...(b.priority ? { priority: b.priority } : {}),
       ...(b.secrecy ? { secrecy: b.secrecy } : {}),
       ...(b.signerName !== undefined ? { signerName: b.signerName?.trim() || null } : {}),
-      status: 'ISSUED',
+      status: 'TERKIRIM',
       issuedAt: new Date(),
     },
     include: includeDetail,
   });
+  await notifyOutgoingArchiveQueue(updated);
   return ok(res, withDocumentUrls(updated), 'Reservasi diterbitkan (nomor tetap)');
 });
 
@@ -286,7 +379,7 @@ router.post('/:id/cancel', requirePermission('outgoing.cancel'), async (req, res
 
   const l = await prisma.outgoingLetter.findUnique({ where: { id: req.params.id } });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-  if (l.status !== 'RESERVED') return fail(res, 409, 'Hanya RESERVED yang bisa dibatalkan (nomor ISSUED tidak dapat dipakai ulang/dihapus)');
+  if (l.status !== 'RESERVED') return fail(res, 409, 'Hanya RESERVED yang bisa dibatalkan (nomor TERKIRIM tidak dapat dipakai ulang/dihapus)');
   const updated = await prisma.outgoingLetter.update({
     where: { id: l.id },
     data: { status: 'CANCELLED', cancelReason: parsed.data.reason, cancelledAt: new Date() },
@@ -431,6 +524,202 @@ router.get('/', requirePermission('outgoing.view'), async (req, res) => {
     }),
   ]);
   return ok(res, items, 'ok', { page: p, limit: l, total });
+});
+
+// ---------- GET /outgoing-letters/archive-queue (antrean arsip surat keluar) ----------
+router.get('/archive-queue', requirePermission('archive.approve'), async (req, res) => {
+  if (!isArchiveApprover(req)) {
+    return fail(res, 403, 'Antrean arsip hanya untuk Sekcam/Camat');
+  }
+  const { q, page = '1', limit = '15' } = req.query as any;
+  const where: any = { status: 'TERKIRIM', archiveRecord: { is: null }, archiveRejectedAt: null };
+  if (q) {
+    where.OR = [
+      { subject: { contains: String(q), mode: 'insensitive' } },
+      { letterNumber: { contains: String(q), mode: 'insensitive' } },
+      { recipient: { contains: String(q), mode: 'insensitive' } },
+      { destinationNumber: { contains: String(q), mode: 'insensitive' } },
+      { personInCharge: { contains: String(q), mode: 'insensitive' } },
+      { letterCode: { contains: String(q), mode: 'insensitive' } },
+    ];
+  }
+  const p = Math.max(1, Number(page) || 1);
+  const l = Math.min(50, Math.max(1, Number(limit) || 15));
+  const [total, items] = await Promise.all([
+    prisma.outgoingLetter.count({ where }),
+    prisma.outgoingLetter.findMany({
+      where,
+      select: {
+        id: true,
+        letterNumber: true,
+        subject: true,
+        recipient: true,
+        letterDate: true,
+        issuedAt: true,
+        status: true,
+        classification: { select: { code: true, name: true } },
+      },
+      orderBy: [{ issuedAt: 'asc' }, { letterDate: 'asc' }],
+      skip: (p - 1) * l,
+      take: l,
+    }),
+  ]);
+  const rows = items.map((l) => ({
+    id: l.id,
+    nomor: l.letterNumber,
+    nomorSurat: l.letterNumber,
+    perihal: l.subject,
+    asalTujuan: l.recipient,
+    tanggalSelesai: (l.issuedAt ?? l.letterDate).toISOString().slice(0, 10),
+    tanggalSurat: l.letterDate.toISOString().slice(0, 10),
+    status: l.status,
+    klasifikasi: l.classification?.code ?? null,
+    archiveRecord: null,
+  }));
+  return ok(res, rows, 'ok', { page: p, limit: l, total });
+});
+
+// ---------- POST /outgoing-letters/archive-approvals/batch (approve arsip surat keluar) ----------
+router.post('/archive-approvals/batch', requirePermission('archive.approve'), async (req, res) => {
+  if (!isArchiveApprover(req)) {
+    return fail(res, 403, 'Persetujuan arsip hanya untuk Sekcam/Camat');
+  }
+  const schema = z.object({
+    ids: z.array(z.string().uuid()).min(1, 'Pilih minimal 1 surat').max(ARCHIVE_BATCH_MAX, `Maksimal ${ARCHIVE_BATCH_MAX} surat per batch`),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+
+  const approved: Array<{ id: string; archiveNumber: string }> = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
+  const seen = new Set<string>();
+
+  for (const id of parsed.data.ids) {
+    if (seen.has(id)) {
+      skipped.push({ id, reason: 'ID duplikat dalam batch' });
+      continue;
+    }
+    seen.add(id);
+    try {
+      const letter = await prisma.outgoingLetter.findUnique({
+        where: { id },
+        include: { archiveRecord: { select: { id: true } } },
+      });
+      if (!letter) {
+        skipped.push({ id, reason: 'Surat tidak ditemukan' });
+        continue;
+      }
+      if (letter.status !== 'TERKIRIM') {
+        skipped.push({ id, reason: `Status bukan TERKIRIM (saat ini ${letter.status})` });
+        continue;
+      }
+      if (letter.archiveRecord) {
+        skipped.push({ id, reason: 'Surat sudah memiliki record arsip' });
+        continue;
+      }
+      const record = await createArchiveRecord({
+        sourceType: 'OUTGOING',
+        sourceId: id,
+        actorId: req.user!.id,
+      });
+      approved.push({ id, archiveNumber: record.archiveNumber });
+    } catch (err) {
+      skipped.push({
+        id,
+        reason: err instanceof ArchiveError ? err.message : 'Gagal mengarsipkan surat',
+      });
+    }
+  }
+
+  return ok(res, { approved, skipped }, 'Batch persetujuan arsip diproses', {
+    approved: approved.length,
+    skipped: skipped.length,
+  });
+});
+
+// ---------- POST /outgoing-letters/archive-approvals/reject (revisi arsip surat keluar) ----------
+router.post('/archive-approvals/reject', requirePermission('archive.reject'), async (req, res) => {
+  if (!isArchiveApprover(req)) {
+    return fail(res, 403, 'Penolakan arsip hanya untuk Sekcam/Camat');
+  }
+  const schema = z.object({
+    ids: z.array(z.string().uuid()).min(1, 'Pilih minimal 1 surat').max(ARCHIVE_BATCH_MAX, `Maksimal ${ARCHIVE_BATCH_MAX} surat per batch`),
+    note: z.string().min(3, 'Catatan revisi minimal 3 karakter').max(500),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+
+  const rejected: Array<{ id: string; note: string }> = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
+  const seen = new Set<string>();
+
+  for (const id of parsed.data.ids) {
+    if (seen.has(id)) {
+      skipped.push({ id, reason: 'ID duplikat dalam batch' });
+      continue;
+    }
+    seen.add(id);
+    const letter = await prisma.outgoingLetter.findUnique({
+      where: { id },
+      include: { archiveRecord: { select: { id: true } } },
+    });
+    if (!letter) {
+      skipped.push({ id, reason: 'Surat tidak ditemukan' });
+      continue;
+    }
+    if (letter.status !== 'TERKIRIM') {
+      skipped.push({ id, reason: `Status bukan TERKIRIM (saat ini ${letter.status})` });
+      continue;
+    }
+    if (letter.archiveRecord) {
+      skipped.push({ id, reason: 'Surat sudah memiliki record arsip' });
+      continue;
+    }
+    if (letter.archiveRejectedAt) {
+      skipped.push({ id, reason: 'Surat sudah dalam status ditolak, tunggu pengajuan ulang' });
+      continue;
+    }
+    await prisma.outgoingLetter.update({
+      where: { id },
+      data: {
+        archiveRejectedAt: new Date(),
+        archiveRejectionNote: parsed.data.note,
+      },
+    });
+    await notifyUser(letter.createdBy, {
+      type: 'ARCHIVE_REJECTED',
+      title: `Revisi arsip surat keluar: ${letter.subject}`.slice(0, 255),
+      body: `Surat ${letter.letterNumber} dikembalikan: ${parsed.data.note}`,
+      referenceType: 'outgoing_letter',
+      referenceId: letter.id,
+    }).catch(() => undefined);
+    rejected.push({ id, note: parsed.data.note });
+  }
+
+  return ok(res, { rejected, skipped }, 'Surat keluar dikembalikan untuk revisi', {
+    rejected: rejected.length,
+    skipped: skipped.length,
+  });
+});
+
+// ---------- POST /outgoing-letters/:id/resubmit-archive (ajukan ulang setelah revisi) ----------
+router.post('/:id/resubmit-archive', requirePermission('outgoing.issue'), async (req, res) => {
+  const letter = await prisma.outgoingLetter.findUnique({
+    where: { id: req.params.id },
+    include: { archiveRecord: { select: { id: true } } },
+  });
+  if (!letter) return fail(res, 404, 'Surat keluar tidak ditemukan');
+  if (letter.status !== 'TERKIRIM') return fail(res, 409, `Hanya surat TERKIRIM yang bisa diajukan ulang (saat ini ${letter.status})`);
+  if (letter.archiveRecord) return fail(res, 409, 'Surat sudah memiliki record arsip');
+  if (!letter.archiveRejectedAt) return fail(res, 409, 'Surat tidak sedang dalam status ditolak');
+
+  const updated = await prisma.outgoingLetter.update({
+    where: { id: letter.id },
+    data: { archiveRejectedAt: null, archiveRejectionNote: null },
+    include: includeDetail,
+  });
+  await notifyOutgoingArchiveQueue(updated);
+  return ok(res, withDocumentUrls(updated), 'Surat diajukan ulang ke antrean arsip');
 });
 
 // ---------- GET /outgoing-letters/:id ----------

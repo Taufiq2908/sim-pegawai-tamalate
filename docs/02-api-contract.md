@@ -260,28 +260,58 @@ pejabat (Camat/Sekcam/Kasubag), `statusPembinaan` (Menunggu/Diproses/Selesai).
 ## 5. Surat Masuk & Disposisi
 
 ```text
-POST /letters (JSON, atau multipart + file)          → RECEIVED   (letter.create)
-  field agenda opsional: activityDate, activityStartTime, activityEndTime,
-  activityLocation, assignedUserIds[] (UUID petugas)
-POST /letters/:id/documents (multipart, max 10MB)                 (letter.document.upload)
+POST /letters (JSON, atau multipart + file)          → DRAFT_TU   (letter.create)
+  field: letterType=BIASA|UNDANGAN, submit=true|false, summary, classificationCode,
+  activityDate?, activityStartTime?, activityEndTime?, activityLocation?, assignedUserIds[]
+  submit=true → langsung REVIEW_SEKCAM; file/ringkasan/klasifikasi wajib
+POST /letters/:id/submit                             → REVIEW_SEKCAM (letter.create)
+POST /letters/:id/documents (multipart, max 10MB)                 (letter.document.upload, hanya DRAFT_TU)
 GET  /letters/:id/documents/:docId/download                       (letter.view, scope surat)
-POST /letters/:id/dispose {toUserId, instruction, deadline?}      (letter.dispose)
+POST /letters/:id/forward {note?}                    → DISPOSISI_CAMAT (letter.paraf, posisi SEKCAM)
+POST /letters/:id/paraf {note?}                      → alias forward
+POST /letters/:id/dispose {toUserId, instruction, deadline?}      (letter.dispose, posisi CAMAT)
 POST /letters/:id/dispositions {instruction, deadline?, targets[]?, targetCodes[]?, toUserIds[]?}
   → disposisi massal; satu baris target = {targetCode?, toUserId?, instruction?, deadline?}
-  → targetCodes memakai 9 kode tujuan, backend memetakan ke jabatan (bukan role baru)
-  → setiap penerima mendapat notifikasi DISPOSITION             (letter.dispose)
-POST /letters/dispositions/:dispId/followup {note}   → DONE       (letter.followup, hanya penerima)
-POST /letters/:id/complete {note?}                   → COMPLETED  (letter.complete, wajib semua disposisi DONE)
-POST /letters/:id/archive                            → ARCHIVED   (letter.archive)
+  → targetCodes memakai 9 kode tujuan
+  → status DITERUSKAN; setiap penerima mendapat notifikasi DISPOSITION
+POST /letters/dispositions/:dispId/accept             → ACCEPTED + buku ekspedisi (letter.followup, penerima)
+POST /letters/dispositions/:dispId/followup {note}    → DONE; semua DONE → MENUNGGU_ARSIP
+POST /letters/:id/complete {note?, dispositionId?}    → DONE untuk disposisi user; status agregat dihitung
+POST /letters/:id/archive                            → DIARSIPKAN (archive.approve, Sekcam/Camat)
 PATCH /letters/:id/agenda {activityDate?, activityStartTime?, activityEndTime?,
   activityLocation?, assignedUserIds[]?}                            (letter.register)
-GET  /letters?status=&q=                  → scoped: admin/verifier semua, lainnya hanya yang melibatkan dirinya
+GET  /letters?status=&q=                  → scoped: admin/verifier semua, Sekcam tahap REVIEW_SEKCAM,
+                                            Camat tahap DISPOSISI_CAMAT, penerima surat terkait
 GET  /letters/:id                        → detail + dispositions[] + agendaAssignments[] + availableActions
 GET  /letters/classifications            → kode klasifikasi arsip aktif (letter.view)
 GET  /letters/disposition-targets        → 9 tujuan disposisi + mappedPosition + recipients[] + available (letter.dispose)
 GET  /letters/agenda?date=&from=&to=      → agenda kegiatan; default hari ini (letter.view)
 GET  /letters/agenda/tomorrow             → agenda kegiatan esok hari + assignedStaff[] (letter.view)
 ```
+
+Status surat masuk:
+`DRAFT_TU|REVIEW_SEKCAM|DISPOSISI_CAMAT|DITERUSKAN|PROSES|MENUNGGU_ARSIP|DIARSIPKAN`.
+Status surat keluar: `RESERVED|TERKIRIM|DIARSIPKAN|CANCELLED`.
+Status disposisi: `PENDING|ACCEPTED|DONE`.
+
+`GET /letters/:id` juga mengembalikan `letterType`, `submittedAt`,
+`completedAt`, `completionNote`, `archiveRecord`, dan `documents[].downloadUrl`.
+Nilai `availableActions[]`: `submit`, `forward`, `dispose`, `accept`,
+`complete`, `archive`, `upload` (bukan `paraf`). Setiap item `dispositions[]`
+memiliki `acceptedAt`, `canAccept`, `canComplete`, dan `canFollowUp`.
+Catatan Sekcam adalah disposisi dengan `from.id === to.id`; jangan dihitung
+sebagai target/progres.
+
+`POST /letters/:id/dispositions` menerima `instruction` (wajib, minimal 5
+karakter), `deadline?`, `targetCodes?` (maksimal 9), `targets[]?`, atau
+`toUserIds[]?`. Satu target dapat menghasilkan beberapa disposisi jika ada
+beberapa user aktif pada jabatan yang sama.
+
+`POST /letters/dispositions/:dispId/accept` tidak memakai body dan otomatis
+membuat buku ekspedisi. `POST /letters/dispositions/:dispId/followup`
+mewajibkan `{note}` minimal 3 karakter. Untuk multi-target, gunakan endpoint
+`followup` per disposisi, bukan `POST /letters/:id/complete` tanpa
+`dispositionId`.
 
 ### Buku agenda, lembar disposisi, ekspedisi (format siap tampil)
 
@@ -291,9 +321,10 @@ GET /letters/register-book?from=&to=&q=&status=
       tanggalDiterima, perihal, penanggungJawab, klasifikasi, ket, keterangan, status, petugasAgenda[]}]
 GET /letters/:id/disposition-sheet    → {nomorAgenda, sifatSurat, tanggalPenerimaan, tanggalSurat, tanggalPenyelesaian,
                                           nomorSurat, asalSurat, ringkasanIsi, klasifikasi, disposisi[]}
-POST /letters/:id/expedition {receiverName, signatureName?, note?}  → {regNumber, ...} (letter.expedition)
+POST /letters/:id/expedition {receiverName, signatureName?, note?}  → {regNumber, ...} (letter.expedition; legacy manual)
 GET /letters/expedition-book?from=&to=&q=&letterId=
-  → [{tanggalHariIni, nomorRegis, nomorSurat, tanggalSurat, perihal, penerimaSurat, paraf, asalSurat, catatan}]
+  → [{tanggalHariIni, nomorRegis, nomorAgenda, nomorSurat, tanggalSurat, perihal, penerimaSurat,
+      paraf, jamTerima, waktuTerima, asalSurat, catatan}]
 ```
 
 ### Surat keluar + reservasi nomor (format `kode surat / seq / KT / romawi / tahun`)
@@ -301,12 +332,14 @@ GET /letters/expedition-book?from=&to=&q=&letterId=
 ```text
 POST /outgoing-letters {classificationCode, subject, recipient, letterDate?, priority?, secrecy?,
   signerName?, letterCode?, destinationNumber?, personInCharge?, remarks?}
-  → JSON atau multipart + file; langsung ISSUED                    (outgoing.create)
+  → JSON atau multipart + file; langsung TERKIRIM                   (outgoing.create)
 POST /outgoing-letters/reserve {classificationCode, letterDate, reason, signerName?,
   letterCode?, destinationNumber?, personInCharge?, remarks?}
   → RESERVED, nomor diamankan (letterDate ≤ hari ini)             (outgoing.reserve)
+POST /outgoing-letters/reserve-bulk {count, classificationCode, letterDate, reason, ...}
+  → maksimal 50 nomor RESERVED                                     (outgoing.reserve)
 POST /outgoing-letters/:id/issue {recipient, subject?, letterCode?, destinationNumber?,
-  personInCharge?, remarks?, ...} → ISSUED, nomor TETAP           (outgoing.issue)
+  personInCharge?, remarks?, ...} → TERKIRIM, nomor TETAP          (outgoing.issue)
 POST /outgoing-letters/:id/cancel {reason} → CANCELLED, nomor tidak dipakai ulang (outgoing.cancel)
 POST /outgoing-letters/:id/documents (multipart, 10MB)
 GET  /outgoing-letters/:id/documents/:docId/download            (outgoing.view)
@@ -328,12 +361,16 @@ sebelum memanggil proxy `/api` (jangan menempel `/api` langsung ke `downloadUrl`
 ```text
 GET /archives/stats?year=2026                                      (archive.view)
   → {year, total, unlisted, signedLists, byCategory, bySource}
-GET /archives?year=&sourceType=&category=&q=&page=&limit=          (archive.view)
-GET /archives/:id                                                  (archive.view)
-GET /archives/candidates?sourceType=INCOMING|OUTGOING&q=&limit=    (archive.create)
+GET /archives?year=&sourceType=&category=&classificationCode=&q=&page=&limit= (archive.view)
+GET /archives/:id                                                  (archive.view; termasuk physicalLocation)
+PATCH /archives/:id {..., physicalLocation?}                        (archive.update, hanya SUPER_ADMIN)
 POST /archives/lists | GET /archives/lists | POST /archives/lists/:id/records
 POST /archives/lists/:id/sign
 ```
+
+`GET /archives` mendukung filter tahun, `classificationCode`, dan `q`
+(nomor arsip/uraian/nomor dokumen/kode/berkas/catatan/lokasi fisik/pengirim/
+tujuan). `POST /archives` dan `GET /archives/candidates` sudah dihapus.
 
 `/archives/stats` menghitung record berdasarkan `archiveDate` pada tahun yang
 diminta. `byCategory` hanya berisi kategori yang punya record (frontend sebaiknya
@@ -345,6 +382,46 @@ CANCELLED terminal; sequence dilindungi UNIQUE(year, sequence_number).
 Buffer backdate: saat tanggal surat berganti, 3 nomor setelah nomor terakhir tanggal lama
 dikunci untuk surat menyusul; tanggal baru mulai setelah 3 nomor tersebut. Buffer habis → 409.
 Nomor tahun baru dimulai dari 1 (sequence tahunan).
+
+### Persetujuan arsip semi-otomatis
+
+Spesifikasi lengkap ada di `docs/14-surat-workflow-revision.md`. Ringkasan
+kontrak final:
+
+```text
+GET  /letters/archive-queue?q=&page=&limit=            (archive.approve)
+  → surat masuk status MENUNGGU_ARSIP, archiveRecord null
+GET  /outgoing-letters/archive-queue?q=&page=&limit=   (archive.approve)
+  → surat keluar status TERKIRIM, archiveRecord null, archiveRejectedAt null
+
+POST /letters/archive-approvals/batch
+  { ids: ["uuid", "..."] }                             (maks 15)
+  → { approved: [{id, archiveNumber}], skipped: [{id, reason}] }
+
+POST /outgoing-letters/archive-approvals/batch
+  { ids: ["uuid", "..."] }                             (maks 15)
+  → { approved: [{id, archiveNumber}], skipped: [{id, reason}] }
+
+POST /letters/archive-approvals/reject
+  { ids: ["uuid"], note: "..." }                       (maks 15)
+  → { rejected: [...], skipped: [...] }
+
+POST /outgoing-letters/archive-approvals/reject
+  { ids: ["uuid"], note: "..." }                       (maks 15)
+  → { rejected: [...], skipped: [...] }
+
+POST /outgoing-letters/:id/resubmit-archive            (outgoing.issue)
+  → surat kembali ke antrean, flag reject dibersihkan
+```
+
+Surat masuk memakai `MENUNGGU_ARSIP` sebagai antrean dan `DIARSIPKAN`
+setelah disetujui. Surat keluar memakai `TERKIRIM` sebagai antrean dan
+`DIARSIPKAN` setelah disetujui; `archiveRejectedAt` menandakan perlu revisi.
+Sekcam atau Camat boleh menyetujui; approver pertama menentukan. Batch
+mendukung partial success, maksimal 15 ID per request. ID memakai UUID, bukan
+integer. Approve membuat `ArchiveRecord` otomatis dan menyalin metadata yang
+sudah ada. Setiap surat yang masuk antrean mengirim notifikasi tipe
+`ARCHIVE_APPROVAL` ke Sekcam/Camat.
 
 ### Notifikasi (milik sendiri, cukup login)
 

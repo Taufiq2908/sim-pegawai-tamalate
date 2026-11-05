@@ -254,19 +254,21 @@ Pegawai bermasalah: ≥5 hari kerja dalam sepekan tanpa HADIR/TERLAMBAT (IZIN/SA
 
 ### 3.6 Surat masuk & disposisi
 
-**`incoming_letters`**: id, agenda_number UNIQUE (`AGENDA-2026-0001`, generate backend), letter_number (nomor dari pengirim), sender, subject, summary (ringkasan isi), letter_date, received_date, resolution_date (tanggal penyelesaian, diisi saat complete), priority (`BIASA|SEGERA|SANGAT_SEGERA`), secrecy (`SR|R|B`), addressed_to (instansi yang ditujukan), pic (penanggung jawab), remarks (ket), classification_id FK opsional, status (`RECEIVED|DISPOSED|COMPLETED|ARCHIVED`), completed_at/completion_note, archived_at, created_by FK.
+**`incoming_letters`**: id, agenda_number UNIQUE (`AGENDA-2026-0001`, generate backend), letter_number (nomor dari pengirim), sender, subject, summary (ringkasan isi), letter_date, received_date, resolution_date (tanggal penyelesaian), priority (`BIASA|SEGERA|SANGAT_SEGERA`), secrecy (`SR|R|B`), addressed_to, pic, remarks, letter_type (`BIASA|UNDANGAN`), submitted_at, classification_id FK opsional (wajib saat kirim ke Sekcam), status (`DRAFT_TU|REVIEW_SEKCAM|DISPOSISI_CAMAT|DITERUSKAN|PROSES|MENUNGGU_ARSIP|DIARSIPKAN`), completed_at/completion_note, archived_at, created_by FK.
 
-**`letter_dispositions`**: id, letter_id FK CASCADE, from_user_id FK, to_user_id FK, target_code/target_name (1 dari 9 tujuan tetap: SEKCAM, KASI_PEM, KASI_TRANTIB, KASI_PMK, KASI_EKBANG, KASI_BERSIH, KASUBAG_UMUM, KASUBAG_RENKEU, BENDAHARA), instruction, deadline (date, opsional), status (`PENDING|DONE`), response_note, responded_at. Rantai disposisi sekaligus audit trail. Setiap disposisi baru membuat baris `notifications` untuk penerima.
+**`letter_dispositions`**: id, letter_id FK CASCADE, from_user_id FK, to_user_id FK, target_code/target_name (1 dari 9 tujuan tetap: SEKCAM, KASI_PEM, KASI_TRANTIB, KASI_PMK, KASI_EKBANG, KASI_BERSIH, KASUBAG_UMUM, KASUBAG_RENKEU, BENDAHARA), instruction, deadline (date, opsional), status (`PENDING|ACCEPTED|DONE`), accepted_at, response_note, responded_at. Rantai disposisi sekaligus audit trail. Setiap disposisi baru membuat baris `notifications` untuk penerima.
 
 **`letter_documents`**: mirip leave_documents (max 10MB, pdf/jpg/png), FK ke letter CASCADE.
 
 **`archive_classifications`**: code UNIQUE (Permendagri 83/2022, mis. `000.5.3.1`), name, is_active. Dasar penomoran surat keluar.
 
-**`outgoing_letters`**: id, letter_number UNIQUE (format SE: `klasifikasi / seq / KT / romawi / tahun`), sequence_number + year (UNIQUE gabungan; nomor tidak dipakai ulang), classification_id FK, subject, recipient, letter_date (tanggal surat, boleh < tanggal catat), priority, secrecy, signer_name, status (`RESERVED|ISSUED|CANCELLED`), reservation_reason, cancel_reason, reserved_by/at, issued_at, cancelled_at, created_by (created_at = tanggal pencatatan).
+**`outgoing_letters`**: id, letter_number UNIQUE (format SE: `klasifikasi / seq / KT / romawi / tahun`), sequence_number + year (UNIQUE gabungan; nomor tidak dipakai ulang), classification_id FK, subject, recipient, letter_date (tanggal surat, boleh < tanggal catat), priority, secrecy, signer_name, status (`RESERVED|TERKIRIM|DIARSIPKAN|CANCELLED`), reservation_reason, cancel_reason, reserved_by/at, issued_at, archived_at, archive_rejected_at, archive_rejection_note, cancelled_at, created_by (created_at = tanggal pencatatan).
 
 **`outgoing_documents`**, **`numbering_sequences`** (year → last_number), **`expedition_receipts`** (reg_number UNIQUE, letter_id FK, receipt_date, receiver_name, signature_name/paraf, note), **`notifications`** (user_id FK, type, title, body, reference, is_read).
 
-Alur: `RECEIVED → DISPOSED → COMPLETED → ARCHIVED`. Disposisi boleh berantai (Camat→Sekcam→staf). `complete` mensyaratkan ≥1 disposisi dan semuanya DONE. Visibilitas: SUPER_ADMIN/VERIFIER semua; lainnya hanya surat yang melibatkan dirinya (pencatat/pemberi/penerima).
+Alur: `DRAFT_TU → REVIEW_SEKCAM → DISPOSISI_CAMAT → DITERUSKAN → PROSES → MENUNGGU_ARSIP → DIARSIPKAN`. Disposisi boleh banyak target; status `PROSES` saat target pertama menerima, dan `MENUNGGU_ARSIP` setelah semua target DONE. Visibilitas: SUPER_ADMIN/VERIFIER semua; Sekcam melihat tahap `REVIEW_SEKCAM`; Camat melihat tahap `DISPOSISI_CAMAT`; penerima melihat surat yang melibatkan dirinya.
+
+**Pembaruan workflow - 5 November 2026:** status baru diterapkan. Surat masuk memakai `MENUNGGU_ARSIP` sebagai antrean dan `DIARSIPKAN` setelah disetujui. Surat keluar memakai `TERKIRIM` sebagai antrean dan `DIARSIPKAN` setelah disetujui. Reject surat keluar memakai `ditolak_arsip_pada` + `catatan_penolakan_arsip`. Batch surat masuk dan keluar dipisah, maksimal 15 per request, partial success. Tidak ada arsip manual; `PATCH /archives/:id` hanya untuk `SUPER_ADMIN`; `lokasi_fisik` opsional. Detail lengkap di `docs/14-surat-workflow-revision.md`.
 
 ### 3.7 KGB (mirip pola cuti)
 

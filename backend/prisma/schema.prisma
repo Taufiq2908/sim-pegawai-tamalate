@@ -99,49 +99,49 @@ model Employee {
 }
 
 model User {
-  id                    String                   @id @default(uuid()) @db.Uuid
-  username              String                   @unique @map("nama_pengguna") @db.VarChar(50)
-  passwordHash          String                   @map("hash_kata_sandi") @db.VarChar(255)
-  employeeId            String?                  @unique @map("id_pegawai") @db.Uuid
-  employee              Employee?                @relation(fields: [employeeId], references: [id])
-  role                  RoleCode                 @map("peran")
-  position              String?                  @map("jabatan") @db.VarChar(50)
-  orgUnitId             String?                  @map("id_unit") @db.Uuid
-  orgUnit               OrganizationalUnit?      @relation("UserOrg", fields: [orgUnitId], references: [id])
-  isActive              Boolean                  @default(true) @map("aktif")
-  lastLoginAt           DateTime?                @map("login_terakhir_pada") @db.Timestamptz
-  createdAt             DateTime                 @default(now()) @map("dibuat_pada") @db.Timestamptz
-  updatedAt             DateTime                 @updatedAt @map("diperbarui_pada") @db.Timestamptz
-  overrides             UserPermissionOverride[]
-  uploadedDocs          LeaveDocument[]
-  actions               LeaveApproval[]          @relation("ActorActions")
-  createdLeaves         LeaveRequest[]           @relation("CreatedLeaves")
-  recordedAttendances   Attendance[]             @relation("RecordedAttendances")
-  correctedAttendances  Attendance[]             @relation("CorrectedAttendances")
-  createdLetters        IncomingLetter[]         @relation("CreatedLetters")
-  sentDispositions      LetterDisposition[]      @relation("SentDispositions")
-  receivedDispositions  LetterDisposition[]      @relation("ReceivedDispositions")
-  uploadedLetterDocs    LetterDocument[]
-  createdKgb            KgbRequest[]             @relation("CreatedKgb")
-  kgbActions            KgbApproval[]            @relation("KgbActorActions")
-  uploadedKgbDocs       KgbDocument[]
-  createdWarnings       WarningLetter[]          @relation("CreatedWarnings")
-  uploadedSessionPhotos AttendanceSessionPhoto[]
-  createdOutgoing       OutgoingLetter[]         @relation("CreatedOutgoing")
-  reservedOutgoing      OutgoingLetter[]         @relation("ReservedOutgoing")
-  uploadedOutgoingDocs  OutgoingDocument[]
-  createdExpeditions    ExpeditionReceipt[]      @relation("CreatedExpeditions")
-  notifications         Notification[]
-  createdArchives       ArchiveRecord[]          @relation("CreatedArchives")
-  signedArchiveLists    ArchiveList[]            @relation("SignedArchiveLists")
-  createdArchiveLists   ArchiveList[]            @relation("CreatedArchiveLists")
-  agendaAssignments     AgendaAssignment[]
-  createdPensionBatches PensionBatch[]           @relation("CreatedPensionBatches")
-  pensionActions        PensionApproval[]        @relation("PensionActorActions")
-  uploadedPensionDocs   PensionDocument[]
-  createdPromotionBatches PromotionBatch[]       @relation("CreatedPromotionBatches")
-  promotionActions      PromotionApproval[]      @relation("PromotionActorActions")
-  uploadedPromotionDocs PromotionDocument[]
+  id                      String                   @id @default(uuid()) @db.Uuid
+  username                String                   @unique @map("nama_pengguna") @db.VarChar(50)
+  passwordHash            String                   @map("hash_kata_sandi") @db.VarChar(255)
+  employeeId              String?                  @unique @map("id_pegawai") @db.Uuid
+  employee                Employee?                @relation(fields: [employeeId], references: [id])
+  role                    RoleCode                 @map("peran")
+  position                String?                  @map("jabatan") @db.VarChar(50)
+  orgUnitId               String?                  @map("id_unit") @db.Uuid
+  orgUnit                 OrganizationalUnit?      @relation("UserOrg", fields: [orgUnitId], references: [id])
+  isActive                Boolean                  @default(true) @map("aktif")
+  lastLoginAt             DateTime?                @map("login_terakhir_pada") @db.Timestamptz
+  createdAt               DateTime                 @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt               DateTime                 @updatedAt @map("diperbarui_pada") @db.Timestamptz
+  overrides               UserPermissionOverride[]
+  uploadedDocs            LeaveDocument[]
+  actions                 LeaveApproval[]          @relation("ActorActions")
+  createdLeaves           LeaveRequest[]           @relation("CreatedLeaves")
+  recordedAttendances     Attendance[]             @relation("RecordedAttendances")
+  correctedAttendances    Attendance[]             @relation("CorrectedAttendances")
+  createdLetters          IncomingLetter[]         @relation("CreatedLetters")
+  sentDispositions        LetterDisposition[]      @relation("SentDispositions")
+  receivedDispositions    LetterDisposition[]      @relation("ReceivedDispositions")
+  uploadedLetterDocs      LetterDocument[]
+  createdKgb              KgbRequest[]             @relation("CreatedKgb")
+  kgbActions              KgbApproval[]            @relation("KgbActorActions")
+  uploadedKgbDocs         KgbDocument[]
+  createdWarnings         WarningLetter[]          @relation("CreatedWarnings")
+  uploadedSessionPhotos   AttendanceSessionPhoto[]
+  createdOutgoing         OutgoingLetter[]         @relation("CreatedOutgoing")
+  reservedOutgoing        OutgoingLetter[]         @relation("ReservedOutgoing")
+  uploadedOutgoingDocs    OutgoingDocument[]
+  createdExpeditions      ExpeditionReceipt[]      @relation("CreatedExpeditions")
+  notifications           Notification[]
+  createdArchives         ArchiveRecord[]          @relation("CreatedArchives")
+  signedArchiveLists      ArchiveList[]            @relation("SignedArchiveLists")
+  createdArchiveLists     ArchiveList[]            @relation("CreatedArchiveLists")
+  agendaAssignments       AgendaAssignment[]
+  createdPensionBatches   PensionBatch[]           @relation("CreatedPensionBatches")
+  pensionActions          PensionApproval[]        @relation("PensionActorActions")
+  uploadedPensionDocs     PensionDocument[]
+  createdPromotionBatches PromotionBatch[]         @relation("CreatedPromotionBatches")
+  promotionActions        PromotionApproval[]      @relation("PromotionActorActions")
+  uploadedPromotionDocs   PromotionDocument[]
 
   @@map("pengguna")
 }
@@ -391,13 +391,15 @@ model IncomingLetter {
   addressedTo       String?                @map("ditujukan_kepada") @db.VarChar(200)
   pic               String?                @map("penanggung_jawab") @db.VarChar(150)
   remarks           String?                @map("keterangan")
+  letterType        String                 @default("BIASA") @map("jenis_surat") @db.VarChar(20)
+  submittedAt       DateTime?              @map("diajukan_pada") @db.Timestamptz
   activityDate      DateTime?              @map("tanggal_kegiatan") @db.Date
   activityStartTime String?                @map("waktu_mulai") @db.VarChar(5)
   activityEndTime   String?                @map("waktu_selesai") @db.VarChar(5)
   activityLocation  String?                @map("tempat_kegiatan") @db.VarChar(200)
   classificationId  String?                @map("id_klasifikasi") @db.Uuid
   classification    ArchiveClassification? @relation(fields: [classificationId], references: [id])
-  status            String                 @default("RECEIVED") @map("status") @db.VarChar(20)
+  status            String                 @default("DRAFT_TU") @map("status") @db.VarChar(20)
   completionNote    String?                @map("catatan_penyelesaian")
   completedAt       DateTime?              @map("selesai_pada") @db.Timestamptz
   archivedAt        DateTime?              @map("diarsipkan_pada") @db.Timestamptz
@@ -427,6 +429,7 @@ model LetterDisposition {
   instruction  String         @map("instruksi")
   deadline     DateTime?      @map("batas_waktu") @db.Date
   status       String         @default("PENDING") @map("status") @db.VarChar(20)
+  acceptedAt   DateTime?      @map("diterima_pada") @db.Timestamptz
   responseNote String?        @map("catatan_tanggapan")
   respondedAt  DateTime?      @map("ditanggapi_pada") @db.Timestamptz
   targetCode   String?        @map("kode_tujuan") @db.VarChar(30)
@@ -476,38 +479,41 @@ model DispositionTarget {
 }
 
 model OutgoingLetter {
-  id                String                @id @default(uuid()) @db.Uuid
-  letterNumber      String                @unique @map("nomor_surat") @db.VarChar(150)
-  sequenceNumber    Int                   @map("nomor_urut")
-  year              Int                   @map("tahun")
-  classificationId  String                @map("id_klasifikasi") @db.Uuid
-  classification    ArchiveClassification @relation(fields: [classificationId], references: [id])
-  subject           String                @map("perihal")
-  recipient         String?               @map("penerima") @db.VarChar(200)
-  destinationNumber String?               @map("nomor_tujuan") @db.VarChar(100)
-  personInCharge    String?               @map("penanggung_jawab") @db.VarChar(150)
-  letterCode        String?               @map("kode_surat") @db.VarChar(30)
-  remarks           String?               @map("keterangan") @db.VarChar(500)
-  letterDate        DateTime              @map("tanggal_surat") @db.Date
-  priority          String                @default("BIASA") @map("prioritas") @db.VarChar(20)
-  secrecy           String                @default("B") @map("sifat") @db.VarChar(5)
-  signerName        String?               @map("nama_penandatangan") @db.VarChar(150)
-  status            String                @default("ISSUED") @map("status") @db.VarChar(20)
-  reservationReason String?               @map("alasan_reservasi")
-  cancelReason      String?               @map("alasan_pembatalan")
-  reservedBy        String?               @map("dipesan_oleh") @db.Uuid
-  reserver          User?                 @relation("ReservedOutgoing", fields: [reservedBy], references: [id])
-  reservedAt        DateTime?             @map("dipesan_pada") @db.Timestamptz
-  issuedAt          DateTime?             @map("diterbitkan_pada") @db.Timestamptz
-  cancelledAt       DateTime?             @map("dibatalkan_pada") @db.Timestamptz
-  createdBy         String                @map("dibuat_oleh") @db.Uuid
-  creator           User                  @relation("CreatedOutgoing", fields: [createdBy], references: [id])
-  createdAt         DateTime              @default(now()) @map("dibuat_pada") @db.Timestamptz
-  updatedAt         DateTime              @updatedAt @map("diperbarui_pada") @db.Timestamptz
-  documents         OutgoingDocument[]
-  archiveRecord     ArchiveRecord?
-  pensionBatch      PensionBatch?
-  promotionBatch    PromotionBatch?
+  id                   String                @id @default(uuid()) @db.Uuid
+  letterNumber         String                @unique @map("nomor_surat") @db.VarChar(150)
+  sequenceNumber       Int                   @map("nomor_urut")
+  year                 Int                   @map("tahun")
+  classificationId     String                @map("id_klasifikasi") @db.Uuid
+  classification       ArchiveClassification @relation(fields: [classificationId], references: [id])
+  subject              String                @map("perihal")
+  recipient            String?               @map("penerima") @db.VarChar(200)
+  destinationNumber    String?               @map("nomor_tujuan") @db.VarChar(100)
+  personInCharge       String?               @map("penanggung_jawab") @db.VarChar(150)
+  letterCode           String?               @map("kode_surat") @db.VarChar(30)
+  remarks              String?               @map("keterangan") @db.VarChar(500)
+  letterDate           DateTime              @map("tanggal_surat") @db.Date
+  priority             String                @default("BIASA") @map("prioritas") @db.VarChar(20)
+  secrecy              String                @default("B") @map("sifat") @db.VarChar(5)
+  signerName           String?               @map("nama_penandatangan") @db.VarChar(150)
+  status               String                @default("TERKIRIM") @map("status") @db.VarChar(20)
+  reservationReason    String?               @map("alasan_reservasi")
+  cancelReason         String?               @map("alasan_pembatalan")
+  reservedBy           String?               @map("dipesan_oleh") @db.Uuid
+  reserver             User?                 @relation("ReservedOutgoing", fields: [reservedBy], references: [id])
+  reservedAt           DateTime?             @map("dipesan_pada") @db.Timestamptz
+  issuedAt             DateTime?             @map("diterbitkan_pada") @db.Timestamptz
+  archivedAt           DateTime?             @map("diarsipkan_pada") @db.Timestamptz
+  cancelledAt          DateTime?             @map("dibatalkan_pada") @db.Timestamptz
+  archiveRejectedAt    DateTime?             @map("ditolak_arsip_pada") @db.Timestamptz
+  archiveRejectionNote String?               @map("catatan_penolakan_arsip") @db.VarChar(1000)
+  createdBy            String                @map("dibuat_oleh") @db.Uuid
+  creator              User                  @relation("CreatedOutgoing", fields: [createdBy], references: [id])
+  createdAt            DateTime              @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt            DateTime              @updatedAt @map("diperbarui_pada") @db.Timestamptz
+  documents            OutgoingDocument[]
+  archiveRecord        ArchiveRecord?
+  pensionBatch         PensionBatch?
+  promotionBatch       PromotionBatch?
 
   @@unique([year, sequenceNumber])
   @@index([status])
@@ -548,6 +554,7 @@ model ArchiveRecord {
   archiveDate      DateTime               @map("tanggal_arsip") @db.Date
   category         String                 @default("AKTIF") @map("kategori") @db.VarChar(20)
   location         String                 @default("LEMARI_ARSIP") @map("lokasi_simpan") @db.VarChar(30)
+  physicalLocation String?                @map("lokasi_fisik") @db.VarChar(200)
   retentionUntil   DateTime?              @map("retensi_sampai") @db.Date
   notes            String?                @map("keterangan")
   listId           String?                @map("id_daftar_arsip") @db.Uuid
@@ -813,28 +820,28 @@ model PromotionBatch {
 
 // Baris daftar nominatif kenaikan pangkat: satu ASN dalam satu berkas usulan.
 model PromotionItem {
-  id                  String            @id @default(uuid()) @db.Uuid
-  batchId             String            @map("id_usulan") @db.Uuid
-  batch               PromotionBatch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  employeeId          String            @map("id_pegawai") @db.Uuid
-  employee            Employee          @relation(fields: [employeeId], references: [id])
-  employeeName        String            @map("nama_pegawai") @db.VarChar(150)
-  employeeNip         String?           @map("nip") @db.VarChar(30)
-  employeeNumber      String            @map("nomor_pegawai") @db.VarChar(30)
-  currentRank         String?           @map("golongan_saat_ini") @db.VarChar(20)
-  currentRankTmt      DateTime?         @map("tmt_pangkat_saat_ini") @db.Date
-  targetRank          String            @map("golongan_diusulkan") @db.VarChar(20)
-  effectiveDate       DateTime          @map("tmt_kenaikan_pangkat") @db.Date
-  yearsInCurrentRank  Int?              @map("masa_jabatan_tahun")
-  position            String            @map("jabatan") @db.VarChar(50)
-  orgUnitName         String?           @map("unit_kerja") @db.VarChar(150)
-  status              String            @default("PENDING") @map("status_item") @db.VarChar(20)
-  note                String?           @map("catatan")
-  legalizedAt         DateTime?         @map("dilegalisasi_pada") @db.Timestamptz
-  verifiedAt          DateTime?         @map("diverifikasi_pada") @db.Timestamptz
-  createdAt           DateTime          @default(now()) @map("dibuat_pada") @db.Timestamptz
-  updatedAt           DateTime          @updatedAt @map("diperbarui_pada") @db.Timestamptz
-  documents           PromotionDocument[]
+  id                 String              @id @default(uuid()) @db.Uuid
+  batchId            String              @map("id_usulan") @db.Uuid
+  batch              PromotionBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  employeeId         String              @map("id_pegawai") @db.Uuid
+  employee           Employee            @relation(fields: [employeeId], references: [id])
+  employeeName       String              @map("nama_pegawai") @db.VarChar(150)
+  employeeNip        String?             @map("nip") @db.VarChar(30)
+  employeeNumber     String              @map("nomor_pegawai") @db.VarChar(30)
+  currentRank        String?             @map("golongan_saat_ini") @db.VarChar(20)
+  currentRankTmt     DateTime?           @map("tmt_pangkat_saat_ini") @db.Date
+  targetRank         String              @map("golongan_diusulkan") @db.VarChar(20)
+  effectiveDate      DateTime            @map("tmt_kenaikan_pangkat") @db.Date
+  yearsInCurrentRank Int?                @map("masa_jabatan_tahun")
+  position           String              @map("jabatan") @db.VarChar(50)
+  orgUnitName        String?             @map("unit_kerja") @db.VarChar(150)
+  status             String              @default("PENDING") @map("status_item") @db.VarChar(20)
+  note               String?             @map("catatan")
+  legalizedAt        DateTime?           @map("dilegalisasi_pada") @db.Timestamptz
+  verifiedAt         DateTime?           @map("diverifikasi_pada") @db.Timestamptz
+  createdAt          DateTime            @default(now()) @map("dibuat_pada") @db.Timestamptz
+  updatedAt          DateTime            @updatedAt @map("diperbarui_pada") @db.Timestamptz
+  documents          PromotionDocument[]
 
   @@unique([batchId, employeeId])
   @@index([employeeId, status])

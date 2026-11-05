@@ -58,7 +58,7 @@ bukan penghalang frontend.
   tanggal distribusi (`distributedAt`), `GET /employees` + `GET /users`,
   hapus `passwordHash` dari response.
 
-## 8. Status implementasi frontend v1 (terkunci)
+## 8. Status implementasi frontend v1 (historis, digantikan §9)
 - `/surat-masuk` (list + filter + cari), `/surat-masuk/baru` (remarks = kolom Keterangan),
   `/surat-masuk/[id]` (rantai disposisi + tindak lanjut + selesaikan/arsip + upload +
   catat ekspedisi + dropdown 9 tujuan disposisi, no. 10 = lainnya/tanpa targetCode).
@@ -69,5 +69,48 @@ bukan penghalang frontend.
   + detail (terbitkan reservasi, batalkan, upload dokumen, isi nomor tujuan/PIC/kode surat/keterangan).
 - `/notifikasi` (filter belum dibaca, tandai dibaca, deep-link ke surat masuk untuk disposisi).
 - `/presensi/teguran` (daftar + detail + cetak surat teguran).
-- Belum ada: status distribusi per-tahap, masa berlaku reservasi, tanda tangan digital.
-  Paraf Sekcam dan `distributedAt` sudah tersedia di backend.
+- Belum ada pada v1: status distribusi per-tahap, masa berlaku reservasi, tanda
+  tangan digital. Status distribusi per-tahap sekarang sudah ada di §9;
+  paraf Sekcam diganti aksi `forward` dan `distributedAt` tersedia di backend.
+
+## 9. Pembaruan alur surat & arsip — 5 November 2026
+
+**Status: backend selesai; migration/seed sudah diterapkan ke Supabase.
+Frontend belum diimplementasikan. Handoff teknis ada di
+`docs/14-surat-workflow-revision.md` §7.**
+
+Alur baru memakai status eksplisit:
+
+```text
+Surat masuk:  DRAFT_TU → REVIEW_SEKCAM → DISPOSISI_CAMAT → DITERUSKAN
+              → PROSES → MENUNGGU_ARSIP → DIARSIPKAN
+Surat keluar: RESERVED → TERKIRIM → DIARSIPKAN (CANCELLED untuk batal)
+```
+
+Keputusan:
+
+- Sekcam meneruskan `REVIEW_SEKCAM → DISPOSISI_CAMAT` (pengganti paraf).
+- Camat mengisi instruksi dan memilih target disposisi; status menjadi
+  `DITERUSKAN`.
+- Penerima menekan **Terima & Baca**; status menjadi `PROSES` dan buku
+  ekspedisi otomatis tercatat.
+- Surat baru menjadi `MENUNGGU_ARSIP` setelah **semua** target disposisi
+  menekan **Selesai & Ajukan Arsip**.
+- Arsip disetujui batch oleh Sekcam/Camat; status menjadi `DIARSIPKAN`.
+- Surat keluar yang terbit berstatus `TERKIRIM` dan otomatis masuk antrean
+  arsip; setelah disetujui menjadi `DIARSIPKAN`.
+- Sekcam **atau** Camat boleh menyetujui arsip; approver pertama menentukan.
+- Batch surat masuk dan surat keluar dipisah, maksimal 15 surat per request,
+  dengan partial success (`approved[]` dan `skipped[]`).
+- Tidak ada arsip manual; endpoint create manual dan halaman input manual
+  (`/arsip/baru`) dihapus. Halaman `/arsip/daftar/baru` tetap ada karena
+  membuat daftar arsip, bukan arsip manual.
+- Reject surat keluar memakai flag `archiveRejectedAt` +
+  `archiveRejectionNote`; staf mengajukan ulang lewat
+  `POST /outgoing-letters/:id/resubmit-archive`.
+- Setiap surat yang masuk antrean mengirim notifikasi tipe
+  `ARCHIVE_APPROVAL` ke Sekcam/Camat.
+- Detail lengkap ada di `docs/14-surat-workflow-revision.md`.
+
+Dokumen ini sudah mengubah kontrak aktif. Migration dan seed permission sudah
+diterapkan; frontend masih harus mengikuti status dan endpoint baru.

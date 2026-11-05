@@ -9,7 +9,6 @@ import {
   ARCHIVE_LIST_STATUS,
   ARCHIVE_SOURCES,
   ArchiveError,
-  createArchiveRecord,
   locationForCategory,
   nextArchiveListNumber,
 } from '../services/archive.service';
@@ -101,69 +100,6 @@ router.get('/stats', requirePermission('archive.view'), async (req, res) => {
     byCategory: Object.fromEntries(byCategory.map((x) => [x.category, x._count._all])),
     bySource: Object.fromEntries(bySource.map((x) => [x.sourceType, x._count._all])),
   });
-});
-
-// ---------- GET /archives/candidates ----------
-// Surat yang siap dicatat ke buku arsip. Operasi tulis, jadi pakai archive.create.
-router.get('/candidates', requirePermission('archive.create'), async (req, res) => {
-  const { sourceType = 'INCOMING', q, limit = '20' } = req.query as any;
-  if (!ARCHIVE_SOURCES.includes(sourceType)) return fail(res, 422, 'sourceType tidak valid');
-  const take = Math.min(50, Math.max(1, Number(limit) || 20));
-  const where: any = { archiveRecord: { is: null } };
-  if (q) {
-    where.OR = sourceType === 'INCOMING'
-      ? [
-          { subject: { contains: String(q), mode: 'insensitive' } },
-          { letterNumber: { contains: String(q), mode: 'insensitive' } },
-          { agendaNumber: { contains: String(q), mode: 'insensitive' } },
-          { sender: { contains: String(q), mode: 'insensitive' } },
-        ]
-      : [
-          { subject: { contains: String(q), mode: 'insensitive' } },
-          { letterNumber: { contains: String(q), mode: 'insensitive' } },
-          { recipient: { contains: String(q), mode: 'insensitive' } },
-        ];
-  }
-
-  if (sourceType === 'INCOMING') {
-    where.status = { in: ['COMPLETED', 'ARCHIVED'] };
-    const items = await prisma.incomingLetter.findMany({
-      where,
-      include: { classification: true },
-      orderBy: [{ letterDate: 'desc' }, { createdAt: 'desc' }],
-      take,
-    });
-    return ok(res, items.map((l) => ({
-      id: l.id,
-      sourceType: 'INCOMING',
-      agendaNumber: l.agendaNumber,
-      letterNumber: l.letterNumber,
-      subject: l.subject,
-      party: l.sender,
-      date: l.letterDate.toISOString().slice(0, 10),
-      status: l.status,
-      classification: l.classification ? { code: l.classification.code, name: l.classification.name } : null,
-    })));
-  }
-
-  where.status = 'ISSUED';
-  const items = await prisma.outgoingLetter.findMany({
-    where,
-    include: { classification: true },
-    orderBy: [{ letterDate: 'desc' }, { createdAt: 'desc' }],
-    take,
-  });
-  return ok(res, items.map((l) => ({
-    id: l.id,
-    sourceType: 'OUTGOING',
-    agendaNumber: null,
-    letterNumber: l.letterNumber,
-    subject: l.subject,
-    party: l.recipient,
-    date: l.letterDate.toISOString().slice(0, 10),
-    status: l.status,
-    classification: l.classification ? { code: l.classification.code, name: l.classification.name } : null,
-  })));
 });
 
 // ---------- GET /archives/lists ----------
@@ -402,11 +338,14 @@ router.post('/lists/:id/sign', requirePermission('archive.sign'), async (req, re
 
 // ---------- GET /archives ----------
 router.get('/', requirePermission('archive.view'), async (req, res) => {
-  const { sourceType, category, q, listId, unlisted, year, dateFrom, dateTo, page = '1', limit = '20' } = req.query as any;
+  const { sourceType, category, q, listId, unlisted, year, dateFrom, dateTo, classificationCode, page = '1', limit = '20' } = req.query as any;
   const where: any = {};
   if (sourceType) {
     if (!ARCHIVE_SOURCES.includes(sourceType)) return fail(res, 422, 'sourceType tidak valid');
     where.sourceType = sourceType;
+  }
+  if (classificationCode) {
+    where.classification = { code: String(classificationCode) };
   }
   if (category) {
     if (!ARCHIVE_CATEGORIES.includes(category)) return fail(res, 422, 'kategori tidak valid');
@@ -440,6 +379,9 @@ router.get('/', requirePermission('archive.view'), async (req, res) => {
       { code: { contains: String(q), mode: 'insensitive' } },
       { bundleCode: { contains: String(q), mode: 'insensitive' } },
       { notes: { contains: String(q), mode: 'insensitive' } },
+      { physicalLocation: { contains: String(q), mode: 'insensitive' } },
+      { incomingLetter: { is: { sender: { contains: String(q), mode: 'insensitive' } } } },
+      { outgoingLetter: { is: { recipient: { contains: String(q), mode: 'insensitive' } } } },
     ];
   }
   const p = Math.max(1, Number(page) || 1);
@@ -457,30 +399,6 @@ router.get('/', requirePermission('archive.view'), async (req, res) => {
   return ok(res, items, 'ok', { page: p, limit: l, total });
 });
 
-// ---------- POST /archives ----------
-router.post('/', requirePermission('archive.create'), async (req, res) => {
-  const schema = z.object({
-    sourceType: z.enum(ARCHIVE_SOURCES),
-    sourceId: z.string().uuid(),
-    classificationCode: z.string().max(30).optional(),
-    code: z.string().max(100).optional(),
-    bundleCode: z.string().max(100).optional(),
-    category: z.enum(ARCHIVE_CATEGORIES).optional(),
-    archiveDate: ymd.optional(),
-    retentionUntil: ymd.optional(),
-    notes: z.string().max(1000).optional(),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
-  try {
-    const record = await createArchiveRecord({ ...parsed.data, actorId: req.user!.id });
-    const full = await prisma.archiveRecord.findUnique({ where: { id: record.id }, include: includeRecord });
-    return res.status(201).json({ success: true, message: 'Dokumen dicatat ke buku arsip', data: full, meta: null, errors: null });
-  } catch (err) {
-    return handleError(res, err);
-  }
-});
-
 // ---------- GET /archives/:id ----------
 router.get('/:id', requirePermission('archive.view'), async (req, res) => {
   const record = await prisma.archiveRecord.findUnique({ where: { id: req.params.id }, include: includeRecord });
@@ -490,6 +408,9 @@ router.get('/:id', requirePermission('archive.view'), async (req, res) => {
 
 // ---------- PATCH /archives/:id ----------
 router.patch('/:id', requirePermission('archive.update'), async (req, res) => {
+  if (req.user!.role !== 'SUPER_ADMIN') {
+    return fail(res, 403, 'Metadata arsip yang sudah diarsipkan terkunci; hubungi admin untuk koreksi');
+  }
   const schema = z.object({
     classificationCode: z.string().max(30).nullable().optional(),
     code: z.string().max(100).nullable().optional(),
@@ -498,6 +419,7 @@ router.patch('/:id', requirePermission('archive.update'), async (req, res) => {
     archiveDate: ymd.optional(),
     retentionUntil: ymd.nullable().optional(),
     notes: z.string().max(1000).nullable().optional(),
+    physicalLocation: z.string().max(200).nullable().optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
@@ -545,6 +467,7 @@ router.patch('/:id', requirePermission('archive.update'), async (req, res) => {
     }
   }
   if (b.notes !== undefined) data.notes = b.notes?.trim() || null;
+  if (b.physicalLocation !== undefined) data.physicalLocation = b.physicalLocation?.trim() || null;
 
   const finalArchiveDate = data.archiveDate ?? record.archiveDate;
   const finalRetention = b.retentionUntil !== undefined ? data.retentionUntil : record.retentionUntil;

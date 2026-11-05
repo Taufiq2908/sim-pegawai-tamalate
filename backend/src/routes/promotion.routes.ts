@@ -1305,7 +1305,7 @@ router.post('/:id/:action', async (req, res) => {
               letterCode: b.letterCode?.trim() || null,
               letterDate,
               signerName: signer,
-              status: 'ISSUED',
+              status: 'TERKIRIM',
               issuedAt: now,
               createdBy: req.user!.id,
             },
@@ -1373,6 +1373,10 @@ router.post('/:id/:action', async (req, res) => {
                 notes: b.notes?.trim() || b.note?.trim() || null,
                 createdBy: req.user!.id,
               },
+            });
+            await tx.outgoingLetter.update({
+              where: { id: outgoing.id },
+              data: { status: 'DIARSIPKAN', archivedAt: now },
             });
           }
         }

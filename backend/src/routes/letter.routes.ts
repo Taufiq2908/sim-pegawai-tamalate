@@ -9,13 +9,23 @@ import { authRequired, requirePermission } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
 import { todayYMD, parseYMD } from '../services/attendance.service';
 import { ARCHIVE_CATEGORIES, ArchiveError, createArchiveRecord } from '../services/archive.service';
+import { notifyArchiveApprovers, notifyPositions, notifyUser } from '../services/notification.service';
 import { can } from '../lib/permissions';
 
 const router = Router();
 router.use(authRequired);
 
-const LETTER_STATUS = ['RECEIVED', 'PARAF', 'DISPOSED', 'COMPLETED', 'ARCHIVED'] as const;
+const LETTER_STATUS = [
+  'DRAFT_TU',
+  'REVIEW_SEKCAM',
+  'DISPOSISI_CAMAT',
+  'DITERUSKAN',
+  'PROSES',
+  'MENUNGGU_ARSIP',
+  'DIARSIPKAN',
+] as const;
 const PRIORITY = ['BIASA', 'SEGERA', 'SANGAT_SEGERA'] as const;
+const LETTER_TYPES = ['BIASA', 'UNDANGAN'] as const;
 
 // 9 tujuan disposisi tetap berupa label organisasi. Untuk notifikasi, label
 // dipetakan ke jabatan yang sudah ada (5 role sistem, tanpa role baru).
@@ -38,7 +48,10 @@ const upload = multer({
   limits: { fileSize: MAX_LETTER_BYTES },
   fileFilter: (_req, file, cb) => {
     const allowed = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-    cb(null, allowed.includes(file.mimetype));
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error('File surat harus PDF/JPG/PNG'));
+    }
+    cb(null, true);
   },
 });
 
@@ -80,11 +93,14 @@ const includeDetail = {
 
 function availableActions(status: string, perms: string[]): string[] {
   const rules: Record<string, { on: string[]; perm: string }> = {
-    paraf: { on: ['RECEIVED'], perm: 'letter.paraf' },
-    dispose: { on: ['RECEIVED', 'PARAF', 'DISPOSED'], perm: 'letter.dispose' },
-    complete: { on: ['DISPOSED'], perm: 'letter.complete' },
-    archive: { on: ['COMPLETED'], perm: 'letter.archive' },
-    upload: { on: ['RECEIVED', 'DISPOSED'], perm: 'letter.document.upload' },
+    submit: { on: ['DRAFT_TU'], perm: 'letter.create' },
+    forward: { on: ['REVIEW_SEKCAM'], perm: 'letter.paraf' },
+    dispose: { on: ['DISPOSISI_CAMAT', 'DITERUSKAN'], perm: 'letter.dispose' },
+    accept: { on: ['DITERUSKAN', 'PROSES'], perm: 'letter.followup' },
+    complete: { on: ['DITERUSKAN', 'PROSES'], perm: 'letter.followup' },
+    // Arsip hanya lewat persetujuan Sekcam/Camat, bukan aksi staf.
+    archive: { on: ['MENUNGGU_ARSIP'], perm: 'archive.approve' },
+    upload: { on: ['DRAFT_TU'], perm: 'letter.document.upload' },
   };
   return Object.keys(rules).filter(
     (a) => rules[a].on.includes(status) && can(perms, rules[a].perm),
@@ -122,26 +138,49 @@ function toDetail(l: any, perms: string[], meId: string) {
       instruction: d.instruction,
       deadline: d.deadline,
       status: d.status,
+      acceptedAt: d.acceptedAt,
       responseNote: d.responseNote,
       respondedAt: d.respondedAt,
       createdAt: d.createdAt,
-      canFollowUp: d.status === 'PENDING' && (d.toUser.id === meId || perms.includes('*')),
+      canAccept: d.status === 'PENDING' && (d.toUser.id === meId || perms.includes('*')),
+      canComplete: d.status === 'ACCEPTED' && (d.toUser.id === meId || perms.includes('*')),
+      canFollowUp: d.status === 'ACCEPTED' && (d.toUser.id === meId || perms.includes('*')),
     })),
   };
 }
 
 // Surat terlihat oleh yang terlibat, kecuali SUPER_ADMIN/VERIFIER (semua).
-function scopeWhere(meId: string, role: string): any {
+function scopeWhere(meId: string, role: string, position?: string | null): any {
   if (role === 'SUPER_ADMIN' || role === 'VERIFIER') return {};
-  return {
-    OR: [
-      { createdBy: meId },
-      { dispositions: { some: { fromUserId: meId } } },
-      { dispositions: { some: { toUserId: meId } } },
-      { agendaAssignments: { some: { userId: meId } } },
-    ],
-  };
+  const or: any[] = [
+    { createdBy: meId },
+    { dispositions: { some: { fromUserId: meId } } },
+    { dispositions: { some: { toUserId: meId } } },
+    { agendaAssignments: { some: { userId: meId } } },
+  ];
+  if (position === 'SEKCAM') or.push({ status: 'REVIEW_SEKCAM' });
+  if (position === 'CAMAT') or.push({ status: 'DISPOSISI_CAMAT' });
+  if (position === 'SEKCAM' || position === 'CAMAT') or.push({ status: 'MENUNGGU_ARSIP' });
+  return { OR: or };
 }
+
+function canViewLetter(user: any, l: any): boolean {
+  if (user.role === 'SUPER_ADMIN' || user.role === 'VERIFIER') return true;
+  if (l.createdBy === user.id) return true;
+  if ((l.dispositions ?? []).some((d: any) => d.fromUserId === user.id || d.toUserId === user.id)) return true;
+  if ((l.agendaAssignments ?? []).some((a: any) => a.userId === user.id)) return true;
+  if (user.position === 'SEKCAM' && ['REVIEW_SEKCAM', 'MENUNGGU_ARSIP'].includes(l.status)) return true;
+  if (user.position === 'CAMAT' && ['DISPOSISI_CAMAT', 'MENUNGGU_ARSIP'].includes(l.status)) return true;
+  return false;
+}
+
+// Approver arsip: Sekcam atau Camat. SUPER_ADMIN tetap boleh.
+function isArchiveApprover(req: any): boolean {
+  return req.user?.role === 'SUPER_ADMIN'
+    || ['SEKCAM', 'CAMAT'].includes(req.user?.position ?? '');
+}
+
+const ARCHIVE_BATCH_MAX = 15;
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -160,6 +199,20 @@ function parseUserIds(value: unknown): string[] | undefined {
     return ids.length ? ids : undefined;
   }
   return undefined;
+}
+
+function parseBool(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return ['1', 'true', 'ya', 'yes', 'on'].includes(value.toLowerCase());
+  return false;
+}
+
+function isSekcam(req: any): boolean {
+  return req.user?.role === 'SUPER_ADMIN' || req.user?.position === 'SEKCAM';
+}
+
+function isCamat(req: any): boolean {
+  return req.user?.role === 'SUPER_ADMIN' || req.user?.position === 'CAMAT';
 }
 
 function tomorrowYMD(): string {
@@ -181,6 +234,71 @@ async function validateAgendaUsers(ids: string[] | undefined): Promise<string[]>
   });
   if (users.length !== unique.length) throw new Error('Ada petugas agenda yang tidak ditemukan/aktif');
   return unique;
+}
+
+/**
+ * Hitung ulang status surat berdasarkan status seluruh disposisi:
+ * - semua DONE  -> MENUNGGU_ARSIP
+ * - belum semua -> PROSES (selama sudah pernah diteruskan)
+ */
+async function nextExpeditionRegNumber(tx: any): Promise<string> {
+  const year = new Date().getFullYear();
+  const prefix = `REG-${year}-`;
+  const count = await tx.expeditionReceipt.count({ where: { regNumber: { startsWith: prefix } } });
+  for (let i = count + 1; i <= count + 5000; i++) {
+    const candidate = `${prefix}${String(i).padStart(4, '0')}`;
+    const exists = await tx.expeditionReceipt.findUnique({ where: { regNumber: candidate }, select: { id: true } });
+    if (!exists) return candidate;
+  }
+  return `${prefix}${Date.now()}`;
+}
+
+async function userDisplayName(userId: string): Promise<string> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { username: true, employee: { select: { name: true } } },
+  });
+  return user?.employee?.name ?? user?.username ?? 'Penerima';
+}
+
+async function syncLetterDispositionStatus(letterId: string) {
+  const letter = await prisma.incomingLetter.findUnique({
+    where: { id: letterId },
+    include: { dispositions: true },
+  });
+  if (!letter || letter.dispositions.length === 0) return letter;
+
+  // Catatan Sekcam disimpan sebagai disposisi ke diri sendiri dan bukan
+  // tindak lanjut target. Abaikan baris tersebut saat menghitung progres.
+  const actionable = letter.dispositions.filter((d) => d.fromUserId !== d.toUserId);
+  if (actionable.length === 0) return letter;
+  const allDone = actionable.every((d) => d.status === 'DONE');
+  if (allDone) {
+    if (letter.status === 'MENUNGGU_ARSIP' || letter.status === 'DIARSIPKAN') return letter;
+    const updated = await prisma.incomingLetter.update({
+      where: { id: letter.id },
+      data: {
+        status: 'MENUNGGU_ARSIP',
+        completedAt: new Date(),
+        resolutionDate: parseYMD(todayYMD())!,
+      },
+    });
+    await notifyArchiveApprovers({
+      title: `Antrean arsip: ${updated.subject}`,
+      body: `Surat masuk ${updated.agendaNumber} dari ${updated.sender} siap disetujui untuk diarsipkan.`,
+      referenceType: 'incoming_letter',
+      referenceId: updated.id,
+    }).catch(() => undefined);
+    return updated;
+  }
+
+  if (letter.status === 'DITERUSKAN' || letter.status === 'MENUNGGU_ARSIP') {
+    return prisma.incomingLetter.update({
+      where: { id: letter.id },
+      data: { status: 'PROSES', completedAt: null, resolutionDate: null },
+    });
+  }
+  return letter;
 }
 
 function toAgendaRow(l: any) {
@@ -242,6 +360,8 @@ router.post('/', requirePermission('letter.create'), (req, res) => {
       letterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       priority: z.enum(PRIORITY).optional().default('BIASA'),
       secrecy: z.enum(['SR', 'R', 'B']).optional().default('B'),
+      letterType: z.enum(LETTER_TYPES).optional().default('BIASA'),
+      submit: z.preprocess(parseBool, z.boolean()).optional().default(false),
       summary: z.string().max(2000).optional(),
       addressedTo: z.string().max(200).optional(),
       pic: z.string().max(150).optional(),
@@ -275,11 +395,35 @@ router.post('/', requirePermission('letter.create'), (req, res) => {
       cleanupUpload();
       return fail(res, 422, 'Waktu selesai tidak boleh sebelum waktu mulai');
     }
+    if (b.letterType === 'UNDANGAN') {
+      if (!b.activityDate || !b.activityStartTime || !b.activityEndTime || !b.activityLocation?.trim()) {
+        cleanupUpload();
+        return fail(res, 422, 'Surat undangan/kegiatan wajib mengisi tanggal, waktu mulai, waktu selesai, dan tempat kegiatan');
+      }
+    }
+    if (b.submit) {
+      if (!uploaded) {
+        cleanupUpload();
+        return fail(res, 422, 'File surat wajib diunggah sebelum dikirim ke Sekcam');
+      }
+      if (!b.summary?.trim()) {
+        cleanupUpload();
+        return fail(res, 422, 'Ringkasan isi wajib diisi sebelum dikirim ke Sekcam');
+      }
+      if (!b.classificationCode) {
+        cleanupUpload();
+        return fail(res, 422, 'Klasifikasi arsip wajib dipilih sebelum dikirim ke Sekcam');
+      }
+    }
 
     const assignedIds = await validateAgendaUsers(b.assignedUserIds).catch(() => null);
     if (assignedIds === null) {
       cleanupUpload();
       return fail(res, 422, 'Ada petugas agenda yang tidak ditemukan/aktif');
+    }
+    if (b.letterType === 'UNDANGAN' && assignedIds.length === 0) {
+      cleanupUpload();
+      return fail(res, 422, 'Surat undangan/kegiatan wajib memiliki minimal satu petugas agenda');
     }
 
     let classificationId: string | null = null;
@@ -311,12 +455,14 @@ router.post('/', requirePermission('letter.create'), (req, res) => {
         addressedTo: b.addressedTo,
         pic: b.pic,
         remarks: b.remarks,
+        letterType: b.letterType,
+        submittedAt: b.submit ? new Date() : null,
         activityDate: b.activityDate ? parseYMD(b.activityDate) : null,
         activityStartTime: b.activityStartTime ?? null,
         activityEndTime: b.activityEndTime ?? null,
         activityLocation: b.activityLocation?.trim() || null,
         classificationId,
-        status: 'RECEIVED',
+        status: b.submit ? 'REVIEW_SEKCAM' : 'DRAFT_TU',
         createdBy: req.user!.id,
         ...(assignedIds.length
           ? { agendaAssignments: { create: assignedIds.map((userId) => ({ userId })) } }
@@ -340,15 +486,62 @@ router.post('/', requirePermission('letter.create'), (req, res) => {
         },
       });
     }
+    if (b.submit) {
+      await notifyPositions(['SEKCAM'], {
+        type: 'LETTER_REVIEW',
+        title: `Surat masuk baru: ${letter.subject}`.slice(0, 255),
+        body: `${req.user!.username} mengirim surat ${letter.agendaNumber} untuk diperiksa dan diteruskan ke Camat.`,
+        referenceType: 'incoming_letter',
+        referenceId: letter.id,
+      }).catch(() => undefined);
+    }
+
     const full = await prisma.incomingLetter.findUnique({ where: { id: letter.id }, include: includeDetail });
-    return res.status(201).json({ success: true, message: 'Surat masuk dicatat', data: toDetail(full, req.user!.permissions, req.user!.id), meta: null, errors: null });
+    return res.status(201).json({ success: true, message: b.submit ? 'Surat masuk dikirim ke Sekcam' : 'Draft surat masuk disimpan', data: toDetail(full, req.user!.permissions, req.user!.id), meta: null, errors: null });
   });
+});
+
+// ---------- POST /letters/:id/submit (kirim draft TU ke Sekcam) ----------
+router.post('/:id/submit', requirePermission('letter.create'), async (req, res) => {
+  const l = await prisma.incomingLetter.findUnique({
+    where: { id: req.params.id },
+    include: { documents: { select: { id: true } }, agendaAssignments: { select: { id: true } } },
+  });
+  if (!l) return fail(res, 404, 'Surat tidak ditemukan');
+  if (l.status !== 'DRAFT_TU') {
+    return fail(res, 409, `Kirim ke Sekcam hanya dari DRAFT_TU (saat ini ${l.status})`);
+  }
+  if (!l.summary?.trim()) return fail(res, 422, 'Ringkasan isi wajib diisi sebelum dikirim ke Sekcam');
+  if (!l.classificationId) return fail(res, 422, 'Klasifikasi arsip wajib dipilih sebelum dikirim ke Sekcam');
+  if (l.documents.length === 0) return fail(res, 422, 'File surat wajib diunggah sebelum dikirim ke Sekcam');
+  if (l.letterType === 'UNDANGAN') {
+    if (!l.activityDate || !l.activityStartTime || !l.activityEndTime || !l.activityLocation?.trim()) {
+      return fail(res, 422, 'Surat undangan/kegiatan wajib mengisi tanggal, waktu, dan tempat kegiatan');
+    }
+    if (l.agendaAssignments.length === 0) {
+      return fail(res, 422, 'Surat undangan/kegiatan wajib memiliki minimal satu petugas agenda');
+    }
+  }
+
+  const updated = await prisma.incomingLetter.update({
+    where: { id: l.id },
+    data: { status: 'REVIEW_SEKCAM', submittedAt: new Date() },
+    include: includeDetail,
+  });
+  await notifyPositions(['SEKCAM'], {
+    type: 'LETTER_REVIEW',
+    title: `Surat masuk baru: ${updated.subject}`.slice(0, 255),
+    body: `${req.user!.username} mengirim surat ${updated.agendaNumber} untuk diperiksa dan diteruskan ke Camat.`,
+    referenceType: 'incoming_letter',
+    referenceId: updated.id,
+  }).catch(() => undefined);
+  return ok(res, toDetail(updated, req.user!.permissions, req.user!.id), 'Surat dikirim ke Sekcam');
 });
 
 // ---------- GET /letters ----------
 router.get('/', requirePermission('letter.view'), async (req, res) => {
   const { status, q, page = '1', limit = '10' } = req.query as any;
-  const where: any = scopeWhere(req.user!.id, req.user!.role);
+  const where: any = scopeWhere(req.user!.id, req.user!.role, req.user!.position);
   if (status) {
     if (!LETTER_STATUS.includes(status)) return fail(res, 422, 'status tidak valid');
     where.status = status;
@@ -450,6 +643,7 @@ router.get('/register-book', requirePermission('letter.view'), async (req, res) 
   }
   const { from, to, q, status } = req.query as any;
   const where: any = {};
+  const registerStatuses = ['REVIEW_SEKCAM', 'DISPOSISI_CAMAT', 'DITERUSKAN', 'PROSES', 'MENUNGGU_ARSIP', 'DIARSIPKAN'];
   if (from || to) {
     where.receivedDate = {};
     if (from) {
@@ -466,6 +660,8 @@ router.get('/register-book', requirePermission('letter.view'), async (req, res) 
   if (status) {
     if (!LETTER_STATUS.includes(status)) return fail(res, 422, 'status tidak valid');
     where.status = status;
+  } else {
+    where.status = { in: registerStatuses };
   }
   if (q) {
     where.OR = [
@@ -485,28 +681,239 @@ router.get('/register-book', requirePermission('letter.view'), async (req, res) 
       agendaAssignments: {
         include: { user: { select: { id: true, username: true } } },
       },
+      dispositions: {
+        include: {
+          toUser: { select: { username: true, employee: { select: { name: true } } } },
+        },
+        orderBy: { createdAt: 'desc' as const },
+      },
     },
     orderBy: [{ receivedDate: 'asc' }, { createdAt: 'asc' }],
     take: 2000,
   });
-  const rows = items.map((l, i) => ({
-    nomor: i + 1,
-    nomorAgenda: l.agendaNumber,
-    instansiDitujukan: l.addressedTo ?? '-',
-    instansiAsal: l.sender,
-    noSurat: l.letterNumber,
-    nomorSurat: l.letterNumber,
-    tanggalSurat: l.letterDate.toISOString().slice(0, 10),
-    tanggalDiterima: l.receivedDate.toISOString().slice(0, 10),
-    perihal: l.subject,
-    penanggungJawab: l.pic ?? l.creator.username,
-    klasifikasi: l.classification?.code ?? '-',
-    ket: l.remarks ?? l.status,
-    keterangan: l.remarks ?? l.status,
-    status: l.status,
-    petugasAgenda: l.agendaAssignments.map((a) => a.user.username),
-  }));
+  const rows = items.map((l, i) => {
+    // Catatan Sekcam disimpan sebagai disposisi ke diri sendiri; jangan
+    // dihitung sebagai penanggung jawab/instruksi Camat di buku agenda.
+    const activeDisps = (l.dispositions ?? []).filter((d) => d.fromUserId !== d.toUserId);
+    const penanggungJawab = [...new Set(
+      activeDisps
+        .map((d) => d.targetName ?? d.toUser.employee?.name ?? d.toUser.username)
+        .filter(Boolean) as string[],
+    )].join(', ') || l.pic || l.creator.username;
+    const camatInstruction = activeDisps.find((d) => d.instruction && !d.instruction.startsWith('Catatan Sekcam'))?.instruction;
+    return {
+      nomor: i + 1,
+      nomorAgenda: l.agendaNumber,
+      instansiDitujukan: l.addressedTo ?? '-',
+      instansiAsal: l.sender,
+      noSurat: l.letterNumber,
+      nomorSurat: l.letterNumber,
+      tanggalSurat: l.letterDate.toISOString().slice(0, 10),
+      tanggalDiterima: l.receivedDate.toISOString().slice(0, 10),
+      perihal: l.subject,
+      penanggungJawab,
+      klasifikasi: l.classification?.code ?? '-',
+      ket: camatInstruction ?? l.remarks ?? l.status,
+      keterangan: camatInstruction ?? l.remarks ?? l.status,
+      status: l.status,
+      petugasAgenda: l.agendaAssignments.map((a) => a.user.username),
+    };
+  });
   return ok(res, rows, 'ok', { total: rows.length });
+});
+
+// ---------- GET /letters/archive-queue (antrean arsip surat masuk) ----------
+router.get('/archive-queue', requirePermission('archive.approve'), async (req, res) => {
+  if (!isArchiveApprover(req)) {
+    return fail(res, 403, 'Antrean arsip hanya untuk Sekcam/Camat');
+  }
+  const { q, page = '1', limit = '15' } = req.query as any;
+  const where: any = { status: 'MENUNGGU_ARSIP', archiveRecord: { is: null } };
+  if (q) {
+    where.OR = [
+      { subject: { contains: String(q), mode: 'insensitive' } },
+      { sender: { contains: String(q), mode: 'insensitive' } },
+      { letterNumber: { contains: String(q), mode: 'insensitive' } },
+      { agendaNumber: { contains: String(q), mode: 'insensitive' } },
+      { addressedTo: { contains: String(q), mode: 'insensitive' } },
+    ];
+  }
+  const p = Math.max(1, Number(page) || 1);
+  const l = Math.min(50, Math.max(1, Number(limit) || 15));
+  const [total, items] = await Promise.all([
+    prisma.incomingLetter.count({ where }),
+    prisma.incomingLetter.findMany({
+      where,
+      select: {
+        id: true,
+        agendaNumber: true,
+        letterNumber: true,
+        subject: true,
+        sender: true,
+        receivedDate: true,
+        completedAt: true,
+        status: true,
+        classification: { select: { code: true, name: true } },
+      },
+      orderBy: [{ completedAt: 'asc' }, { createdAt: 'asc' }],
+      skip: (p - 1) * l,
+      take: l,
+    }),
+  ]);
+  const rows = items.map((l) => ({
+    id: l.id,
+    nomor: l.agendaNumber,
+    nomorSurat: l.letterNumber,
+    perihal: l.subject,
+    asalTujuan: l.sender,
+    tanggalSelesai: l.completedAt ? l.completedAt.toISOString().slice(0, 10) : null,
+    tanggalDiterima: l.receivedDate.toISOString().slice(0, 10),
+    status: l.status,
+    klasifikasi: l.classification?.code ?? null,
+    archiveRecord: null,
+  }));
+  return ok(res, rows, 'ok', { page: p, limit: l, total });
+});
+
+// ---------- POST /letters/archive-approvals/batch (approve arsip surat masuk) ----------
+router.post('/archive-approvals/batch', requirePermission('archive.approve'), async (req, res) => {
+  if (!isArchiveApprover(req)) {
+    return fail(res, 403, 'Persetujuan arsip hanya untuk Sekcam/Camat');
+  }
+  const schema = z.object({
+    ids: z.array(z.string().uuid()).min(1, 'Pilih minimal 1 surat').max(ARCHIVE_BATCH_MAX, `Maksimal ${ARCHIVE_BATCH_MAX} surat per batch`),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+
+  const approved: Array<{ id: string; archiveNumber: string }> = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
+  const seen = new Set<string>();
+
+  for (const id of parsed.data.ids) {
+    if (seen.has(id)) {
+      skipped.push({ id, reason: 'ID duplikat dalam batch' });
+      continue;
+    }
+    seen.add(id);
+    try {
+      const letter = await prisma.incomingLetter.findUnique({
+        where: { id },
+        include: { archiveRecord: { select: { id: true } } },
+      });
+      if (!letter) {
+        skipped.push({ id, reason: 'Surat tidak ditemukan' });
+        continue;
+      }
+      if (letter.status !== 'MENUNGGU_ARSIP') {
+        skipped.push({ id, reason: `Status bukan MENUNGGU_ARSIP (saat ini ${letter.status})` });
+        continue;
+      }
+      if (letter.archiveRecord) {
+        skipped.push({ id, reason: 'Surat sudah memiliki record arsip' });
+        continue;
+      }
+      const record = await createArchiveRecord({
+        sourceType: 'INCOMING',
+        sourceId: id,
+        actorId: req.user!.id,
+      });
+      approved.push({ id, archiveNumber: record.archiveNumber });
+    } catch (err) {
+      skipped.push({
+        id,
+        reason: err instanceof ArchiveError ? err.message : 'Gagal mengarsipkan surat',
+      });
+    }
+  }
+
+  return ok(res, { approved, skipped }, 'Batch persetujuan arsip diproses', {
+    approved: approved.length,
+    skipped: skipped.length,
+  });
+});
+
+// ---------- POST /letters/archive-approvals/reject (revisi arsip surat masuk) ----------
+router.post('/archive-approvals/reject', requirePermission('archive.reject'), async (req, res) => {
+  if (!isArchiveApprover(req)) {
+    return fail(res, 403, 'Penolakan arsip hanya untuk Sekcam/Camat');
+  }
+  const schema = z.object({
+    ids: z.array(z.string().uuid()).min(1, 'Pilih minimal 1 surat').max(ARCHIVE_BATCH_MAX, `Maksimal ${ARCHIVE_BATCH_MAX} surat per batch`),
+    note: z.string().min(3, 'Catatan revisi minimal 3 karakter').max(500),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+
+  const rejected: Array<{ id: string; note: string }> = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
+  const seen = new Set<string>();
+
+  for (const id of parsed.data.ids) {
+    if (seen.has(id)) {
+      skipped.push({ id, reason: 'ID duplikat dalam batch' });
+      continue;
+    }
+    seen.add(id);
+    const letter = await prisma.incomingLetter.findUnique({
+      where: { id },
+      include: {
+        archiveRecord: { select: { id: true } },
+        dispositions: { select: { id: true, fromUserId: true, toUserId: true, status: true } },
+      },
+    });
+    if (!letter) {
+      skipped.push({ id, reason: 'Surat tidak ditemukan' });
+      continue;
+    }
+    if (letter.status !== 'MENUNGGU_ARSIP') {
+      skipped.push({ id, reason: `Status bukan MENUNGGU_ARSIP (saat ini ${letter.status})` });
+      continue;
+    }
+    if (letter.archiveRecord) {
+      skipped.push({ id, reason: 'Surat sudah memiliki record arsip' });
+      continue;
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.incomingLetter.update({
+        where: { id },
+        data: {
+          status: 'PROSES',
+          completedAt: null,
+          resolutionDate: null,
+          completionNote: `Revisi: ${parsed.data.note}`.slice(0, 1000),
+        },
+      });
+      const reopenIds = letter.dispositions
+        .filter((d) => d.fromUserId !== d.toUserId && d.status === 'DONE')
+        .map((d) => d.id);
+      if (reopenIds.length) {
+        await tx.letterDisposition.updateMany({
+          where: { id: { in: reopenIds } },
+          data: { status: 'ACCEPTED', respondedAt: null },
+        });
+      }
+    });
+    await Promise.all(
+      [...new Set(letter.dispositions
+        .filter((d) => d.fromUserId !== d.toUserId)
+        .map((d) => d.toUserId))].map((userId) =>
+        notifyUser(userId, {
+          type: 'LETTER_REVISION',
+          title: `Revisi arsip: ${letter.subject}`.slice(0, 255),
+          body: `Arsip surat ${letter.agendaNumber} dikembalikan: ${parsed.data.note}`,
+          referenceType: 'incoming_letter',
+          referenceId: letter.id,
+        }),
+      ),
+    ).catch(() => undefined);
+    rejected.push({ id, note: parsed.data.note });
+  }
+
+  return ok(res, { rejected, skipped }, 'Surat dikembalikan untuk revisi', {
+    rejected: rejected.length,
+    skipped: skipped.length,
+  });
 });
 
 // ---------- GET /letters/:id/disposition-sheet (lembar disposisi) ----------
@@ -537,13 +944,7 @@ router.get('/:id/disposition-sheet', requirePermission('letter.view'), async (re
     },
   });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-  if (req.user!.role !== 'SUPER_ADMIN' && req.user!.role !== 'VERIFIER') {
-    const involved =
-      l.createdBy === req.user!.id ||
-      l.dispositions.some((d) => d.fromUserId === req.user!.id || d.toUserId === req.user!.id) ||
-      l.agendaAssignments.some((a) => a.userId === req.user!.id);
-    if (!involved) return fail(res, 403, 'Surat ini bukan untukmu');
-  }
+  if (!canViewLetter(req.user, l)) return fail(res, 403, 'Surat ini bukan untukmu');
   return ok(res, {
     nomorAgenda: l.agendaNumber,
     sifatSurat: l.secrecy,
@@ -648,11 +1049,20 @@ router.get('/expedition-book', requirePermission('letter.view'), async (req, res
     letterId: e.letter.id,
     tanggalHariIni: e.receiptDate.toISOString().slice(0, 10),
     nomorRegis: e.regNumber,
+    nomorAgenda: e.letter.agendaNumber,
     nomorSurat: e.letter.letterNumber,
     tanggalSurat: e.letter.letterDate.toISOString().slice(0, 10),
     perihal: e.letter.subject,
     penerimaSurat: e.receiverName,
     paraf: e.signatureName ?? '-',
+    jamTerima: e.createdAt.toLocaleTimeString('en-GB', {
+      timeZone: 'Asia/Makassar',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }),
+    waktuTerima: e.createdAt.toISOString(),
     asalSurat: e.letter.sender,
     catatan: e.note,
   }));
@@ -727,7 +1137,7 @@ router.patch('/:id/agenda', requirePermission('letter.register'), async (req, re
 
   const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id } });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-  if (l.status === 'ARCHIVED') return fail(res, 409, 'Surat sudah diarsipkan');
+  if (l.status === 'DIARSIPKAN') return fail(res, 409, 'Surat sudah diarsipkan');
 
   const assignedIds = b.assignedUserIds === undefined
     ? undefined
@@ -765,45 +1175,50 @@ router.patch('/:id/agenda', requirePermission('letter.register'), async (req, re
 });
 
 // ---------- POST /letters/:id/paraf (Sekcam memeriksa) ----------
-router.post('/:id/paraf', requirePermission('letter.paraf'), async (req, res) => {
+router.post(['/:id/forward', '/:id/paraf'], requirePermission('letter.paraf'), async (req, res) => {
+  if (!isSekcam(req)) return fail(res, 403, 'Teruskan ke Camat hanya untuk Sekcam');
   const schema = z.object({ note: z.string().max(500).optional() });
   const note = schema.safeParse(req.body ?? {}).data?.note ?? null;
   const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id } });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-  if (l.status !== 'RECEIVED') return fail(res, 409, `Paraf hanya dari RECEIVED (saat ini ${l.status})`);
-  const updated = await prisma.incomingLetter.update({
-    where: { id: l.id },
-    data: { status: 'PARAF' },
-    include: includeDetail,
-  });
-  if (note) {
-    await prisma.letterDisposition.create({
-      data: {
-        letterId: l.id,
-        fromUserId: req.user!.id,
-        toUserId: req.user!.id,
-        instruction: `Paraf pemeriksaan: ${note}`,
-        status: 'DONE',
-        responseNote: note,
-        respondedAt: new Date(),
-      },
-    });
+  if (l.status !== 'REVIEW_SEKCAM') {
+    return fail(res, 409, `Teruskan ke Camat hanya dari REVIEW_SEKCAM (saat ini ${l.status})`);
   }
+  await prisma.$transaction(async (tx) => {
+    await tx.incomingLetter.update({
+      where: { id: l.id },
+      data: { status: 'DISPOSISI_CAMAT' },
+    });
+    if (note) {
+      await tx.letterDisposition.create({
+        data: {
+          letterId: l.id,
+          fromUserId: req.user!.id,
+          toUserId: req.user!.id,
+          instruction: `Catatan Sekcam: ${note}`,
+          status: 'DONE',
+          responseNote: note,
+          respondedAt: new Date(),
+        },
+      });
+    }
+  });
+  await notifyPositions(['CAMAT'], {
+    type: 'LETTER_DISPOSITION',
+    title: `Surat menunggu disposisi: ${l.subject}`.slice(0, 255),
+    body: `Sekcam meneruskan surat ${l.agendaNumber} dari ${l.sender} untuk didisposisikan.`,
+    referenceType: 'incoming_letter',
+    referenceId: l.id,
+  }).catch(() => undefined);
   const full = await prisma.incomingLetter.findUnique({ where: { id: l.id }, include: includeDetail });
-  return ok(res, toDetail(full ?? updated, req.user!.permissions, req.user!.id), 'Paraf pemeriksaan dicatat');
+  return ok(res, toDetail(full, req.user!.permissions, req.user!.id), 'Surat diteruskan ke Camat');
 });
 
 // ---------- GET /letters/:id ----------
 router.get('/:id', requirePermission('letter.view'), async (req, res) => {
   const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id }, include: includeDetail });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-  if (req.user!.role !== 'SUPER_ADMIN' && req.user!.role !== 'VERIFIER') {
-    const involved =
-      l.createdBy === req.user!.id ||
-      l.dispositions.some((d: any) => d.fromUserId === req.user!.id || d.toUserId === req.user!.id) ||
-      l.agendaAssignments.some((a: any) => a.userId === req.user!.id);
-    if (!involved) return fail(res, 403, 'Surat ini bukan untukmu');
-  }
+  if (!canViewLetter(req.user, l)) return fail(res, 403, 'Surat ini bukan untukmu');
   return ok(res, toDetail(l, req.user!.permissions, req.user!.id));
 });
 
@@ -815,7 +1230,7 @@ router.post('/:id/documents', requirePermission('letter.document.upload'), (req,
     if (!f) return fail(res, 422, 'file wajib (pdf/jpg/png, max 10MB)');
     const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id } });
     if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-    if (!['RECEIVED', 'DISPOSED'].includes(l.status)) return fail(res, 409, `Upload hanya saat RECEIVED/DISPOSED (saat ini ${l.status})`);
+    if (l.status !== 'DRAFT_TU') return fail(res, 409, `Upload hanya saat DRAFT_TU (saat ini ${l.status})`);
     const ext = path.extname(f.originalname);
     const storedPath = f.path + ext;
     fs.renameSync(f.path, storedPath);
@@ -837,13 +1252,7 @@ router.get('/:id/documents/:docId/download', requirePermission('letter.view'), a
     },
   });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-  if (req.user!.role !== 'SUPER_ADMIN' && req.user!.role !== 'VERIFIER') {
-    const involved =
-      l.createdBy === req.user!.id ||
-      l.dispositions.some((d) => d.fromUserId === req.user!.id || d.toUserId === req.user!.id) ||
-      l.agendaAssignments.some((a) => a.userId === req.user!.id);
-    if (!involved) return fail(res, 403, 'Surat ini bukan untukmu');
-  }
+  if (!canViewLetter(req.user, l)) return fail(res, 403, 'Surat ini bukan untukmu');
   const doc = l.documents[0];
   if (!doc || !fs.existsSync(doc.storedPath)) return fail(res, 404, 'Dokumen tidak ditemukan');
   return res.download(doc.storedPath, doc.originalName);
@@ -851,6 +1260,7 @@ router.get('/:id/documents/:docId/download', requirePermission('letter.view'), a
 
 // ---------- POST /letters/:id/dispose ----------
 router.post('/:id/dispose', requirePermission('letter.dispose'), async (req, res) => {
+  if (!isCamat(req)) return fail(res, 403, 'Disposisi surat hanya untuk Camat');
   const schema = z.object({
     toUserId: z.string().uuid(),
     instruction: z.string().min(5, 'Isi disposisi minimal 5 karakter'),
@@ -863,7 +1273,7 @@ router.post('/:id/dispose', requirePermission('letter.dispose'), async (req, res
 
   const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id }, include: { dispositions: true } });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-  if (!['RECEIVED', 'PARAF', 'DISPOSED'].includes(l.status)) return fail(res, 409, `Disposisi hanya saat RECEIVED/PARAF/DISPOSED (saat ini ${l.status})`);
+  if (!['DISPOSISI_CAMAT', 'DITERUSKAN'].includes(l.status)) return fail(res, 409, `Disposisi hanya saat DISPOSISI_CAMAT/DITERUSKAN (saat ini ${l.status})`);
   if (b.toUserId === req.user!.id) return fail(res, 422, 'Tidak boleh disposisi ke diri sendiri');
   const target = await prisma.user.findUnique({ where: { id: b.toUserId } });
   if (!target || !target.isActive) return fail(res, 422, 'Penerima tidak valid/aktif');
@@ -899,10 +1309,13 @@ router.post('/:id/dispose', requirePermission('letter.dispose'), async (req, res
         referenceId: d.id,
       },
     });
-    if (l.status === 'RECEIVED' || l.status === 'PARAF') {
+    if (l.status === 'DISPOSISI_CAMAT' || l.status === 'DITERUSKAN') {
       await tx.incomingLetter.update({
         where: { id: l.id },
-        data: { status: 'DISPOSED', distributedAt: l.distributedAt ?? new Date() },
+        data: {
+          status: l.dispositions.some((d) => d.fromUserId !== d.toUserId && d.status !== 'PENDING') ? 'PROSES' : 'DITERUSKAN',
+          distributedAt: l.distributedAt ?? new Date(),
+        },
       });
     }
     return d;
@@ -913,6 +1326,7 @@ router.post('/:id/dispose', requirePermission('letter.dispose'), async (req, res
 
 // ---------- POST /letters/:id/dispositions (disposisi massal / centang 9 tujuan) ----------
 router.post('/:id/dispositions', requirePermission('letter.dispose'), async (req, res) => {
+  if (!isCamat(req)) return fail(res, 403, 'Disposisi surat hanya untuk Camat');
   const ymd = /^\d{4}-\d{2}-\d{2}$/;
   const schema = z.object({
     instruction: z.string().min(5, 'Isi disposisi minimal 5 karakter'),
@@ -937,10 +1351,13 @@ router.post('/:id/dispositions', requirePermission('letter.dispose'), async (req
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
   const b = parsed.data;
 
-  const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id } });
+  const l = await prisma.incomingLetter.findUnique({
+    where: { id: req.params.id },
+    include: { dispositions: { select: { fromUserId: true, toUserId: true, status: true } } },
+  });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-  if (!['RECEIVED', 'PARAF', 'DISPOSED'].includes(l.status)) {
-    return fail(res, 409, `Disposisi hanya saat RECEIVED/PARAF/DISPOSED (saat ini ${l.status})`);
+  if (!['DISPOSISI_CAMAT', 'DITERUSKAN'].includes(l.status)) {
+    return fail(res, 409, `Disposisi hanya saat DISPOSISI_CAMAT/DITERUSKAN (saat ini ${l.status})`);
   }
 
   type RawTarget = {
@@ -1053,10 +1470,13 @@ router.post('/:id/dispositions', requirePermission('letter.dispose'), async (req
       });
       rows.push(d);
     }
-    if (l.status === 'RECEIVED' || l.status === 'PARAF') {
+    if (l.status === 'DISPOSISI_CAMAT' || l.status === 'DITERUSKAN') {
       await tx.incomingLetter.update({
         where: { id: l.id },
-        data: { status: 'DISPOSED', distributedAt: l.distributedAt ?? new Date() },
+        data: {
+          status: l.dispositions.some((d) => d.fromUserId !== d.toUserId && d.status !== 'PENDING') ? 'PROSES' : 'DITERUSKAN',
+          distributedAt: l.distributedAt ?? new Date(),
+        },
       });
     }
     return rows;
@@ -1075,6 +1495,52 @@ router.post('/:id/dispositions', requirePermission('letter.dispose'), async (req
   });
 });
 
+// ---------- POST /letters/dispositions/:dispId/accept (Terima & Baca) ----------
+router.post('/dispositions/:dispId/accept', requirePermission('letter.followup'), async (req, res) => {
+  const d = await prisma.letterDisposition.findUnique({
+    where: { id: req.params.dispId },
+    include: { letter: true },
+  });
+  if (!d) return fail(res, 404, 'Disposisi tidak ditemukan');
+  if (d.toUserId !== req.user!.id && !req.user!.permissions.includes('*')) {
+    return fail(res, 403, 'Hanya penerima disposisi yang boleh menerima surat');
+  }
+  if (d.status !== 'PENDING') {
+    return fail(res, 409, d.status === 'ACCEPTED' ? 'Surat sudah diterima' : 'Disposisi sudah selesai');
+  }
+  if (!['DITERUSKAN', 'PROSES'].includes(d.letter.status)) {
+    return fail(res, 409, `Surat belum diteruskan (status ${d.letter.status})`);
+  }
+
+  const receiverName = await userDisplayName(req.user!.id);
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.letterDisposition.update({
+      where: { id: d.id },
+      data: { status: 'ACCEPTED', acceptedAt: now },
+    });
+    if (d.letter.status === 'DITERUSKAN') {
+      await tx.incomingLetter.update({
+        where: { id: d.letterId },
+        data: { status: 'PROSES' },
+      });
+    }
+    await tx.expeditionReceipt.create({
+      data: {
+        regNumber: await nextExpeditionRegNumber(tx),
+        letterId: d.letterId,
+        receiptDate: parseYMD(todayYMD())!,
+        receiverName,
+        note: `Terima & baca disposisi (${d.targetName ?? d.targetCode ?? 'penerima'})`,
+        createdBy: req.user!.id,
+      },
+    });
+  });
+
+  const full = await prisma.incomingLetter.findUnique({ where: { id: d.letterId }, include: includeDetail });
+  return ok(res, toDetail(full, req.user!.permissions, req.user!.id), 'Surat diterima dan dicatat di buku ekspedisi');
+});
+
 // ---------- POST /letters/dispositions/:dispId/followup ----------
 router.post('/dispositions/:dispId/followup', requirePermission('letter.followup'), async (req, res) => {
   const schema = z.object({ note: z.string().min(3, 'Catatan tindak lanjut wajib') });
@@ -1083,40 +1549,86 @@ router.post('/dispositions/:dispId/followup', requirePermission('letter.followup
 
   const d = await prisma.letterDisposition.findUnique({ where: { id: req.params.dispId } });
   if (!d) return fail(res, 404, 'Disposisi tidak ditemukan');
-  if (d.status !== 'PENDING') return fail(res, 409, 'Disposisi sudah selesai');
+  if (d.status === 'PENDING') return fail(res, 409, 'Terima & baca surat terlebih dahulu');
+  if (d.status === 'DONE') return fail(res, 409, 'Disposisi sudah selesai');
   if (d.toUserId !== req.user!.id && !req.user!.permissions.includes('*')) {
     return fail(res, 403, 'Hanya penerima disposisi yang boleh menindaklanjuti');
   }
-  const updated = await prisma.letterDisposition.update({
+  await prisma.letterDisposition.update({
     where: { id: d.id },
     data: { status: 'DONE', responseNote: parsed.data.note, respondedAt: new Date() },
   });
-  return ok(res, updated, 'Tindak lanjut dicatat');
+  const updatedLetter = await syncLetterDispositionStatus(d.letterId);
+  const full = await prisma.incomingLetter.findUnique({ where: { id: d.letterId }, include: includeDetail });
+  return ok(
+    res,
+    {
+      disposition: await prisma.letterDisposition.findUnique({ where: { id: d.id } }),
+      letter: toDetail(full ?? updatedLetter, req.user!.permissions, req.user!.id),
+    },
+    updatedLetter?.status === 'MENUNGGU_ARSIP'
+      ? 'Tindak lanjut selesai; surat masuk antrean arsip'
+      : 'Tindak lanjut dicatat',
+  );
 });
 
-// ---------- POST /letters/:id/complete ----------
-router.post('/:id/complete', requirePermission('letter.complete'), async (req, res) => {
-  const schema = z.object({ note: z.string().optional() });
-  const note = schema.safeParse(req.body ?? {}).data?.note ?? null;
-  const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id }, include: { dispositions: true } });
-  if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-  if (l.status !== 'DISPOSED') return fail(res, 409, `Complete hanya dari DISPOSED (saat ini ${l.status})`);
-  if (l.dispositions.length === 0) return fail(res, 409, 'Belum ada disposisi');
-  if (l.dispositions.some((d) => d.status === 'PENDING')) return fail(res, 409, 'Masih ada disposisi PENDING');
-  const updated = await prisma.incomingLetter.update({
-    where: { id: l.id },
-    data: { status: 'COMPLETED', completedAt: new Date(), completionNote: note, resolutionDate: parseYMD(todayYMD())! },
-    include: includeDetail,
+// ---------- POST /letters/:id/complete (Selesai & Ajukan Arsip) ----------
+router.post('/:id/complete', requirePermission('letter.followup'), async (req, res) => {
+  const schema = z.object({
+    note: z.string().max(1000).optional(),
+    dispositionId: z.string().uuid().optional(),
   });
-  return ok(res, toDetail(updated, req.user!.permissions, req.user!.id), 'Surat selesai ditangani');
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+  const { note, dispositionId } = parsed.data;
+
+  const l = await prisma.incomingLetter.findUnique({
+    where: { id: req.params.id },
+    include: { dispositions: true },
+  });
+  if (!l) return fail(res, 404, 'Surat tidak ditemukan');
+  if (!['DITERUSKAN', 'PROSES'].includes(l.status)) {
+    return fail(res, 409, `Selesai hanya saat DITERUSKAN/PROSES (saat ini ${l.status})`);
+  }
+  if (l.dispositions.length === 0) return fail(res, 409, 'Belum ada disposisi');
+
+  const isAdmin = req.user!.permissions.includes('*');
+  const target = dispositionId
+    ? l.dispositions.find((d) => d.id === dispositionId)
+    : l.dispositions.find((d) => d.toUserId === req.user!.id && d.status === 'ACCEPTED')
+      ?? (isAdmin ? l.dispositions.find((d) => d.status === 'ACCEPTED') : undefined);
+
+  if (!target) return fail(res, 403, 'Tidak ada disposisi yang bisa diselesaikan untukmu');
+  if (target.toUserId !== req.user!.id && !isAdmin) {
+    return fail(res, 403, 'Hanya penerima disposisi yang boleh menyelesaikan');
+  }
+  if (target.status === 'PENDING') return fail(res, 409, 'Terima & baca surat terlebih dahulu');
+  if (target.status === 'DONE') return fail(res, 409, 'Disposisi ini sudah selesai');
+
+  await prisma.letterDisposition.update({
+    where: { id: target.id },
+    data: { status: 'DONE', responseNote: note ?? target.responseNote, respondedAt: new Date() },
+  });
+  const updated = await syncLetterDispositionStatus(l.id);
+  const full = await prisma.incomingLetter.findUnique({ where: { id: l.id }, include: includeDetail });
+  return ok(
+    res,
+    toDetail(full ?? updated, req.user!.permissions, req.user!.id),
+    updated?.status === 'MENUNGGU_ARSIP'
+      ? 'Semua tindak lanjut selesai; surat masuk antrean arsip'
+      : 'Tindak lanjut kamu selesai; menunggu penerima disposisi lain',
+  );
 });
 
 // ---------- POST /letters/:id/archive ----------
-// Mengarsipkan surat sekaligus mencatatnya ke buku arsip (SOP langkah 1).
-router.post('/:id/archive', requirePermission('letter.archive'), async (req, res) => {
+// Jalur lama satu surat. Hanya Sekcam/Camat; alur utama tetap batch queue.
+router.post('/:id/archive', requirePermission('archive.approve'), async (req, res) => {
+  if (!isArchiveApprover(req)) {
+    return fail(res, 403, 'Persetujuan arsip hanya untuk Sekcam/Camat');
+  }
   const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id }, include: { archiveRecord: true } });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-  if (l.status !== 'COMPLETED') return fail(res, 409, `Arsip hanya dari COMPLETED (saat ini ${l.status})`);
+  if (l.status !== 'MENUNGGU_ARSIP') return fail(res, 409, `Arsip hanya dari MENUNGGU_ARSIP (saat ini ${l.status})`);
   if (l.archiveRecord) return fail(res, 409, 'Surat sudah memiliki record arsip');
 
   const body = z.object({
