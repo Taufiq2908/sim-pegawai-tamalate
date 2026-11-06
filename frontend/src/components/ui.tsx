@@ -38,6 +38,12 @@ export const STATUS_LABEL: Record<string, string> = {
   DONE: "Selesai",
   NONE: "Internal",
   BKPSDM: "BKPSDM",
+  DILAPORKAN: "Dilaporkan ke Sekcam",
+  DIPANGGIL: "Surat Panggilan",
+  MENUNGGU_TINDAK_LANJUT: "Menunggu Tindak Lanjut Camat",
+  PEMBINAAN: "Pembinaan",
+  SELESAI: "Selesai",
+  DITERUSKAN_BKPSDM: "Diteruskan ke BKPSDM",
 };
 
 /** Warna muted per status: hijau = selesai/setuju, kuning = menunggu, merah = tolak/absen. */
@@ -78,6 +84,12 @@ const STATUS_TONE: Record<string, string> = {
   ALPA: "bg-bad-100 text-bad-700",
   PENDING: "bg-warn-100 text-warn-700",
   DONE: "bg-ok-100 text-ok-700",
+  DILAPORKAN: "bg-warn-100 text-warn-700",
+  DIPANGGIL: "bg-info-100 text-info-700",
+  MENUNGGU_TINDAK_LANJUT: "bg-warn-100 text-warn-700",
+  PEMBINAAN: "bg-info-100 text-info-700",
+  SELESAI: "bg-ok-100 text-ok-700",
+  DITERUSKAN_BKPSDM: "bg-ok-100 text-ok-700",
 };
 
 export function StatusBadge({ status }: { status: string }) {

@@ -60,6 +60,7 @@ export default function PresensiPage() {
   const canManage = hasPermission("attendance.manage");
   const canSummary = hasPermission("attendance.summary");
   const canForward = hasPermission("attendance.forward");
+  const isEmployee = user?.role === "EMPLOYEE";
   const isKasubag = (user?.position ?? "").startsWith("KASUBAG") || user?.role === "SUPER_ADMIN";
   const today = todayWita();
 
@@ -401,6 +402,14 @@ export default function PresensiPage() {
         Batas apel pagi {todayData?.deadline ?? "08:00"} WITA • pulang 16:00 (Jumat 16:30) • bermasalah bila ≥5 sesi
         tidak hadir/minggu.
       </p>
+      {!canSummary ? (
+        <Link
+          href="/presensi/teguran"
+          className="mt-2 inline-block rounded-lg border border-line px-3 py-1.5 text-sm font-semibold hover:bg-paper"
+        >
+          {isEmployee ? "Surat teguran saya" : "Daftar teguran"}
+        </Link>
+      ) : null}
 
       {/* Kartu presensi mandiri */}
       <div className="mt-4 rounded-lg border border-line bg-surface p-5">

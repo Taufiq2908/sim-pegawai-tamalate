@@ -808,6 +808,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Halaman yang boleh dibuka semua user login; keamanan data tetap di backend. */
+export function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { loading } = useAuth();
+  if (loading) {
+    return (
+      <AppShell>
+        <Skeleton className="h-40 w-full" />
+      </AppShell>
+    );
+  }
+  return <AppShell>{children}</AppShell>;
+}
+
 /** Gate halaman per permission: sembunyikan dari nav (di AppShell) + cegah akses langsung.
  *  Keamanan final tetap di backend (403). */
 export function RequirePerm({

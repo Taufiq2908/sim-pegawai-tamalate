@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { RequirePerm } from "@/components/shell";
+import { RequireAuth } from "@/components/shell";
+import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
+import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
 interface WarningLetter {
   id: string;
@@ -15,10 +16,13 @@ interface WarningLetter {
   absenceCount: number;
   content: string;
   createdAt: string;
+  workflowStatus?: string;
   employee?: { name: string; position: string };
 }
 
 export default function TeguranListPage() {
+  const { user } = useAuth();
+  const isEmployee = user?.role === "EMPLOYEE";
   const [items, setItems] = useState<WarningLetter[]>([]);
   const [followUp, setFollowUp] = useState("");
   const [loading, setLoading] = useState(true);
@@ -44,17 +48,23 @@ export default function TeguranListPage() {
   }, [load]);
 
   return (
-    <RequirePerm perm="attendance.summary" label="Surat Teguran">
+    <RequireAuth>
       <div className="flex flex-wrap items-center gap-2">
         <div>
-          <h1 className="text-xl font-bold">Surat Teguran</h1>
-          <p className="mt-0.5 text-sm text-muted">Diterbitkan otomatis dari pegawai bermasalah mingguan.</p>
+          <h1 className="text-xl font-bold">{isEmployee ? "Surat Teguran Saya" : "Surat Teguran"}</h1>
+          <p className="mt-0.5 text-sm text-muted">
+            {isEmployee
+              ? "Surat teguran dan jadwal pembinaan yang tercatat atas nama Anda."
+              : "Diterbitkan otomatis dari pegawai bermasalah mingguan."}
+          </p>
         </div>
-        <select value={followUp} onChange={(e) => setFollowUp(e.target.value)} className="ml-auto rounded-lg border border-line bg-white px-3 py-1.5 text-sm">
-          <option value="">Semua tindak lanjut</option>
-          <option value="NONE">Selesai internal</option>
-          <option value="BKPSDM">Diteruskan ke BKPSDM</option>
-        </select>
+        {!isEmployee ? (
+          <select value={followUp} onChange={(e) => setFollowUp(e.target.value)} className="ml-auto rounded-lg border border-line bg-white px-3 py-1.5 text-sm">
+            <option value="">Semua tindak lanjut</option>
+            <option value="NONE">Selesai internal</option>
+            <option value="BKPSDM">Diteruskan ke BKPSDM</option>
+          </select>
+        ) : null}
       </div>
 
       <div className="mt-4">
@@ -63,7 +73,7 @@ export default function TeguranListPage() {
         ) : error ? (
           <ErrorBox message={error} onRetry={load} />
         ) : items.length === 0 ? (
-          <EmptyState title="Belum ada surat teguran" />
+          <EmptyState title={isEmployee ? "Tidak ada surat teguran untuk Anda" : "Belum ada surat teguran"} />
         ) : (
           <ul className="space-y-2">
             {items.map((w) => (
@@ -72,9 +82,12 @@ export default function TeguranListPage() {
                   href={`/presensi/teguran/${w.id}`}
                   className="block rounded-lg border border-line bg-surface px-4 py-3 transition hover:border-brand-700"
                 >
-                  <p className="text-sm font-semibold">{w.letterNumber} — {w.employee?.name ?? w.employeeId}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold">{w.letterNumber} — {w.employee?.name ?? w.employeeId}</p>
+                    <StatusBadge status={w.workflowStatus ?? "DILAPORKAN"} />
+                  </div>
                   <p className="mt-0.5 text-xs text-muted">
-                    Pekan {w.weekStart} s.d. {w.weekEnd} • {w.absenceCount} hari tanpa hadir
+                    Pekan {String(w.weekStart).slice(0, 10)} s.d. {String(w.weekEnd).slice(0, 10)} • {w.absenceCount} sesi tanpa keterangan
                   </p>
                 </Link>
               </li>
@@ -82,6 +95,6 @@ export default function TeguranListPage() {
           </ul>
         )}
       </div>
-    </RequirePerm>
+    </RequireAuth>
   );
 }
