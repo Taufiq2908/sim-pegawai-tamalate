@@ -13,12 +13,12 @@ import { EmptyState, ErrorBox, ProcessTrail, Skeleton, StatusBadge } from "@/com
 
 const ACTION_LABEL: Record<string, string> = {
   submit: "Ajukan",
-  review: "Setujui & tandatangani",
-  verify: "Verifikasi",
+  review: "Pertimbangan atasan",
+  verify: "Verifikasi & teruskan",
   revise: "Minta revisi",
   postpone: "Tangguhkan",
-  paraf: "Paraf",
-  approve: "Setujui & tandatangani",
+  paraf: "Paraf Sekcam",
+  approve: "Setujui & tandatangani (Camat)",
   reject: "Tolak",
   sign: "Tandatangani",
   register: "Registrasi",
@@ -166,9 +166,16 @@ export default function CutiDetailPage() {
   }
 
   const isOwner = !!user?.employee && !!detail && user.employee.id === detail.employeeId;
-  // availableActions dari backend sudah sadar jabatan pemohon (forward hanya Camat,
-  // approve-di-VERIFIED hanya Sekcam, dst.) — frontend render apa adanya.
-  const visibleActions = detail?.availableActions ?? [];
+  const isSekcamActor = user?.role === "SUPER_ADMIN" || user?.position === "SEKCAM";
+  const isCamatActor = user?.role === "SUPER_ADMIN" || user?.position === "CAMAT";
+  // Backend mengizinkan paraf/approve berdasarkan permission LEADER. Di UI,
+  // batasi sesuai jabatan agar Sekcam tidak mengambil keputusan akhir Camat
+  // dan Camat tidak memparaf sebelum Sekcam.
+  const visibleActions = (detail?.availableActions ?? []).filter((a) => {
+    if (a === "paraf" && !isSekcamActor) return false;
+    if (a === "approve" && !isCamatActor) return false;
+    return true;
+  });
   const isDraftStage = !!detail && ["DRAFT", "REVISION"].includes(detail.status);
   // Backend menolak patch/upload draft oleh non-pemilik, termasuk Camat/Super Admin.
   const canEditDraft = isDraftStage && isOwner && hasPermission("leave.create");
@@ -283,6 +290,26 @@ export default function CutiDetailPage() {
 
             <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Keputusan</h2>
+              {detail.status === "REVIEWED" && hasPermission("leave.verify") ? (
+                <div className="mt-2 rounded-lg border border-warn-700/30 bg-warn-100 px-3 py-2 text-sm text-secondary">
+                  Pertimbangan atasan sudah dicatat. Klik <b>Verifikasi &amp; teruskan</b> agar permohonan masuk ke Sekcam dan Camat.
+                </div>
+              ) : null}
+              {detail.status === "VERIFIED" && isSekcamActor ? (
+                <div className="mt-2 rounded-lg border border-info-700/30 bg-info-100 px-3 py-2 text-sm text-secondary">
+                  Kasubag sudah memverifikasi. Lakukan <b>Paraf Sekcam</b> untuk meneruskan ke Camat.
+                </div>
+              ) : null}
+              {detail.status === "VERIFIED" && isCamatActor && !isSekcamActor ? (
+                <div className="mt-2 rounded-lg border border-line bg-paper px-3 py-2 text-sm text-muted">
+                  Menunggu paraf Sekcam. Keputusan akhir Camat tersedia setelah tahap paraf selesai.
+                </div>
+              ) : null}
+              {detail.status === "PARAF" && isCamatActor ? (
+                <div className="mt-2 rounded-lg border border-ok-700/30 bg-ok-100 px-3 py-2 text-sm text-secondary">
+                  Sudah diparaf Sekcam. Lakukan <b>Setujui &amp; tandatangani (Camat)</b> sebagai validasi akhir.
+                </div>
+              ) : null}
               {canEditDraft ? (
                 <a
                   href={`/cuti/${detail.id}/edit`}
@@ -309,6 +336,16 @@ export default function CutiDetailPage() {
                         {acting === a ? "Memproses…" : (ACTION_LABEL[a] ?? a)}
                       </button>
                     ))}
+                  </div>
+                  <div className="mt-2 space-y-1 text-xs text-muted">
+                    {visibleActions.includes("review") ? (
+                      <p>Pertimbangan atasan bukan persetujuan akhir; setelah ini masih ada verifikasi Kasubag.</p>
+                    ) : null}
+                    {visibleActions.includes("verify") ? (
+                      <p>Verifikasi akan mengirim notifikasi ke Sekcam dan Camat untuk paraf/persetujuan.</p>
+                    ) : null}
+                    {visibleActions.includes("paraf") ? <p>Paraf Sekcam meneruskan permohonan ke Camat.</p> : null}
+                    {visibleActions.includes("approve") ? <p>Keputusan akhir Camat; surat pengantar menjadi final setelah ditandatangani.</p> : null}
                   </div>
                   <textarea
                     value={note}

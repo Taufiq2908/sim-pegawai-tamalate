@@ -789,10 +789,13 @@ export default function PresensiPage() {
               </Link>
               {canManage ? (
                 <button onClick={() => void generateWarnings()} className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-800">
-                  Terbitkan teguran pekan {weekStart}
+                  Terbitkan &amp; lapor ke Sekcam (pekan {weekStart})
                 </button>
               ) : null}
             </div>
+            <p className="mt-1 text-xs text-muted">
+              Surat teguran yang diterbitkan otomatis dikirim ke notifikasi Sekcam dan Camat untuk ditindaklanjuti.
+            </p>
             {problematic.length === 0 ? (
               <p className="mt-2 text-sm text-muted">Tidak ada pegawai bermasalah pekan ini.</p>
             ) : (

@@ -12,9 +12,11 @@ import { toast } from "@/components/toast";
 export default function TeguranDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const canManage = hasPermission("attendance.manage");
   const canForward = hasPermission("attendance.forward");
+  const isSekcam = user?.role === "SUPER_ADMIN" || user?.position === "SEKCAM";
+  const isCamat = user?.role === "SUPER_ADMIN" || user?.position === "CAMAT";
   const [item, setItem] = useState<WarningLetterDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -165,20 +167,24 @@ export default function TeguranDetailPage() {
               ) : null}
               {canForward ? (
                 <div className="mt-3 space-y-2 border-t border-line pt-3">
-                  {!item.forwardAt ? (
+                  {!item.forwardAt && isSekcam ? (
                     <div className="flex flex-wrap gap-2">
                       <input value={forwardNote} onChange={(e) => setForwardNote(e.target.value)} placeholder="Catatan penerusan (opsional)" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
                       <button disabled={acting !== null} onClick={() => void forward()} className="rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
                         {acting === "forward" ? "…" : "Teruskan ke Camat"}
                       </button>
                     </div>
-                  ) : !item.instruction ? (
+                  ) : item.forwardAt && !item.instruction && isCamat ? (
                     <div className="flex flex-wrap gap-2">
                       <input value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Instruksi tindak lanjut (min 5 karakter)*" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
                       <button disabled={acting !== null} onClick={() => void instruct()} className="rounded-lg bg-ok-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
                         {acting === "instruct" ? "…" : "Tindak lanjuti"}
                       </button>
                     </div>
+                  ) : !item.forwardAt && isCamat ? (
+                    <p className="text-sm text-muted">Menunggu laporan diteruskan oleh Sekcam.</p>
+                  ) : item.forwardAt && !item.instruction ? (
+                    <p className="text-sm text-muted">Sudah diteruskan ke Camat; menunggu instruksi tindak lanjut.</p>
                   ) : (
                     <p className="text-sm text-muted">Instruksi sudah dicatat.</p>
                   )}
@@ -205,7 +211,13 @@ export default function TeguranDetailPage() {
 
               {canManage ? (
                 <div className="mt-3 space-y-3 border-t pt-3">
-                  {!item.summonScheduledAt ? (
+                  {!item.forwardAt || !item.instruction ? (
+                    <p className="rounded-lg border border-warn-700/30 bg-warn-100 px-3 py-2 text-sm text-secondary">
+                      {!item.forwardAt
+                        ? "Laporan pegawai bermasalah sudah masuk ke notifikasi Sekcam. Pembinaan baru dapat dijadwalkan setelah Sekcam meneruskan laporan ke Camat."
+                        : "Menunggu instruksi Camat. Pembinaan baru dapat dijadwalkan setelah Camat memberi arahan tindak lanjut."}
+                    </p>
+                  ) : !item.summonScheduledAt ? (
                     <div className="flex flex-wrap gap-2">
                       <input type="datetime-local" value={schedAt} onChange={(e) => setSchedAt(e.target.value)} className="rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
                       <input value={summonNote} onChange={(e) => setSummonNote(e.target.value)} placeholder="Catatan panggilan (opsional)" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />

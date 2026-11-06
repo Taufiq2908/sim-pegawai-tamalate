@@ -46,8 +46,8 @@ export default function SuratMasukListPage() {
     if (STATUS_VALUES.has(st)) setStatus(st);
   }, []);
 
-  async function load(p: number, st: string, query: string) {
-    setLoading(true);
+  async function load(p: number, st: string, query: string, opts: { silent?: boolean } = {}) {
+    if (!opts.silent) setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams({ page: String(p), limit: String(LIMIT) });
@@ -59,7 +59,7 @@ export default function SuratMasukListPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat surat");
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   }
 
@@ -68,6 +68,24 @@ export default function SuratMasukListPage() {
     void load(1, status, q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
+
+  // Surat baru dari TU tidak selalu terlihat bila halaman sudah terbuka.
+  // Segarkan saat tab kembali aktif/fokus, plus polling ringan.
+  useEffect(() => {
+    const refresh = () => void load(page, status, q, { silent: true });
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, status, q]);
 
   const totalPages = meta ? Math.max(1, Math.ceil(meta.total / meta.limit)) : 1;
 
@@ -122,7 +140,22 @@ export default function SuratMasukListPage() {
           placeholder="Cari perihal / pengirim / nomor…"
           className="min-w-44 flex-1 rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none placeholder:text-muted/60 focus:border-brand-700"
         />
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => void load(page, status, q)}
+          className="rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-paper disabled:opacity-50"
+        >
+          {loading ? "Memuat…" : "Muat ulang"}
+        </button>
       </form>
+
+      {user?.position === "SEKCAM" ? (
+        <p className="mt-2 text-xs text-muted">
+          Surat baru tampil di sini setelah TU mengirimkannya (status <b>Menunggu Sekcam</b>).
+          Surat yang masih Draft TU belum masuk tahap Sekcam.
+        </p>
+      ) : null}
 
       <div className="mt-3">
         {loading ? (

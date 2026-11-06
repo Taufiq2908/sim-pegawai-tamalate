@@ -58,8 +58,10 @@ export default function SuratPengantarKgbPage() {
   if (!detail) return null;
 
   const timeline = detail.timeline ?? [];
+  const verifyEntry = timeline.find((t) => t.action === "VERIFY");
   const approveEntry = timeline.find((t) => t.action === "APPROVE");
   const registerEntry = timeline.find((t) => t.action === "REGISTER");
+  const kasubagSig = loadSignature(actorUsername(verifyEntry));
   const camatSig = loadSignature(actorUsername(approveEntry));
   // Catatan register kadang berbunyi "Nomor surat keluar: 800/..." — ambil nomornya saja.
   const nomorSurat =
@@ -184,7 +186,18 @@ export default function SuratPengantarKgbPage() {
           ucapkan terima kasih.
         </p>
 
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex flex-wrap items-start justify-between gap-8">
+          {verifyEntry ? (
+            <SignatureBlock
+              heading="Diverifikasi oleh Kasubag Umum & Kepegawaian,"
+              name={verifyEntry.actorName}
+              nip={verifyEntry.actorNip}
+              signature={kasubagSig}
+              signedAt={verifyEntry.createdAt}
+            />
+          ) : (
+            <div className="w-72" />
+          )}
           <SignatureBlock
             heading="Camat Tamalate,"
             name={detail.camat?.name}
