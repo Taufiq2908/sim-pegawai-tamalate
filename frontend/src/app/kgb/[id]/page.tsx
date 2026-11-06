@@ -5,20 +5,22 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { FileButton } from "@/components/form";
+import { SignaturePad } from "@/components/signature";
 import { toast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
 import { fileUrl } from "@/lib/file-url";
+import { loadSignature } from "@/lib/signature";
 import type { KgbDetail } from "@/lib/types";
 import { EmptyState, ErrorBox, ProcessTrail, Skeleton, StatusBadge } from "@/components/ui";
 import { formatRupiah } from "@/lib/format";
 
 const ACTION_LABEL: Record<string, string> = {
   submit: "Ajukan",
-  verify: "Verifikasi",
+  verify: "Verifikasi & tanda tangan",
   revise: "Minta revisi",
-  paraf: "Paraf",
-  approve: "Setujui",
+  paraf: "Paraf Sekcam",
+  approve: "Validasi akhir & setujui (Camat)",
   reject: "Tolak",
   register: "Register",
   tobkpsdm: "Teruskan ke BKPSDM",
@@ -93,6 +95,10 @@ export default function KgbDetailPage() {
       );
       return;
     }
+    if ((action === "verify" || action === "approve") && user && !loadSignature(user.username)) {
+      toast.error("Simpan tanda tangan Anda terlebih dahulu sebelum memproses aksi ini.");
+      return;
+    }
     setActing(action);
     try {
       const { data } = await apiFetch<KgbDetail>(`/kgb-requests/${id}/${action}`, {
@@ -150,6 +156,19 @@ export default function KgbDetailPage() {
     (isOwner || (!!user && user.role !== "EMPLOYEE" && hasPermission("kgb.create")));
   const canUpload = canManageDraft && hasPermission("kgb.document.upload");
   const canDelete = !!detail && detail.status === "DRAFT" && (isOwner || user?.role === "SUPER_ADMIN");
+  const isSekcamActor = user?.role === "SUPER_ADMIN" || user?.position === "SEKCAM";
+  const isCamatActor = user?.role === "SUPER_ADMIN" || user?.position === "CAMAT";
+  // Permission kgb.paraf/kgb.approve dimiliki bersama oleh LEADER. Batasi UI
+  // agar Sekcam hanya memparaf dan Camat yang melakukan validasi akhir.
+  const visibleActions = (detail?.availableActions ?? []).filter((a) => {
+    if (a === "paraf" && !isSekcamActor) return false;
+    if (a === "approve" && !isCamatActor) return false;
+    return true;
+  });
+  const needsSignature =
+    !!detail &&
+    ((detail.status === "SUBMITTED" && visibleActions.includes("verify")) ||
+      (detail.status === "PARAF" && visibleActions.includes("approve")));
 
   return (
     <RequirePerm perm="kgb.view" label="KGB">
@@ -226,10 +245,25 @@ export default function KgbDetailPage() {
 
             <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Aksi persetujuan</h2>
-              {detail.availableActions?.length ? (
+              {detail.status === "VERIFIED" && isSekcamActor ? (
+                <div className="mt-2 rounded-lg border border-info-700/30 bg-info-100 px-3 py-2 text-sm text-secondary">
+                  Kasubag sudah memverifikasi. Lakukan <b>Paraf Sekcam</b> untuk meneruskan ke Camat.
+                </div>
+              ) : null}
+              {detail.status === "VERIFIED" && isCamatActor && !isSekcamActor ? (
+                <div className="mt-2 rounded-lg border border-line bg-paper px-3 py-2 text-sm text-muted">
+                  Menunggu paraf Sekcam. Validasi akhir Camat tersedia setelah tahap paraf selesai.
+                </div>
+              ) : null}
+              {detail.status === "PARAF" && isCamatActor ? (
+                <div className="mt-2 rounded-lg border border-ok-700/30 bg-ok-100 px-3 py-2 text-sm text-secondary">
+                  Sudah diparaf Sekcam. Lakukan <b>Validasi akhir &amp; setujui (Camat)</b> dan simpan tanda tangan Camat.
+                </div>
+              ) : null}
+              {visibleActions.length ? (
                 <>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {detail.availableActions.map((a) => (
+                    {visibleActions.map((a) => (
                       <button
                         key={a}
                         disabled={acting !== null}
@@ -242,20 +276,35 @@ export default function KgbDetailPage() {
                       </button>
                     ))}
                   </div>
+                  {needsSignature && user ? (
+                    <div className="mt-3 rounded-lg border border-line bg-paper p-3">
+                      <p className="text-sm font-semibold">
+                        {detail.status === "SUBMITTED"
+                          ? "Tanda tangan Kasubag (verifikasi)"
+                          : "Tanda tangan Camat (validasi akhir)"}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        Tanda tangan disimpan di browser ini dan dipakai pada pratinjau surat KGB.
+                      </p>
+                      <div className="mt-2">
+                        <SignaturePad username={user.username} />
+                      </div>
+                    </div>
+                  ) : null}
                   <textarea
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     placeholder={
-                      detail.availableActions?.includes("register")
+                      visibleActions.includes("register")
                         ? "Nomor surat keluar (wajib untuk Register), mis. 800/001/KT/XI/2026"
-                        : NOTE_REQUIRED.some((a) => detail.availableActions?.includes(a))
+                        : NOTE_REQUIRED.some((a) => visibleActions.includes(a))
                           ? "Catatan (wajib untuk revisi/tolak)"
                           : "Catatan (opsional)"
                     }
                     rows={2}
                     className="mt-3 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700"
                   />
-                  {detail.availableActions?.includes("register") ? (
+                  {visibleActions.includes("register") ? (
                     <p className="mt-1 text-xs text-muted">
                       Register mencatat nomor surat keluar. Buat nomornya di modul Surat Keluar lebih dulu bila belum ada.
                     </p>

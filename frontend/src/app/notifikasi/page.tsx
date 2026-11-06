@@ -7,10 +7,15 @@ import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/components/toast";
 import { refreshNotificationBadge } from "@/lib/notification-refresh";
-import type { NotificationItem } from "@/lib/types";
+import type { NotificationItem, PageMeta } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
 
-function notificationLink(n: NotificationItem, isEmployee: boolean): { href: string; label: string } | null {
+const LIMIT = 50;
+
+function notificationLink(
+  n: NotificationItem,
+  opts: { isEmployee: boolean; canOpenTeguran: boolean },
+): { href: string; label: string } | null {
   if (n.referenceType === "incoming_letter" && n.referenceId) {
     return { href: `/surat-masuk/${n.referenceId}`, label: "Buka surat masuk" };
   }
@@ -28,7 +33,7 @@ function notificationLink(n: NotificationItem, isEmployee: boolean): { href: str
     return { href: `/kgb/${n.referenceId}`, label: "Buka pengajuan KGB" };
   }
   if (n.referenceType === "kgb_reminder") {
-    return isEmployee
+    return opts.isEmployee
       ? { href: "/kgb", label: "Buka KGB" }
       : { href: "/kgb/monitoring", label: "Buka monitoring KGB" };
   }
@@ -36,7 +41,11 @@ function notificationLink(n: NotificationItem, isEmployee: boolean): { href: str
     return { href: `/arsip/daftar/${n.referenceId}`, label: "Buka daftar arsip" };
   }
   if (n.referenceType === "warning_letter" && n.referenceId) {
-    return { href: `/presensi/teguran/${n.referenceId}`, label: "Buka surat teguran" };
+    // Endpoint surat teguran saat ini mensyaratkan attendance.summary.
+    // Untuk pegawai penerima, backend belum menyediakan akses baca milik sendiri.
+    return opts.canOpenTeguran
+      ? { href: `/presensi/teguran/${n.referenceId}`, label: "Buka surat teguran" }
+      : null;
   }
   return null;
 }
@@ -63,38 +72,65 @@ function notificationBadge(n: NotificationItem): { label: string; className: str
   if (n.type === "ARCHIVE" || n.referenceType === "archive_list") {
     return { label: "Arsip", className: "bg-info-100 text-info-700" };
   }
+  if (n.type === "ATTENDANCE") {
+    return { label: "Presensi", className: "bg-warn-100 text-warn-700" };
+  }
+  if (n.type === "LEAVE") {
+    return { label: "Cuti", className: "bg-info-100 text-info-700" };
+  }
+  if (n.type === "KGB" || n.referenceType === "kgb_request") {
+    return { label: "KGB", className: "bg-info-100 text-info-700" };
+  }
   return null;
 }
 
 export default function NotifikasiPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
+  const canOpenTeguran = hasPermission("attendance.summary");
   const [items, setItems] = useState<NotificationItem[]>([]);
+  const [meta, setMeta] = useState<PageMeta | null>(null);
+  const [page, setPage] = useState(1);
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
   const [error, setError] = useState("");
 
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    setError("");
-    try {
-      const { data } = await apiFetch<NotificationItem[]>(
-        `/notifications?${onlyUnread ? "unread=true&" : ""}page=1&limit=50`,
-      );
-      setItems(Array.isArray(data) ? data : []);
-    } catch (err) {
-      if (!silent) setError(err instanceof Error ? err.message : "Gagal memuat notifikasi");
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [onlyUnread]);
+  const load = useCallback(
+    async (targetPage = 1, opts: { silent?: boolean; append?: boolean } = {}) => {
+      const { silent = false, append = false } = opts;
+      if (!silent && !append) setLoading(true);
+      if (append) setLoadingMore(true);
+      setError("");
+      try {
+        const params = new URLSearchParams({ page: String(targetPage), limit: String(LIMIT) });
+        if (onlyUnread) params.set("unread", "true");
+        const { data, meta: m } = await apiFetch<NotificationItem[]>(`/notifications?${params.toString()}`);
+        const list = Array.isArray(data) ? data : [];
+        setItems((prev) => (append ? [...prev, ...list] : list));
+        setMeta(m as PageMeta | null);
+        setPage(targetPage);
+      } catch (err) {
+        if (!silent) setError(err instanceof Error ? err.message : "Gagal memuat notifikasi");
+      } finally {
+        if (!silent && !append) setLoading(false);
+        if (append) setLoadingMore(false);
+      }
+    },
+    [onlyUnread],
+  );
 
   useEffect(() => {
-    void load();
+    setPage(1);
+    void load(1);
   }, [load]);
 
   useEffect(() => {
-    const refresh = () => void load(true);
+    // Polling dan fokus hanya memperbarui halaman pertama agar daftar yang
+    // sedang dibuka tidak terpotong. Pengguna tetap bisa memuat halaman berikutnya.
+    const refresh = () => {
+      if (page === 1) void load(1, { silent: true });
+    };
     const timer = window.setInterval(refresh, 60_000);
     window.addEventListener("focus", refresh);
     window.addEventListener("notifications:refresh", refresh);
@@ -103,7 +139,7 @@ export default function NotifikasiPage() {
       window.removeEventListener("focus", refresh);
       window.removeEventListener("notifications:refresh", refresh);
     };
-  }, [load]);
+  }, [load, page]);
 
   async function markRead(id: string) {
     try {
@@ -124,7 +160,7 @@ export default function NotifikasiPage() {
         body: JSON.stringify({}),
       });
       if (onlyUnread) {
-        await load(true);
+        await load(1, { silent: true });
       } else {
         setItems((list) => list.map((n) => (n.isRead ? n : { ...n, isRead: true })));
       }
@@ -137,11 +173,22 @@ export default function NotifikasiPage() {
     }
   }
 
+  const hasMore = !!meta && items.length < meta.total;
+
   return (
     <AppShell>
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold">Notifikasi</h1>
+        {meta ? <span className="text-sm text-muted">{meta.total} total</span> : null}
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => void load(1, { silent: true })}
+            className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-paper disabled:opacity-50"
+          >
+            Muat ulang
+          </button>
           <button
             type="button"
             disabled={markingAll}
@@ -161,60 +208,82 @@ export default function NotifikasiPage() {
         {loading ? (
           <div className="space-y-2">{[0, 1].map((i) => <Skeleton key={i} className="h-20 w-full" />)}</div>
         ) : error ? (
-          <ErrorBox message={error} onRetry={load} />
+          <ErrorBox message={error} onRetry={() => void load(1)} />
         ) : items.length === 0 ? (
           <EmptyState title="Tidak ada notifikasi" />
         ) : (
-          <ul className="space-y-2">
-            {items.map((n) => {
-              const link = notificationLink(n, user?.role === "EMPLOYEE");
-              const badge = notificationBadge(n);
-              return (
-                <li
-                  key={n.id}
-                  className={`rounded-xl border px-4 py-3 ${n.isRead ? "border-line bg-surface" : "border-brand-700 bg-surface"}`}
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-semibold">{n.title}</p>
-                    {badge ? (
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badge.className}`}>
-                        {badge.label}
+          <>
+            <ul className="space-y-2">
+              {items.map((n) => {
+                const link = notificationLink(n, {
+                  isEmployee: user?.role === "EMPLOYEE",
+                  canOpenTeguran,
+                });
+                const badge = notificationBadge(n);
+                return (
+                  <li
+                    key={n.id}
+                    className={`rounded-xl border px-4 py-3 ${n.isRead ? "border-line bg-surface" : "border-brand-700 bg-surface"}`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold">{n.title}</p>
+                      {badge ? (
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      ) : null}
+                      {!n.isRead ? (
+                        <span className="rounded-full bg-brand-900 px-2 py-0.5 text-xs font-semibold text-white">Baru</span>
+                      ) : null}
+                      <span className="ml-auto text-xs text-muted">
+                        {new Date(n.createdAt).toLocaleString("id-ID")}
                       </span>
-                    ) : null}
-                    {!n.isRead ? (
-                      <span className="rounded-full bg-brand-900 px-2 py-0.5 text-xs font-semibold text-white">Baru</span>
-                    ) : null}
-                    <span className="ml-auto text-xs text-muted">
-                      {new Date(n.createdAt).toLocaleString("id-ID")}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm text-muted">{n.body}</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {link ? (
-                      <Link
-                        href={link.href}
-                        onClick={() => {
-                          if (!n.isRead) void markRead(n.id);
-                        }}
-                        className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110"
-                      >
-                        {link.label}
-                      </Link>
-                    ) : null}
-                    {!n.isRead ? (
-                      <button
-                        type="button"
-                        onClick={() => void markRead(n.id)}
-                        className="rounded-lg border border-line bg-field px-3 py-1.5 text-sm font-semibold text-ink hover:bg-paper"
-                      >
-                        Tandai dibaca
-                      </button>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                    </div>
+                    <p className="mt-1 text-sm text-muted">{n.body}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {link ? (
+                        <Link
+                          href={link.href}
+                          onClick={() => {
+                            if (!n.isRead) void markRead(n.id);
+                          }}
+                          className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:brightness-110"
+                        >
+                          {link.label}
+                        </Link>
+                      ) : null}
+                      {!link && n.referenceType === "warning_letter" ? (
+                        <p className="text-xs text-muted">
+                          Surat teguran lengkap hanya dapat dibuka oleh petugas. Hubungi Kasubag Umum &amp; Kepegawaian untuk salinan.
+                        </p>
+                      ) : null}
+                      {!n.isRead ? (
+                        <button
+                          type="button"
+                          onClick={() => void markRead(n.id)}
+                          className="rounded-lg border border-line bg-field px-3 py-1.5 text-sm font-semibold text-ink hover:bg-paper"
+                        >
+                          Tandai dibaca
+                        </button>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {hasMore ? (
+              <div className="mt-3 flex justify-center">
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={() => void load(page + 1, { append: true })}
+                  className="rounded-lg border border-line bg-surface px-4 py-2 text-sm font-semibold hover:bg-paper disabled:opacity-50"
+                >
+                  {loadingMore ? "Memuat…" : `Muat lebih banyak (${items.length}/${meta?.total})`}
+                </button>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
     </AppShell>
