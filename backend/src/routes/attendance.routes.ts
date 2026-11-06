@@ -5,6 +5,7 @@ import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
+import { deleteStoredFile, sendStoredFile, storeUploadedFile } from '../lib/storage';
 import { authRequired, requirePermission } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
 import { usersForPermission } from '../lib/permissions';
@@ -474,6 +475,39 @@ async function userIdsByPosition(pos: string): Promise<string[]> {
   return users.map((u) => u.id);
 }
 
+type WarningViewer = {
+  role: string;
+  permissions: string[];
+  employeeId: string | null;
+};
+
+function canReadAllWarnings(user: WarningViewer): boolean {
+  if (user.role === 'SUPER_ADMIN') return true;
+  return ['attendance.summary', 'attendance.manage', 'attendance.forward'].some((perm) =>
+    user.permissions.includes(perm),
+  );
+}
+
+function canReadWarning(user: WarningViewer, employeeId: string): boolean {
+  return canReadAllWarnings(user) || (!!user.employeeId && user.employeeId === employeeId);
+}
+
+type WarningProgress = {
+  summonScheduledAt: Date | null;
+  forwardAt: Date | null;
+  instructedAt: Date | null;
+  coachedAt: Date | null;
+  coachingFollowUp: string;
+};
+
+function warningProgress(w: WarningProgress): string {
+  if (w.coachedAt) return w.coachingFollowUp === 'BKPSDM' ? 'DITERUSKAN_BKPSDM' : 'SELESAI';
+  if (w.instructedAt) return 'PEMBINAAN';
+  if (w.forwardAt) return 'MENUNGGU_TINDAK_LANJUT';
+  if (w.summonScheduledAt) return 'DIPANGGIL';
+  return 'DILAPORKAN';
+}
+
 router.post('/warning-letters/generate', requirePermission('attendance.manage'), async (req, res) => {
   const schema = z.object({ weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
   const parsed = schema.safeParse(req.body);
@@ -487,7 +521,7 @@ router.post('/warning-letters/generate', requirePermission('attendance.manage'),
       where: { employeeId_weekStart: { employeeId: it.employee.id, weekStart: parseYMD(it.weekStart)! } },
     });
     if (existed) {
-      result.push({ ...existed, created: false });
+      result.push({ ...existed, created: false, workflowStatus: warningProgress(existed) });
       continue;
     }
     const count = await prisma.warningLetter.count();
@@ -521,10 +555,23 @@ router.post('/warning-letters/generate', requirePermission('attendance.manage'),
         createdBy: req.user!.id,
       },
     });
-    result.push({ ...created, created: true });
-    // Alert otomatis ke Sekcam + Kasubag (Fase 3).
+    result.push({ ...created, created: true, workflowStatus: warningProgress(created) });
+    // Notifikasi pegawai yang menerima surat teguran (agar bisa membuka suratnya).
+    const employeeUser = await prisma.user.findFirst({
+      where: { employeeId: it.employee.id, isActive: true },
+      select: { id: true },
+    });
+    if (employeeUser && employeeUser.id !== req.user!.id) {
+      await notifyAttendance(
+        [employeeUser.id],
+        `Surat teguran diterbitkan: ${letterNumber}`,
+        `Anda tercatat ${it.absenceCount} sesi apel tanpa keterangan (${it.weekStart}–${it.weekEnd}). Silakan buka surat teguran untuk detail.`,
+        created.id,
+      );
+    }
+    // Alert otomatis ke Sekcam + Kasubag (Fase 3), tanpa duplikasi ke pegawai penerima.
     const recipients = [...await userIdsByPosition('SEKCAM'), ...await usersForPermission('attendance.summary')]
-      .filter((id) => id !== req.user!.id);
+      .filter((id) => id !== req.user!.id && id !== employeeUser?.id);
     await notifyAttendance(
       recipients,
       `Pegawai bermasalah: ${emp?.name ?? it.employee.name}`,
@@ -536,9 +583,15 @@ router.post('/warning-letters/generate', requirePermission('attendance.manage'),
 });
 
 // ---------- GET /attendances/warning-letters ----------
-router.get('/warning-letters', requirePermission('attendance.summary'), async (req, res) => {
+// Pegawai hanya menerima surat teguran miliknya sendiri; pemegang permission
+// terkait (Sekcam/Kasubag/Camat) dapat melihat seluruh surat.
+router.get('/warning-letters', async (req, res) => {
   const { page = '1', limit = '10', followUp } = req.query as any;
   const where: any = {};
+  if (!canReadAllWarnings(req.user!)) {
+    if (!req.user!.employeeId) return fail(res, 403, 'Forbidden: butuh permission attendance.summary');
+    where.employeeId = req.user!.employeeId;
+  }
   if (followUp) {
     if (!['NONE', 'BKPSDM'].includes(followUp)) return fail(res, 422, 'followUp tidak valid (NONE|BKPSDM)');
     where.coachingFollowUp = followUp;
@@ -555,17 +608,23 @@ router.get('/warning-letters', requirePermission('attendance.summary'), async (r
       take: l,
     }),
   ]);
-  return ok(res, items, 'ok', { page: p, limit: l, total });
+  return ok(
+    res,
+    items.map((item) => ({ ...item, workflowStatus: warningProgress(item) })),
+    'ok',
+    { page: p, limit: l, total },
+  );
 });
 
 // ---------- GET /attendances/warning-letters/:id/print (payload cetak/laporan BKPSDM) ----------
 // (Didefinisikan SEBELUM /:id agar tidak tertangkap param generik.)
-router.get('/warning-letters/:id/print', requirePermission('attendance.summary'), async (req, res) => {
+router.get('/warning-letters/:id/print', async (req, res) => {
   const w = await prisma.warningLetter.findUnique({
     where: { id: req.params.id },
     include: { employee: { include: { orgUnit: true } } },
   });
   if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
+  if (!canReadWarning(req.user!, w.employeeId)) return fail(res, 403, 'Bukan surat teguran milik Anda');
   const officials = await prisma.user.findMany({
     where: { isActive: true, OR: [{ position: 'CAMAT' }, { position: 'SEKCAM' }, { position: { startsWith: 'KASUBAG' } }] },
     include: { employee: true },
@@ -593,18 +652,20 @@ router.get('/warning-letters/:id/print', requirePermission('attendance.summary')
     },
     officials: { camat: official('CAMAT'), sekcam: official('SEKCAM'), kasubag: official('KASUBAG') },
     statusPembinaan,
+    workflowStatus: warningProgress(w),
     content: w.content,
   });
 });
 
 // ---------- GET /attendances/warning-letters/:id ----------
-router.get('/warning-letters/:id', requirePermission('attendance.summary'), async (req, res) => {
+router.get('/warning-letters/:id', async (req, res) => {
   const w = await prisma.warningLetter.findUnique({
     where: { id: req.params.id },
     include: { employee: true },
   });
   if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
-  return ok(res, w);
+  if (!canReadWarning(req.user!, w.employeeId)) return fail(res, 403, 'Bukan surat teguran milik Anda');
+  return ok(res, { ...w, workflowStatus: warningProgress(w) });
 });
 
 // ---------- POST /attendances/warning-letters/:id/summon (surat panggilan) ----------
@@ -634,7 +695,7 @@ router.post('/warning-letters/:id/summon', requirePermission('attendance.manage'
       w.id,
     );
   }
-  return ok(res, updated, 'Panggilan pembinaan dijadwalkan');
+  return ok(res, { ...updated, workflowStatus: warningProgress(updated) }, 'Panggilan pembinaan dijadwalkan');
 });
 
 // ---------- POST /attendances/warning-letters/:id/forward (Sekcam teruskan ke Camat) ----------
@@ -657,7 +718,7 @@ router.post('/warning-letters/:id/forward', requirePermission('attendance.forwar
     `Sekcam meneruskan laporan ${w.letterNumber} (${w.absenceCount} sesi TK)${note ? ` — ${note}` : ''}.`,
     w.id,
   );
-  return ok(res, updated, 'Laporan diteruskan ke Camat');
+  return ok(res, { ...updated, workflowStatus: warningProgress(updated) }, 'Laporan diteruskan ke Camat');
 });
 
 // ---------- POST /attendances/warning-letters/:id/instruct (Camat: Tindak Lanjuti) ----------
@@ -681,7 +742,7 @@ router.post('/warning-letters/:id/instruct', requirePermission('attendance.forwa
     `${parsed.data.instruction} (pegawai: ${w.employee.name}).`,
     w.id,
   );
-  return ok(res, updated, 'Instruksi Camat dicatat');
+  return ok(res, { ...updated, workflowStatus: warningProgress(updated) }, 'Instruksi Camat dicatat');
 });
 
 // ---------- PATCH /attendances/warning-letters/:id/coaching (hasil pembinaan) ----------
@@ -693,7 +754,7 @@ router.patch('/warning-letters/:id/coaching', requirePermission('attendance.mana
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
-  const w = await prisma.warningLetter.findUnique({ where: { id: req.params.id } });
+  const w = await prisma.warningLetter.findUnique({ where: { id: req.params.id }, include: { employee: true } });
   if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
   if (!w.summonScheduledAt) return fail(res, 422, 'Buat surat panggilan dulu (summon)');
   const updated = await prisma.warningLetter.update({
@@ -705,7 +766,20 @@ router.patch('/warning-letters/:id/coaching', requirePermission('attendance.mana
       coachedAt: new Date(),
     },
   });
-  return ok(res, updated, 'Hasil pembinaan dicatat');
+  // SOP langkah 5: laporkan hasil pembinaan ke Sekcam dan Camat.
+  const recipients = [
+    ...await userIdsByPosition('SEKCAM'),
+    ...await userIdsByPosition('CAMAT'),
+  ].filter((id) => id !== req.user!.id);
+  await notifyAttendance(
+    recipients,
+    `Laporan pembinaan: ${w.letterNumber}`,
+    `${w.employee.name} — hasil: ${parsed.data.result}. Tindak lanjut: ${
+      parsed.data.followUp === 'BKPSDM' ? 'diteruskan ke BKPSDM' : 'selesai internal'
+    }.`,
+    w.id,
+  );
+  return ok(res, { ...updated, workflowStatus: warningProgress(updated) }, 'Hasil pembinaan dicatat');
 });
 
 // ---------- POST /attendances/session-photos (foto dokumentasi apel per sesi) ----------
@@ -723,7 +797,10 @@ router.post('/session-photos', requirePermission('attendance.manage'), (req, res
       return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
     }
     if (!file) return fail(res, 422, 'file wajib (jpg/png, max 5MB)');
-    if (!parseYMD(parsed.data.date)) return fail(res, 422, 'date tidak valid');
+    if (!parseYMD(parsed.data.date)) {
+      fs.rmSync(file.path, { force: true });
+      return fail(res, 422, 'date tidak valid');
+    }
     const exists = await prisma.attendanceSessionPhoto.findUnique({
       where: { date_session: { date: parseYMD(parsed.data.date)!, session: parsed.data.session } },
     });
@@ -731,27 +808,30 @@ router.post('/session-photos', requirePermission('attendance.manage'), (req, res
       fs.rmSync(file.path, { force: true });
       return fail(res, 409, 'Foto sesi ini sudah ada');
     }
-    const ext = path.extname(file.originalname);
-    const storedPath = file.path + ext;
-    fs.renameSync(file.path, storedPath);
-    const photo = await prisma.attendanceSessionPhoto.create({
-      data: {
-        date: parseYMD(parsed.data.date)!,
-        session: parsed.data.session,
-        originalName: file.originalname,
-        storedPath,
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
-        uploadedBy: req.user!.id,
-      },
-    });
-    return res.status(201).json({
-      success: true,
-      message: 'Foto sesi diupload',
-      data: { ...photo, photoUrl: `/api/v1/attendances/session-photos/${photo.id}/file` },
-      meta: null,
-      errors: null,
-    });
+    const storedPath = await storeUploadedFile(file, `attendance/${parsed.data.date}/${parsed.data.session}`);
+    try {
+      const photo = await prisma.attendanceSessionPhoto.create({
+        data: {
+          date: parseYMD(parsed.data.date)!,
+          session: parsed.data.session,
+          originalName: file.originalname,
+          storedPath,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+          uploadedBy: req.user!.id,
+        },
+      });
+      return res.status(201).json({
+        success: true,
+        message: 'Foto sesi diupload',
+        data: { ...photo, photoUrl: `/api/v1/attendances/session-photos/${photo.id}/file` },
+        meta: null,
+        errors: null,
+      });
+    } catch (e) {
+      await deleteStoredFile(storedPath).catch(() => undefined);
+      throw e;
+    }
   });
 });
 
@@ -784,8 +864,9 @@ router.get('/session-photos', requirePermission('attendance.view'), async (req, 
 // ---------- GET /attendances/session-photos/:id/file ----------
 router.get('/session-photos/:id/file', requirePermission('attendance.view'), async (req, res) => {
   const p = await prisma.attendanceSessionPhoto.findUnique({ where: { id: req.params.id } });
-  if (!p || !fs.existsSync(p.storedPath)) return fail(res, 404, 'Foto tidak ditemukan');
-  return res.download(p.storedPath, p.originalName);
+  if (!p) return fail(res, 404, 'Foto tidak ditemukan');
+  if (!(await sendStoredFile(res, p.storedPath, p.originalName, p.mimeType))) return fail(res, 404, 'Foto tidak ditemukan');
+  return;
 });
 // ---------- GET /attendances/summary (rekap per pegawai) ----------
 router.get('/summary', requirePermission('attendance.summary'), async (req, res) => {

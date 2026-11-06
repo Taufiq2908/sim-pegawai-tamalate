@@ -4,6 +4,7 @@ Sistem Informasi Manajemen Kepegawaian & Layanan Administrasi Terintegrasi — K
 
 Monorepo: `backend/` (Express + Prisma + Supabase) dan `frontend/` (Next.js, wilayah Taufiqurrahman).
 Kontrak integrasi: `docs/02-api-contract.md`. Desain database: `docs/01-database-design.md`.
+Penyimpanan file: `docs/15-storage-supabase.md` (bucket private `simpeg_files`).
 
 ## Struktur
 
@@ -14,7 +15,7 @@ sim-pegawai-tamalate/
 │   ├── prisma.config.ts  # datasource via DIRECT_URL (port 5432)
 │   ├── src/        # routes, middleware, services
 │   ├── db/         # schema.sql, migration.sql, seed.sql (cadangan SQL Editor)
-│   ├── scripts/    # e2e-cuti.ps1
+│   ├── scripts/    # e2e-cuti.ps1, migrate-uploads-to-supabase.ts
 │   └── .env        # DATABASE_URL (pooler 6543) + DIRECT_URL (tidak di-commit)
 ├── frontend/       # Next.js (NEXT_PUBLIC_API_URL → backend)
 ├── docs/           # database design + API contract (dibaca kedua tim)
@@ -28,6 +29,7 @@ cd backend
 npm install
 npx prisma migrate dev   # butuh akses port 5432 ke Supabase
 npm run prisma:seed
+npm run storage:migrate  # opsional: pindahkan uploads/ lama ke Supabase Storage
 npm run dev              # :3000
 powershell -ExecutionPolicy Bypass -File scripts/e2e-cuti.ps1
 ```

@@ -207,7 +207,7 @@ Index: `(employee_id, status)`, `status`, `start_date`.
 | leave_request_id | uuid NOT NULL | FK → leave_requests.id ON DELETE CASCADE |
 | doc_type | varchar(50) NOT NULL | `FORM_CUTI\|SK_TERAKHIR\|SURAT_DOKTER\|KK\|LAINNYA` |
 | original_name | varchar(255) NOT NULL | |
-| stored_path | varchar(500) NOT NULL | path internal, jangan expose langsung |
+| stored_path | varchar(500) NOT NULL | `supabase://simpeg_files/...` (atau path lokal fallback); jangan expose langsung |
 | mime_type | varchar(100) NOT NULL | whitelist: pdf/jpg/jpeg/png |
 | size_bytes | integer NOT NULL | CHECK <= 5_000_000 (5MB) |
 | uploaded_by | uuid NOT NULL | FK → users.id |

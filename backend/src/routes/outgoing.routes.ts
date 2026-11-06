@@ -5,6 +5,7 @@ import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
+import { deleteStoredFile, sendStoredFile, storeUploadedFile } from '../lib/storage';
 import { authRequired, requirePermission } from '../middleware/auth';
 import { can } from '../lib/permissions';
 import { ok, fail } from '../utils/response';
@@ -315,9 +316,7 @@ router.post('/', requirePermission('outgoing.create'), (req, res) => {
         await claimOutgoingBuffer(tx, alloc.bufferId, created.id);
 
         if (f) {
-          const ext = path.extname(f.originalname);
-          storedPath = f.path + ext;
-          fs.renameSync(f.path, storedPath);
+          storedPath = await storeUploadedFile(f, `letters/outgoing/${created.id}`);
           await tx.outgoingDocument.create({
             data: {
               letterId: created.id,
@@ -335,7 +334,7 @@ router.post('/', requirePermission('outgoing.create'), (req, res) => {
       return res.status(201).json({ success: true, message: 'Surat keluar diterbitkan', data: withOutgoingView(letter, req.user!), meta: null, errors: null });
     } catch (e: any) {
       cleanupFile();
-      if (storedPath) fs.rmSync(storedPath, { force: true });
+      if (storedPath) await deleteStoredFile(storedPath).catch(() => undefined);
       if (e instanceof NumberingError) return fail(res, e.status, e.message);
       if (e?.code === 'P2002') return fail(res, 409, 'Nomor bentrok, ulangi');
       throw e;
@@ -419,16 +418,26 @@ router.post('/:id/documents', requirePermission('outgoing.create'), (req, res) =
     if (err) return fail(res, 400, err.message);
     const f = (req as any).file;
     if (!f) return fail(res, 422, 'file wajib (pdf/jpg/png, max 10MB)');
+    const cleanupTemp = () => { try { fs.rmSync(f.path, { force: true }); } catch { /* best-effort */ } };
     const l = await prisma.outgoingLetter.findUnique({ where: { id: req.params.id } });
-    if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-    if (l.status === 'CANCELLED') return fail(res, 409, 'Surat dibatalkan');
-    const ext = path.extname(f.originalname);
-    const storedPath = f.path + ext;
-    fs.renameSync(f.path, storedPath);
-    const doc = await prisma.outgoingDocument.create({
-      data: { letterId: l.id, originalName: f.originalname, storedPath, mimeType: f.mimetype, sizeBytes: f.size, uploadedBy: req.user!.id },
-    });
-    return res.status(201).json({ success: true, message: 'Dokumen ditambahkan', data: publicDocument(doc, l.id), meta: null, errors: null });
+    if (!l) {
+      cleanupTemp();
+      return fail(res, 404, 'Surat tidak ditemukan');
+    }
+    if (l.status === 'CANCELLED') {
+      cleanupTemp();
+      return fail(res, 409, 'Surat dibatalkan');
+    }
+    const storedPath = await storeUploadedFile(f, `letters/outgoing/${l.id}`);
+    try {
+      const doc = await prisma.outgoingDocument.create({
+        data: { letterId: l.id, originalName: f.originalname, storedPath, mimeType: f.mimetype, sizeBytes: f.size, uploadedBy: req.user!.id },
+      });
+      return res.status(201).json({ success: true, message: 'Dokumen ditambahkan', data: publicDocument(doc, l.id), meta: null, errors: null });
+    } catch (e) {
+      await deleteStoredFile(storedPath).catch(() => undefined);
+      throw e;
+    }
   });
 });
 
@@ -437,8 +446,9 @@ router.get('/:id/documents/:docId/download', requirePermission('outgoing.view'),
   const doc = await prisma.outgoingDocument.findFirst({
     where: { id: req.params.docId, letterId: req.params.id },
   });
-  if (!doc || !fs.existsSync(doc.storedPath)) return fail(res, 404, 'Dokumen tidak ditemukan');
-  return res.download(doc.storedPath, doc.originalName);
+  if (!doc) return fail(res, 404, 'Dokumen tidak ditemukan');
+  if (!(await sendStoredFile(res, doc.storedPath, doc.originalName, doc.mimeType))) return fail(res, 404, 'Dokumen tidak ditemukan');
+  return;
 });
 
 // ---------- GET /outgoing-letters/register-book (buku agenda keluar) ----------

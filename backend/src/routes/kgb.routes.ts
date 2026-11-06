@@ -5,6 +5,7 @@ import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
+import { deleteStoredFile, sendStoredFile, storeUploadedFile } from '../lib/storage';
 import { authRequired, requirePermission } from '../middleware/auth';
 import { availableActions, computeKgbSchedule, KGB_OVERDUE_MONTHS, KGB_REMINDER_MONTHS, KGB_REQUIRED_DOCS, TRANSITIONS } from '../services/kgb.service';
 import { ok, fail } from '../utils/response';
@@ -517,25 +518,40 @@ router.post('/:id/documents', requirePermission('kgb.document.upload'), (req, re
     const file = (req as any).file;
     const { docType = 'LAINNYA' } = req.body ?? {};
     if (!file) return fail(res, 422, 'file wajib (pdf/jpg/png, max 5MB)');
+    const cleanupTemp = () => {
+      try { fs.rmSync(file.path, { force: true }); } catch { /* best-effort */ }
+    };
     const r = await prisma.kgbRequest.findUnique({ where: { id: req.params.id } });
-    if (!r) return fail(res, 404, 'Tidak ditemukan');
-    if (!['DRAFT', 'REVISION'].includes(r.status)) return fail(res, 409, 'Upload hanya saat DRAFT/REVISION');
-    if (req.user!.role === 'EMPLOYEE' && r.employeeId !== req.user!.employeeId) return fail(res, 403, 'Bukan milikmu');
-    const ext = path.extname(file.originalname);
-    const storedPath = file.path + ext;
-    fs.renameSync(file.path, storedPath);
-    const doc = await prisma.kgbDocument.create({
-      data: {
-        kgbRequestId: r.id,
-        docType: String(docType),
-        originalName: file.originalname,
-        storedPath,
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
-        uploadedBy: req.user!.id,
-      },
-    });
-    return res.status(201).json({ success: true, message: 'Dokumen diupload', data: doc, meta: null, errors: null });
+    if (!r) {
+      cleanupTemp();
+      return fail(res, 404, 'Tidak ditemukan');
+    }
+    if (!['DRAFT', 'REVISION'].includes(r.status)) {
+      cleanupTemp();
+      return fail(res, 409, 'Upload hanya saat DRAFT/REVISION');
+    }
+    if (req.user!.role === 'EMPLOYEE' && r.employeeId !== req.user!.employeeId) {
+      cleanupTemp();
+      return fail(res, 403, 'Bukan milikmu');
+    }
+    const storedPath = await storeUploadedFile(file, `kgb/${r.id}`);
+    try {
+      const doc = await prisma.kgbDocument.create({
+        data: {
+          kgbRequestId: r.id,
+          docType: String(docType),
+          originalName: file.originalname,
+          storedPath,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+          uploadedBy: req.user!.id,
+        },
+      });
+      return res.status(201).json({ success: true, message: 'Dokumen diupload', data: doc, meta: null, errors: null });
+    } catch (e) {
+      await deleteStoredFile(storedPath).catch(() => undefined);
+      throw e;
+    }
   });
 });
 
@@ -544,8 +560,9 @@ router.get('/:id/documents/:docId/download', requirePermission('kgb.view'), asyn
   const doc = await prisma.kgbDocument.findFirst({
     where: { id: req.params.docId, kgbRequestId: req.params.id },
   });
-  if (!doc || !fs.existsSync(doc.storedPath)) return fail(res, 404, 'Dokumen tidak ditemukan');
-  return res.download(doc.storedPath, doc.originalName);
+  if (!doc) return fail(res, 404, 'Dokumen tidak ditemukan');
+  if (!(await sendStoredFile(res, doc.storedPath, doc.originalName, doc.mimeType))) return fail(res, 404, 'Dokumen tidak ditemukan');
+  return;
 });
 
 // POST /kgb-requests/:id/:action
@@ -639,7 +656,7 @@ router.delete('/:id', requirePermission('kgb.view'), async (req, res) => {
     await tx.kgbRequest.delete({ where: { id: r.id } });
   });
   for (const d of r.documents) {
-    try { fs.rmSync(d.storedPath, { force: true }); } catch { /* best-effort */ }
+    await deleteStoredFile(d.storedPath).catch(() => undefined);
   }
   return ok(res, null, 'Draf dihapus');
 });

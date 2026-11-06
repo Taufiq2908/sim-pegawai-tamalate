@@ -8,6 +8,7 @@
 ```
 > Error: `{ "success": false, "message": "...", "errors": { "field": ["msg"] } }` dengan status 400/401/403/404/409/422/500.
 > Waktu: ISO8601 UTC. File upload: `multipart/form-data`, max 5MB, pdf/jpg/jpeg/png.
+> File disimpan server-side di Supabase Storage private (`simpeg_files`); download tetap lewat endpoint API, frontend tidak perlu mengakses bucket langsung. Detail: `docs/15-storage-supabase.md`.
 
 ## 1. Auth
 
@@ -253,18 +254,24 @@ tidak hadir (IZIN/SAKIT/DL memaafkan kedua sesi; ALPA/tanpa catatan = 2 sesi).
 ### POST /attendances/warning-letters/generate {weekStart}
 Perm: `attendance.manage`. Terbitkan surat teguran per pegawai bermasalah (idempoten per pekan).
 Isi: Nama, NIP, Jabatan/Unit, periode, total sesi TK + rincian harian.
-Otomatis notifikasi Sekcam + pemegang `attendance.summary` (tipe `ATTENDANCE`).
+Saat surat baru dibuat: notifikasi pegawai penerima, Sekcam, dan pemegang `attendance.summary` (tipe `ATTENDANCE`).
 
 ### POST /attendances/warning-letters/:id/summon → notifikasi pegawai yang dipanggil.
 ### POST /attendances/warning-letters/:id/forward {note?}
 Perm: `attendance.forward` + position SEKCAM. Eskalasi Sekcam → Camat (notifikasi Camat).
 ### POST /attendances/warning-letters/:id/instruct {instruction}
 Perm: `attendance.forward` + position CAMAT. "Tindak Lanjuti" (notifikasi pelaksana).
+### PATCH /attendances/warning-letters/:id/coaching {result, followUp, note?}
+Perm: `attendance.manage`. Catat hasil pembinaan; notifikasi laporan hasil ke Sekcam + Camat.
 ### GET /attendances/warning-letters/:id/print
 Payload cetak/laporan BKPSDM: pegawai lengkap, summon, coaching, eskalasi,
-pejabat (Camat/Sekcam/Kasubag), `statusPembinaan` (Menunggu/Diproses/Selesai).
+pejabat (Camat/Sekcam/Kasubag), `statusPembinaan` (Menunggu/Diproses/Selesai),
+dan `workflowStatus` (DILAPORKAN/DIPANGGIL/MENUNGGU_TINDAK_LANJUT/PEMBINAAN/SELESAI/DITERUSKAN_BKPSDM).
 
 ### GET /attendances/warning-letters (+ /:id)
+Pemegang `attendance.summary`/`attendance.manage`/`attendance.forward` melihat semua;
+pegawai hanya melihat surat teguran miliknya sendiri (difilter berdasarkan `employeeId`).
+Respons daftar/detail menyertakan `workflowStatus` yang sama dengan payload cetak.
 
 ## 5. Surat Masuk & Disposisi
 
@@ -301,6 +308,7 @@ GET  /letters/agenda/tomorrow             → bentuk sama, untuk agenda esok har
 
 Status surat masuk:
 `DRAFT_TU|REVIEW_SEKCAM|DISPOSISI_CAMAT|DITERUSKAN|PROSES|MENUNGGU_ARSIP|DIARSIPKAN`.
+Status lama `RECEIVED` dimigrasikan ke `REVIEW_SEKCAM` agar tetap terlihat oleh Sekcam.
 Status surat keluar: `RESERVED|TERKIRIM|DIARSIPKAN|CANCELLED`.
 Status disposisi: `PENDING|ACCEPTED|DONE`.
 

@@ -5,6 +5,7 @@ import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
+import { deleteStoredFile, sendStoredFile, storeUploadedFile } from '../lib/storage';
 import { authRequired, requirePermission } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
 import { can, usersForPermission } from '../lib/permissions';
@@ -891,7 +892,7 @@ router.delete('/:id/items/:itemId', requirePermission('pension.create'), async (
   const docs = await prisma.pensionDocument.findMany({ where: { itemId: item.id } });
   await prisma.pensionItem.delete({ where: { id: item.id } });
   for (const d of docs) {
-    try { fs.rmSync(d.storedPath, { force: true }); } catch { /* best-effort */ }
+    await deleteStoredFile(d.storedPath).catch(() => undefined);
   }
   const full = await prisma.pensionBatch.findUnique({ where: { id: batch.id }, include: includeDetail() });
   return ok(res, await toDetail(full, req.user!), 'PNS dihapus dari daftar nominatif');
@@ -924,9 +925,7 @@ router.post('/:id/items/:itemId/documents', requirePermission('pension.document.
         cleanupNew();
         return fail(res, 422, `docType tidak dikenal. Gunakan: ${PENSION_DOC_TYPES.join(', ')}`);
       }
-      const ext = path.extname(file.originalname);
-      const storedPath = file.path + ext;
-      fs.renameSync(file.path, storedPath);
+      const storedPath = await storeUploadedFile(file, `pension/${batch.id}/items/${item.id}`);
       const oldDocs = await prisma.pensionDocument.findMany({ where: { itemId: item.id, docType } });
       let doc;
       try {
@@ -942,13 +941,13 @@ router.post('/:id/items/:itemId/documents', requirePermission('pension.document.
           },
         });
       } catch (e) {
-        fs.rmSync(storedPath, { force: true });
+        await deleteStoredFile(storedPath).catch(() => undefined);
         throw e;
       }
       if (oldDocs.length) {
         await prisma.pensionDocument.deleteMany({ where: { id: { in: oldDocs.map((d) => d.id) } } });
         for (const d of oldDocs) {
-          try { fs.rmSync(d.storedPath, { force: true }); } catch { /* best-effort */ }
+          await deleteStoredFile(d.storedPath).catch(() => undefined);
         }
       }
       return res.status(201).json({
@@ -978,8 +977,8 @@ router.get('/:id/items/:itemId/documents/:docId/download', requirePermission('pe
   if (!doc) return fail(res, 404, 'Dokumen tidak ditemukan');
   const scope = employeeScope(req);
   if (scope && doc.item.employeeId !== scope) return fail(res, 403, 'Bukan dokumen usulan Anda');
-  if (!fs.existsSync(doc.storedPath)) return fail(res, 404, 'File dokumen tidak ditemukan');
-  return res.download(doc.storedPath, doc.originalName);
+  if (!(await sendStoredFile(res, doc.storedPath, doc.originalName, doc.mimeType))) return fail(res, 404, 'File dokumen tidak ditemukan');
+  return;
 });
 
 // DELETE /pension-requests/:id/items/:itemId/documents/:docId
@@ -994,7 +993,7 @@ router.delete('/:id/items/:itemId/documents/:docId', requirePermission('pension.
   });
   if (!doc) return fail(res, 404, 'Dokumen tidak ditemukan');
   await prisma.pensionDocument.delete({ where: { id: doc.id } });
-  try { fs.rmSync(doc.storedPath, { force: true }); } catch { /* best-effort */ }
+  await deleteStoredFile(doc.storedPath).catch(() => undefined);
   return ok(res, null, 'Dokumen dihapus');
 });
 
@@ -1230,7 +1229,7 @@ router.delete('/:id', requirePermission('pension.create'), async (req, res) => {
   const docs = batch.items.flatMap((i) => i.documents);
   await prisma.pensionBatch.delete({ where: { id: batch.id } });
   for (const d of docs) {
-    try { fs.rmSync(d.storedPath, { force: true }); } catch { /* best-effort */ }
+    await deleteStoredFile(d.storedPath).catch(() => undefined);
   }
   return ok(res, null, 'Draf usulan pensiun dihapus');
 });

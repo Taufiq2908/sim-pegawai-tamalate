@@ -7,6 +7,10 @@ export const env = {
   refreshExpires: process.env.JWT_REFRESH_EXPIRES ?? '7d',
   uploadDir: process.env.UPLOAD_DIR ?? './uploads',
   maxFileBytes: Number(process.env.MAX_FILE_BYTES ?? 5_000_000),
+  storageDriver: process.env.STORAGE_DRIVER ?? (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY ? 'supabase' : 'local'),
+  supabaseUrl: (process.env.SUPABASE_URL ?? '').replace(/\/+$/, ''),
+  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
+  supabaseBucket: process.env.SUPABASE_STORAGE_BUCKET ?? 'simpeg_files',
   apelDeadline: process.env.APEL_DEADLINE_TIME ?? '08:00', // WITA (Asia/Makassar)
   checkoutWeekday: process.env.CHECKOUT_TIME_WEEKDAY ?? '16:00', // Sen-Kam WITA
   checkoutFriday: process.env.CHECKOUT_TIME_FRIDAY ?? '16:30', // Jumat WITA

@@ -5,6 +5,7 @@ import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
+import { deleteStoredFile, sendStoredFile, storeUploadedFile } from '../lib/storage';
 import { authRequired, requirePermission } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
 import { todayYMD, parseYMD } from '../services/attendance.service';
@@ -521,19 +522,22 @@ router.post('/', requirePermission('letter.create'), (req, res) => {
 
     const f = uploaded;
     if (f) {
-      const ext = path.extname(f.originalname);
-      const storedPath = f.path + ext;
-      fs.renameSync(f.path, storedPath);
-      await prisma.letterDocument.create({
-        data: {
-          letterId: letter.id,
-          originalName: f.originalname,
-          storedPath,
-          mimeType: f.mimetype,
-          sizeBytes: f.size,
-          uploadedBy: req.user!.id,
-        },
-      });
+      const storedPath = await storeUploadedFile(f, `letters/incoming/${letter.id}`);
+      try {
+        await prisma.letterDocument.create({
+          data: {
+            letterId: letter.id,
+            originalName: f.originalname,
+            storedPath,
+            mimeType: f.mimetype,
+            sizeBytes: f.size,
+            uploadedBy: req.user!.id,
+          },
+        });
+      } catch (e) {
+        await deleteStoredFile(storedPath).catch(() => undefined);
+        throw e;
+      }
     }
     if (b.submit) {
       await notifyPositions(['SEKCAM'], {
@@ -596,7 +600,7 @@ router.get('/', requirePermission('letter.view'), async (req, res) => {
     where.status = status;
   }
   if (q) {
-    where.OR = [
+    const searchOr = [
       { subject: { contains: String(q), mode: 'insensitive' } },
       { sender: { contains: String(q), mode: 'insensitive' } },
       { letterNumber: { contains: String(q), mode: 'insensitive' } },
@@ -604,6 +608,14 @@ router.get('/', requirePermission('letter.view'), async (req, res) => {
       { pic: { contains: String(q), mode: 'insensitive' } },
       { remarks: { contains: String(q), mode: 'insensitive' } },
     ];
+    // Jangan menimpa OR milik scope akses surat. Gabungkan dengan AND agar
+    // pencarian tidak membuka surat di luar kewenangan pengguna.
+    if (where.OR) {
+      where.AND = [{ OR: where.OR }, { OR: searchOr }];
+      delete where.OR;
+    } else {
+      where.OR = searchOr;
+    }
   }
   const p = Math.max(1, Number(page) || 1);
   const l = Math.min(100, Number(limit) || 10);
@@ -1264,16 +1276,26 @@ router.post('/:id/documents', requirePermission('letter.document.upload'), (req,
     if (err) return fail(res, 400, err.message);
     const f = (req as any).file;
     if (!f) return fail(res, 422, 'file wajib (pdf/jpg/png, max 10MB)');
+    const cleanupTemp = () => { try { fs.rmSync(f.path, { force: true }); } catch { /* best-effort */ } };
     const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id } });
-    if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-    if (l.status !== 'DRAFT_TU') return fail(res, 409, `Upload hanya saat DRAFT_TU (saat ini ${l.status})`);
-    const ext = path.extname(f.originalname);
-    const storedPath = f.path + ext;
-    fs.renameSync(f.path, storedPath);
-    const doc = await prisma.letterDocument.create({
-      data: { letterId: l.id, originalName: f.originalname, storedPath, mimeType: f.mimetype, sizeBytes: f.size, uploadedBy: req.user!.id },
-    });
-    return res.status(201).json({ success: true, message: 'Dokumen ditambahkan', data: publicDocument(doc, l.id), meta: null, errors: null });
+    if (!l) {
+      cleanupTemp();
+      return fail(res, 404, 'Surat tidak ditemukan');
+    }
+    if (l.status !== 'DRAFT_TU') {
+      cleanupTemp();
+      return fail(res, 409, `Upload hanya saat DRAFT_TU (saat ini ${l.status})`);
+    }
+    const storedPath = await storeUploadedFile(f, `letters/incoming/${l.id}`);
+    try {
+      const doc = await prisma.letterDocument.create({
+        data: { letterId: l.id, originalName: f.originalname, storedPath, mimeType: f.mimetype, sizeBytes: f.size, uploadedBy: req.user!.id },
+      });
+      return res.status(201).json({ success: true, message: 'Dokumen ditambahkan', data: publicDocument(doc, l.id), meta: null, errors: null });
+    } catch (e) {
+      await deleteStoredFile(storedPath).catch(() => undefined);
+      throw e;
+    }
   });
 });
 
@@ -1290,8 +1312,9 @@ router.get('/:id/documents/:docId/download', requirePermission('letter.view'), a
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
   if (!canViewLetter(req.user, l)) return fail(res, 403, 'Surat ini bukan untukmu');
   const doc = l.documents[0];
-  if (!doc || !fs.existsSync(doc.storedPath)) return fail(res, 404, 'Dokumen tidak ditemukan');
-  return res.download(doc.storedPath, doc.originalName);
+  if (!doc) return fail(res, 404, 'Dokumen tidak ditemukan');
+  if (!(await sendStoredFile(res, doc.storedPath, doc.originalName, doc.mimeType))) return fail(res, 404, 'Dokumen tidak ditemukan');
+  return;
 });
 
 // ---------- POST /letters/:id/dispose ----------

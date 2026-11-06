@@ -5,6 +5,7 @@ import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
+import { deleteStoredFile, sendStoredFile, storeUploadedFile } from '../lib/storage';
 import { authRequired, requirePermission } from '../middleware/auth';
 import { availableActions, calcDays, NEXT_PERMISSION, TRANSITIONS } from '../services/leave.service';
 import { ok, fail } from '../utils/response';
@@ -308,21 +309,24 @@ router.post('/:id/documents', requirePermission('leave.document.upload'), (req, 
       cleanupTemp();
       return fail(res, 409, 'Upload hanya saat DRAFT/REVISION');
     }
-    const ext = path.extname(file.originalname);
-    const storedPath = file.path + ext;
-    fs.renameSync(file.path, storedPath);
-    const doc = await prisma.leaveDocument.create({
-      data: {
-        leaveRequestId: r.id,
-        docType: String(docType),
-        originalName: file.originalname,
-        storedPath,
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
-        uploadedBy: req.user!.id,
-      },
-    });
-    return res.status(201).json({ success: true, message: 'Dokumen diupload', data: doc, meta: null, errors: null });
+    const storedPath = await storeUploadedFile(file, `leave/${r.id}`);
+    try {
+      const doc = await prisma.leaveDocument.create({
+        data: {
+          leaveRequestId: r.id,
+          docType: String(docType),
+          originalName: file.originalname,
+          storedPath,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+          uploadedBy: req.user!.id,
+        },
+      });
+      return res.status(201).json({ success: true, message: 'Dokumen diupload', data: doc, meta: null, errors: null });
+    } catch (e) {
+      await deleteStoredFile(storedPath).catch(() => undefined);
+      throw e;
+    }
   });
 });
 
@@ -331,8 +335,9 @@ router.get('/:id/documents/:docId/download', requirePermission('leave.view'), as
   const doc = await prisma.leaveDocument.findFirst({
     where: { id: req.params.docId, leaveRequestId: req.params.id },
   });
-  if (!doc || !fs.existsSync(doc.storedPath)) return fail(res, 404, 'Dokumen tidak ditemukan');
-  return res.download(doc.storedPath, doc.originalName);
+  if (!doc) return fail(res, 404, 'Dokumen tidak ditemukan');
+  if (!(await sendStoredFile(res, doc.storedPath, doc.originalName, doc.mimeType))) return fail(res, 404, 'Dokumen tidak ditemukan');
+  return;
 });
 
 // POST /leave-requests/:id/answer-letter (B1: surat jawaban BKPSDM)
@@ -344,29 +349,40 @@ router.post('/:id/answer-letter', requirePermission('leave.document.upload'), (r
     if (err) return fail(res, 400, err.message);
     const file = (req as any).file;
     if (!file) return fail(res, 422, 'file wajib (pdf/jpg/png, max 5MB)');
+    const cleanupTemp = () => {
+      try { fs.rmSync(file.path, { force: true }); } catch { /* best-effort */ }
+    };
     const r = await prisma.leaveRequest.findUnique({ where: { id: req.params.id } });
-    if (!r) return fail(res, 404, 'Tidak ditemukan');
+    if (!r) {
+      cleanupTemp();
+      return fail(res, 404, 'Tidak ditemukan');
+    }
     if (!['APPROVED', 'REGISTERED', 'SUBMITTED_BKPSDMD'].includes(r.status)) {
+      cleanupTemp();
       return fail(res, 409, `Surat jawaban hanya dicatat saat APPROVED/REGISTERED/SUBMITTED_BKPSDMD (saat ini ${r.status})`);
     }
     if (req.user!.employeeId && r.employeeId === req.user!.employeeId && req.user!.role === 'EMPLOYEE') {
+      cleanupTemp();
       return fail(res, 403, 'Surat jawaban diunggah pelaksana, bukan pemohon');
     }
-    const ext = path.extname(file.originalname);
-    const storedPath = file.path + ext;
-    fs.renameSync(file.path, storedPath);
-    const doc = await prisma.leaveDocument.create({
-      data: {
-        leaveRequestId: r.id,
-        docType: 'SURAT_JAWABAN_BKPSDM',
-        originalName: file.originalname,
-        storedPath,
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
-        uploadedBy: req.user!.id,
-      },
-    });
-    return res.status(201).json({ success: true, message: 'Surat jawaban BKPSDM dicatat', data: doc, meta: null, errors: null });
+    const storedPath = await storeUploadedFile(file, `leave/${r.id}`);
+    try {
+      const doc = await prisma.leaveDocument.create({
+        data: {
+          leaveRequestId: r.id,
+          docType: 'SURAT_JAWABAN_BKPSDM',
+          originalName: file.originalname,
+          storedPath,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+          uploadedBy: req.user!.id,
+        },
+      });
+      return res.status(201).json({ success: true, message: 'Surat jawaban BKPSDM dicatat', data: doc, meta: null, errors: null });
+    } catch (e) {
+      await deleteStoredFile(storedPath).catch(() => undefined);
+      throw e;
+    }
   });
 });
 
@@ -580,7 +596,7 @@ router.delete('/:id', requirePermission('leave.view'), async (req, res) => {
     await tx.leaveRequest.delete({ where: { id: r.id } });
   });
   for (const d of r.documents) {
-    try { fs.rmSync(d.storedPath, { force: true }); } catch { /* best-effort */ }
+    await deleteStoredFile(d.storedPath).catch(() => undefined);
   }
   return ok(res, null, 'Draf dihapus');
 });
