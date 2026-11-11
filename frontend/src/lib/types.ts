@@ -222,6 +222,7 @@ export interface WarningLetterDetail {
   instructedAt?: string | null;
   instruction?: string | null;
   createdAt: string;
+  workflowStatus?: string;
   employee?: { name: string; position: string; nip: string | null };
 }
 

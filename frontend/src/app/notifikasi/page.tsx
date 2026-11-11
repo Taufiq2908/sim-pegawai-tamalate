@@ -14,7 +14,7 @@ const LIMIT = 50;
 
 function notificationLink(
   n: NotificationItem,
-  opts: { isEmployee: boolean; canOpenTeguran: boolean },
+  opts: { isEmployee: boolean },
 ): { href: string; label: string } | null {
   if (n.referenceType === "incoming_letter" && n.referenceId) {
     return { href: `/surat-masuk/${n.referenceId}`, label: "Buka surat masuk" };
@@ -41,16 +41,18 @@ function notificationLink(
     return { href: `/arsip/daftar/${n.referenceId}`, label: "Buka daftar arsip" };
   }
   if (n.referenceType === "warning_letter" && n.referenceId) {
-    // Endpoint surat teguran saat ini mensyaratkan attendance.summary.
-    // Untuk pegawai penerima, backend belum menyediakan akses baca milik sendiri.
-    return opts.canOpenTeguran
-      ? { href: `/presensi/teguran/${n.referenceId}`, label: "Buka surat teguran" }
-      : null;
+    // Backend membatasi data: pegawai hanya dapat membuka surat miliknya sendiri.
+    return { href: `/presensi/teguran/${n.referenceId}`, label: "Buka surat teguran" };
   }
   return null;
 }
 
 function notificationBadge(n: NotificationItem): { label: string; className: string } | null {
+  if (n.referenceType === "warning_letter") {
+    return n.title.toLowerCase().includes("pembinaan")
+      ? { label: "Pembinaan", className: "bg-info-100 text-info-700" }
+      : { label: "Surat Teguran", className: "bg-warn-100 text-warn-700" };
+  }
   if (n.referenceType === "kgb_reminder") {
     return { label: "Pengingat KGB", className: "bg-warn-100 text-warn-700" };
   }
@@ -85,8 +87,7 @@ function notificationBadge(n: NotificationItem): { label: string; className: str
 }
 
 export default function NotifikasiPage() {
-  const { user, hasPermission } = useAuth();
-  const canOpenTeguran = hasPermission("attendance.summary");
+  const { user } = useAuth();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [meta, setMeta] = useState<PageMeta | null>(null);
   const [page, setPage] = useState(1);
@@ -217,7 +218,6 @@ export default function NotifikasiPage() {
               {items.map((n) => {
                 const link = notificationLink(n, {
                   isEmployee: user?.role === "EMPLOYEE",
-                  canOpenTeguran,
                 });
                 const badge = notificationBadge(n);
                 return (
@@ -251,11 +251,6 @@ export default function NotifikasiPage() {
                         >
                           {link.label}
                         </Link>
-                      ) : null}
-                      {!link && n.referenceType === "warning_letter" ? (
-                        <p className="text-xs text-muted">
-                          Surat teguran lengkap hanya dapat dibuka oleh petugas. Hubungi Kasubag Umum &amp; Kepegawaian untuk salinan.
-                        </p>
                       ) : null}
                       {!n.isRead ? (
                         <button

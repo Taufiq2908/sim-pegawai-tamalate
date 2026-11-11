@@ -4,40 +4,49 @@ Tanggal: 2026-11-06
 Konteks: perbaikan frontend sudah dikerjakan. Dokumen ini merangkum hal yang
 masih perlu ditindaklanjuti di backend. Tidak ada kode backend yang diubah.
 
+> **Status setelah pembaruan backend 6 November 2026**
+>
+> - `AGENDA-2026-0042` sudah dimigrasikan ke `REVIEW_SEKCAM` dan muncul di daftar
+>   Sekcam. Migration: `20261106000000_normalize_letter_received_status`.
+> - Pegawai sekarang dapat membaca surat teguran miliknya sendiri. Endpoint
+>   `GET /attendances/warning-letters`, detail, dan `/print` memakai ownership
+>   check; pegawai lain tetap mendapat `403`.
+> - Notifikasi surat teguran dibuat saat surat baru diterbitkan, dan laporan hasil
+>   pembinaan dikirim ke Sekcam/Camat. Respons surat teguran kini menyertakan
+>   `workflowStatus`.
+> - Pencarian surat masuk tidak lagi menimpa scope akses (`OR` digabung dengan
+>   `AND`).
+> - Masih terbuka: urutan `forward → instruct → summon` belum ditegakkan backend,
+>   permission `paraf`/`approve` LEADER masih tumpang tindih, dan tanda tangan
+>   cuti/KGB masih demo.
+>
+> Frontend sudah disesuaikan: halaman teguran memakai `RequireAuth`, tombol aksi
+> tetap berbasis permission, pegawai melihat **Surat Teguran Saya**, dan badge
+> notifikasi membedakan **Surat Teguran**/ **Pembinaan**.
+
 ## 1. Surat masuk — surat terbaru tidak tampil di halaman Sekcam
 
-### Temuan
+**Status: selesai.**
 
-Data terbaru di database:
+Data terbaru setelah migrasi:
 
-- `AGENDA-2026-0042` — status `RECEIVED`, `submittedAt` kosong,
-  dibuat `2026-11-05T13:04:24Z` oleh `verifier1`.
-- `AGENDA-2026-0041` — status `REVIEW_SEKCAM`, `submittedAt` juga kosong.
+- `AGENDA-2026-0042` — status `REVIEW_SEKCAM`, `submittedAt`
+  `2026-11-05T13:04:24Z`, dibuat oleh `verifier1`.
+- `AGENDA-2026-0041` — status `REVIEW_SEKCAM`.
 
-`GET /letters` untuk Sekcam memakai `scopeWhere()` di
-`backend/src/routes/letter.routes.ts:162-173`. Sekcam hanya melihat status
-`REVIEW_SEKCAM` dan `MENUNGGU_ARSIP` (selain surat yang melibatkan dirinya).
-Status `RECEIVED` bukan status workflow saat ini, sehingga surat tersebut tidak
-pernah masuk daftar Sekcam.
+Penyebab awal: `AGENDA-2026-0042` masih berstatus lama `RECEIVED`, yang tidak
+dikenali `scopeWhere()` untuk Sekcam. Migration
+`20261106000000_normalize_letter_received_status/migration.sql` memetakan
+`RECEIVED -> REVIEW_SEKCAM` dan mengisi `submittedAt` bila kosong.
 
-`RECEIVED` juga bukan nilai baru yang dihasilkan route create saat ini
-(`POST /letters` menulis `DRAFT_TU` atau `REVIEW_SEKCAM` di
-`backend/src/routes/letter.routes.ts:514`). Migrasi
-`20261105010000_surat_workflow_revision/migration.sql:23` sudah memetakan
-`RECEIVED -> REVIEW_SEKCAM`, tetapi baris baru di atas tetap berstatus
-`RECEIVED`.
+Verifikasi: login `sekcam1`, buka **Surat Masuk → Menunggu Sekcam**;
+`AGENDA-2026-0041` dan `AGENDA-2026-0042` tampil.
 
-### Yang perlu dilakukan backend
+Sisa saran untuk produksi:
 
-1. Audit data `surat_masuk.status` yang berada di luar enum workflow
-   (`RECEIVED`, `PARAF`, `DISPOSED`, `COMPLETED`, `ARCHIVED`).
-2. Perbaiki/ulangi migrasi data untuk baris yang masih `RECEIVED`
-   (`AGENDA-2026-0042`). Putuskan apakah baris tersebut memang sudah dikirim
-   (menjadi `REVIEW_SEKCAM`) atau masih draft (`DRAFT_TU`).
-3. Pastikan proses/instance backend yang dipakai QA benar-benar memakai kode
-   terbaru. Nilai `RECEIVED` tidak mungkin dihasilkan route create saat ini.
-4. Pertimbangkan menambahkan validasi enum status di level database atau
-   constraint agar status lama tidak muncul lagi.
+1. Audit berkala `surat_masuk.status` agar nilai lama tidak muncul lagi.
+2. Pertimbangkan constraint/enum status di level database.
+3. Pastikan proses backend yang dipakai QA memakai kode terbaru.
 
 Catatan: frontend sudah menambahkan auto-refresh/fokus dan tombol **Muat
 ulang** pada daftar surat masuk, serta penjelasan bahwa surat baru terlihat
@@ -47,28 +56,27 @@ setelah TU mengirimkannya.
 
 ### 2a. Pegawai penerima tidak bisa membuka surat teguran
 
-Endpoint berikut mensyaratkan `attendance.summary`:
+**Status: selesai.**
 
-- `GET /attendances/warning-letters/:id`
-  (`backend/src/routes/attendance.routes.ts:600-608`)
-- `GET /attendances/warning-letters/:id/print`
-  (`backend/src/routes/attendance.routes.ts:561-598`)
+Endpoint berikut sekarang memakai ownership check, bukan hanya
+`attendance.summary`:
 
-Pegawai (`EMPLOYEE`) hanya punya `attendance.view` dan `attendance.checkin`
-(`backend/prisma/seed.ts`), sehingga notifikasi `warning_letter` miliknya
-mengarah ke halaman yang selalu `403`.
+- `GET /attendances/warning-letters` — pegawai hanya menerima surat miliknya.
+- `GET /attendances/warning-letters/:id` — pemilik boleh membuka, pegawai lain
+  mendapat `403`.
+- `GET /attendances/warning-letters/:id/print` — aturan yang sama.
 
-**Perlu backend:** izinkan pemilik surat membaca suratnya, misalnya:
+Pegawai (`EMPLOYEE`) tidak perlu permission khusus untuk membuka suratnya
+sendiri. Frontend sudah membuka halaman **Surat Teguran Saya** dan menampilkan
+tombol **Buka surat teguran** pada notifikasi.
 
-```text
-GET /attendances/warning-letters/:id
-  boleh jika user.role === 'SUPER_ADMIN'
-  atau user.permissions includes 'attendance.summary'
-  atau warningLetter.employeeId === req.user.employeeId
-```
+Verifikasi:
 
-Endpoint print dapat memakai aturan ownership yang sama. Alternatif lain:
-sertakan isi surat lengkap di body notifikasi khusus pemilik.
+1. Login `pegawai1`, buka **Presensi → Surat teguran saya**; surat milik Ahmad
+   tampil.
+2. Login `pegawai2`, buka surat milik Ahmad lewat URL detail; backend
+   mengembalikan **“Bukan surat teguran milik Anda”**.
+
 
 ### 2b. Alur “lapor ke Sekcam” dan pembinaan
 
@@ -162,8 +170,8 @@ Frontend sekarang:
 
 | Prioritas | Item | Dampak |
 |---|---|---|
-| P0 | Perbaiki data/status `RECEIVED` dan pastikan create surat memakai kode terbaru | Surat terbaru tidak terlihat Sekcam |
-| P0 | Izinkan pegawai membuka surat teguran miliknya | Notifikasi teguran selalu 403 |
+| ~~P0~~ | ~~Perbaiki data/status `RECEIVED` dan pastikan create surat memakai kode terbaru~~ | **Selesai** — migrasi `20261106000000_normalize_letter_received_status` |
+| ~~P0~~ | ~~Izinkan pegawai membuka surat teguran miliknya~~ | **Selesai** — ownership check pada list/detail/print |
 | P1 | Tegakkan urutan `forward`/`instruct` sebelum `summon` | Kasubag bisa skip ke pembinaan |
 | P1 | Batasi `paraf`/`approve` cuti dan KGB berdasarkan jabatan | Aktor salah bisa memproses |
 | P1 | Simpan tanda tangan KGB | Persetujuan Kasubag/Camat belum punya TTD |

@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { RequirePerm } from "@/components/shell";
+import { RequireAuth } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import type { WarningLetterDetail } from "@/lib/types";
@@ -15,6 +15,7 @@ export default function TeguranDetailPage() {
   const { user, hasPermission } = useAuth();
   const canManage = hasPermission("attendance.manage");
   const canForward = hasPermission("attendance.forward");
+  const isEmployee = user?.role === "EMPLOYEE";
   const isSekcam = user?.role === "SUPER_ADMIN" || user?.position === "SEKCAM";
   const isCamat = user?.role === "SUPER_ADMIN" || user?.position === "CAMAT";
   const [item, setItem] = useState<WarningLetterDetail | null>(null);
@@ -122,7 +123,7 @@ export default function TeguranDetailPage() {
   }
 
   return (
-    <RequirePerm perm="attendance.summary" label="Surat Teguran">
+    <RequireAuth>
       <button onClick={() => router.back()} className="text-sm font-semibold text-muted hover:text-slate-900">
         ← Kembali
       </button>
@@ -138,7 +139,7 @@ export default function TeguranDetailPage() {
             <div className="rounded-lg border border-line bg-surface p-5">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-bold">{item.letterNumber}</h1>
-                {item.coachingFollowUp ? <StatusBadge status={item.coachingFollowUp} /> : null}
+                <StatusBadge status={item.workflowStatus ?? "DILAPORKAN"} />
                 <button onClick={() => window.print()} className="no-print ml-auto rounded-lg border border-line px-3 py-1.5 text-sm font-semibold hover:bg-paper">
                   Cetak
                 </button>
@@ -147,8 +148,14 @@ export default function TeguranDetailPage() {
                 {item.employee?.name} ({item.employee?.position}) • Pekan {String(item.weekStart).slice(0, 10)} s.d. {String(item.weekEnd).slice(0, 10)} • {item.absenceCount} TK
               </p>
               <pre className="mt-4 whitespace-pre-wrap rounded-lg bg-paper p-4 text-sm leading-relaxed">{item.content}</pre>
+              {isEmployee ? (
+                <p className="mt-3 rounded-lg border border-line bg-paper px-3 py-2 text-sm text-muted">
+                  Surat ini tercatat atas nama Anda. Gunakan tombol Cetak untuk menyimpan salinan.
+                </p>
+              ) : null}
             </div>
 
+            {!isEmployee ? (
             <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Eskalasi</h2>
               {item.forwardAt ? (
@@ -191,6 +198,7 @@ export default function TeguranDetailPage() {
                 </div>
               ) : null}
             </div>
+            ) : null}
 
             <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Pembinaan</h2>
@@ -204,12 +212,13 @@ export default function TeguranDetailPage() {
               )}
               {item.coachingResult ? (
                 <p className="mt-1 text-sm text-muted">
-                  Hasil: <b>{item.coachingResult}</b> ({item.coachingFollowUp}
+                  Hasil: <b>{item.coachingResult}</b>{" "}
+                  ({item.coachingFollowUp === "BKPSDM" ? "diteruskan ke BKPSDM" : "selesai internal"}
                   {item.coachedAt ? ` • ${new Date(item.coachedAt).toLocaleString("id-ID")}` : ""})
                 </p>
               ) : null}
 
-              {canManage ? (
+              {canManage && !isEmployee ? (
                 <div className="mt-3 space-y-3 border-t pt-3">
                   {!item.forwardAt || !item.instruction ? (
                     <p className="rounded-lg border border-warn-700/30 bg-warn-100 px-3 py-2 text-sm text-secondary">
@@ -245,6 +254,6 @@ export default function TeguranDetailPage() {
           </div>
         )}
       </div>
-    </RequirePerm>
+    </RequireAuth>
   );
 }
