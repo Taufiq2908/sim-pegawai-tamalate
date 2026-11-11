@@ -3,11 +3,16 @@
 // DRAFT → SUBMITTED → VERIFIED → PARAF → APPROVED → REGISTERED →
 // SUBMITTED_BKPSDMD → COMPLETED → ARCHIVED
 // (+REVISION/REJECTED)
+// `return` adalah tindakan Sekcam/Camat mengembalikan dokumen ke pemohon
+// dengan catatan wajib. `revise` tetap dipakai Kasubag saat SUBMITTED.
+import { hasPosition } from './position.service';
+
 export const TRANSITIONS: Record<string, { from: string[]; to: string; permission: string; holderAfter: string }> = {
   submit:   { from: ['DRAFT', 'REVISION'], to: 'SUBMITTED', permission: 'kgb.submit', holderAfter: 'VERIFIER' },
   verify:   { from: ['SUBMITTED'], to: 'VERIFIED', permission: 'kgb.verify', holderAfter: 'LEADER' },
   revise:   { from: ['SUBMITTED'], to: 'REVISION', permission: 'kgb.verify', holderAfter: 'EMPLOYEE' },
   paraf:    { from: ['VERIFIED'], to: 'PARAF', permission: 'kgb.paraf', holderAfter: 'LEADER' },
+  return:   { from: ['VERIFIED', 'PARAF'], to: 'REVISION', permission: 'kgb.approve', holderAfter: 'EMPLOYEE' },
   approve:  { from: ['PARAF'], to: 'APPROVED', permission: 'kgb.approve', holderAfter: 'LEADER' },
   register: { from: ['APPROVED'], to: 'REGISTERED', permission: 'kgb.register', holderAfter: 'VERIFIER' },
   tobkpsdm: { from: ['REGISTERED'], to: 'SUBMITTED_BKPSDMD', permission: 'kgb.register', holderAfter: 'VERIFIER' },
@@ -18,22 +23,75 @@ export const TRANSITIONS: Record<string, { from: string[]; to: string; permissio
 
 const ACTION_PERM: Record<string, string> = {
   submit: 'kgb.submit', verify: 'kgb.verify', revise: 'kgb.verify',
-  paraf: 'kgb.paraf', approve: 'kgb.approve',
+  paraf: 'kgb.paraf', approve: 'kgb.approve', return: 'kgb.approve',
   register: 'kgb.register', tobkpsdm: 'kgb.register', complete: 'kgb.register',
   archive: 'kgb.register', reject: 'kgb.reject',
 };
 const ACTION_FROM: Record<string, string[]> = {
   submit: ['DRAFT', 'REVISION'], verify: ['SUBMITTED'], revise: ['SUBMITTED'],
-  paraf: ['VERIFIED'], approve: ['PARAF'],
+  paraf: ['VERIFIED'], approve: ['PARAF'], return: ['VERIFIED', 'PARAF'],
   register: ['APPROVED'], tobkpsdm: ['REGISTERED'], complete: ['SUBMITTED_BKPSDMD'],
   archive: ['COMPLETED'], reject: ['SUBMITTED', 'VERIFIED', 'PARAF'],
 };
 
-export function availableActions(status: string, perms: string[]): string[] {
-  if (perms.includes('*')) return Object.keys(ACTION_FROM).filter((a) => ACTION_FROM[a].includes(status));
-  return Object.keys(ACTION_FROM).filter(
-    (a) => ACTION_FROM[a].includes(status) && perms.includes(ACTION_PERM[a]),
-  );
+export interface KgbActorContext {
+  role?: string | null;
+  position?: string | null;
+  /** Hasil pengecekan Plt aktif; route tetap menjadi penentu akhir. */
+  holdsSekcam?: boolean;
+  holdsCamat?: boolean;
+}
+
+export function availableActions(
+  status: string,
+  perms: string[],
+  actor?: KgbActorContext,
+): string[] {
+  const isSuper = perms.includes('*');
+  const actorIs = (position: string) => {
+    if (isSuper) return true;
+    if (position === 'SEKCAM' && actor?.holdsSekcam) return true;
+    if (position === 'CAMAT' && actor?.holdsCamat) return true;
+    return hasPosition(actor?.position, position);
+  };
+  return Object.keys(ACTION_FROM).filter((a) => {
+    if (!ACTION_FROM[a].includes(status)) return false;
+    if (!isSuper && !perms.includes(ACTION_PERM[a])) return false;
+    if (a === 'paraf' && !actorIs('SEKCAM')) return false;
+    if (a === 'approve' && !actorIs('CAMAT')) return false;
+    if (a === 'return' && status === 'VERIFIED' && !actorIs('SEKCAM')) return false;
+    if (a === 'return' && status === 'PARAF' && !actorIs('CAMAT')) return false;
+    if (a === 'reject' && status === 'VERIFIED' && !actorIs('SEKCAM')) return false;
+    if (a === 'reject' && status === 'PARAF' && !actorIs('CAMAT')) return false;
+    return true;
+  });
+}
+
+export function waitingFor(status: string): string {
+  switch (status) {
+    case 'DRAFT':
+    case 'REVISION':
+      return 'Pemohon';
+    case 'SUBMITTED':
+      return 'Kasubag';
+    case 'VERIFIED':
+      return 'Sekcam';
+    case 'PARAF':
+      return 'Camat';
+    case 'APPROVED':
+      return 'Registrasi kecamatan';
+    case 'REGISTERED':
+      return 'Penerusan ke BKPSDM';
+    case 'SUBMITTED_BKPSDMD':
+      return 'Hasil BKPSDM';
+    case 'COMPLETED':
+      return 'Arsip';
+    case 'ARCHIVED':
+    case 'REJECTED':
+      return '-';
+    default:
+      return status;
+  }
 }
 
 export function calcDays(start: Date, end: Date) {

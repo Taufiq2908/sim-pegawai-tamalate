@@ -128,7 +128,7 @@ persetujuan ke blok surat (VII atasan, VIII camat). Syarat backend:
   sebelum `VERIFIED`, kecuali pemohon Camat/Sekcam/Lurah/kelurahan (tercatat).
 - B5: `postpone` → POSTPONED (note wajib), ajukan ulang via `submit`.
 - B6: `GET /employees/:id/leave-history` + `/leave-balance` (aturan saldo v1
-  di kontrak `02` §3a).
+  di kontrak `02` §3b).
 - B7: `BESAR` + `DILUAR_TANGGUNGAN` di-seed (kode lama `LUAR_TANGGUNGAN` dikoreksi).
 - B8: notifikasi tipe `LEAVE` tiap transisi (pemegang tahap berikut + pemohon).
 - B10: role `SUPERVISOR` baru; Kasubag = `SUPERVISOR` + GRANT; akun `kasi1`

@@ -5,12 +5,14 @@ import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
-import { deleteStoredFile, sendStoredFile, storeUploadedFile } from '../lib/storage';
+import { deleteStoredFile, hashFileAtPath, sendStoredFile, storeUploadedFile } from '../lib/storage';
 import { authRequired, requirePermission } from '../middleware/auth';
-import { availableActions, calcDays, NEXT_PERMISSION, TRANSITIONS } from '../services/leave.service';
+import { availableActions, calcDays, NEXT_PERMISSION, NEXT_POSITION, TRANSITIONS, waitingFor } from '../services/leave.service';
 import { ok, fail } from '../utils/response';
 import { canAny, usersForPermission } from '../lib/permissions';
 import { resolveSupervisor, skipsReviewer } from '../services/supervisor.service';
+import { effectivePosition, hasPosition, normalizePosition, positionLabel, primaryUserForPosition, userIdsForPosition, userHoldsPosition } from '../services/position.service';
+import { hashDocument, leaveDocumentPayload, listParafHistory, publicParafHistory, recordParaf } from '../services/paraf.service';
 
 const router = Router();
 router.use(authRequired);
@@ -25,30 +27,58 @@ const upload = multer({
   },
 });
 
-async function toDetail(r: any, perms: string[], viewerEmployeeId?: string | null) {
+async function toDetail(
+  r: any,
+  user: { id: string; permissions: string[]; employeeId: string | null; position: string | null; role: string },
+) {
   const supervisor = r.employee
     ? await resolveSupervisor({ position: r.employee.position, orgUnit: r.employee.orgUnit ?? null })
     : null;
-  const camat = await prisma.user.findFirst({
-    where: { position: 'CAMAT', isActive: true },
-    include: { employee: { select: { name: true, nip: true } } },
-  });
+  const [camat, holdsSekcam, holdsCamat, documents, parafHistory] = await Promise.all([
+    primaryUserForPosition('CAMAT'),
+    userHoldsPosition(user.id, 'SEKCAM'),
+    userHoldsPosition(user.id, 'CAMAT'),
+    Promise.resolve(r.documents ?? []),
+    listParafHistory('LEAVE', r.id),
+  ]);
   const applicant = r.employee
     ? { position: r.employee.position ?? null, orgType: r.employee.orgUnit?.type ?? null }
     : null;
+  const camatPosition = camat
+    ? await effectivePosition(camat.id, camat.position, 'CAMAT')
+    : null;
+  const currentDocumentHash = hashDocument(leaveDocumentPayload(r, documents));
   return {
     ...r,
-    availableActions: availableActions(r.status, perms, applicant, {
-      isOwner: r.employeeId === viewerEmployeeId,
+    waitingFor: waitingFor(
+      r.status,
+      r.employee?.position ?? null,
+      r.employee?.orgUnit?.type ?? null,
+    ),
+    documentVersion: r.version ?? 1,
+    currentDocumentHash,
+    availableActions: availableActions(r.status, user.permissions, applicant, {
+      isOwner: r.employeeId === user.employeeId,
+      actorPosition: user.position,
+      actorRole: user.role,
+      holdsSekcam,
+      holdsCamat,
     }),
     supervisor,
-    camat: camat ? { name: camat.employee?.name ?? camat.username, nip: camat.employee?.nip ?? null, position: 'CAMAT' } : null,
-    documents: (r.documents ?? []).map((d: any) => ({
+    camat: camat
+      ? {
+          name: camat.employee?.name ?? camat.username,
+          nip: camat.employee?.nip ?? null,
+          position: positionLabel(camatPosition) ?? 'CAMAT',
+        }
+      : null,
+    documents: documents.map((d: any) => ({
       id: d.id,
       docType: d.docType,
       originalName: d.originalName,
       mimeType: d.mimeType,
       sizeBytes: d.sizeBytes,
+      contentHash: d.contentHash ?? null,
       downloadUrl: `/api/v1/leave-requests/${r.id}/documents/${d.id}/download`,
     })),
     // Persetujuan digital (fase 1, bukan TTE): nama+NIP+jabatan+waktu per aksi.
@@ -64,6 +94,8 @@ async function toDetail(r: any, perms: string[], viewerEmployeeId?: string | nul
       note: a.note,
       createdAt: a.createdAt,
     })),
+    // Jejak paraf append-only: versi + hash dokumen yang diparaf.
+    parafHistory: publicParafHistory(parafHistory),
   };
 }
 
@@ -82,20 +114,39 @@ async function notifyLeaveTransition(opts: {
   requestId: string; requestNumber: string; employeeId: string;
   action: string; fromStatus: string; toStatus: string;
   actorId: string; actorName: string; actorPosition: string | null; note?: string | null;
+  /** true bila pemohon melewati tahap REVIEWED. */
+  skipReview?: boolean;
+  /** Jabatan pemohon, dipakai untuk lompat-paraf khusus pemohon Sekcam. */
+  applicantPosition?: string | null;
 }) {
   try {
     const ids = new Set<string>();
-    const next = NEXT_PERMISSION[opts.action];
-    if (next) {
-      for (const id of await usersForPermission(next)) ids.add(id);
+    const nextPosition = opts.action === 'verify' && hasPosition(opts.applicantPosition, 'SEKCAM')
+      ? 'CAMAT'
+      : NEXT_POSITION[opts.action];
+    if (nextPosition) {
+      // Penerima utama ditentukan jabatan (termasuk Plt), bukan permission
+      // yang bisa dipegang beberapa jabatan sekaligus.
+      for (const id of await userIdsForPosition(nextPosition)) ids.add(id);
+    } else {
+      // Pemohon yang melewati REVIEWED langsung menuju Kasubag.
+      const next = opts.action === 'submit' && opts.skipReview
+        ? 'leave.verify'
+        : NEXT_PERMISSION[opts.action];
+      if (next) {
+        for (const id of await usersForPermission(next)) ids.add(id);
+      }
     }
     const applicantUser = await prisma.user.findFirst({
       where: { employeeId: opts.employeeId, isActive: true },
       select: { id: true },
     });
-    if (applicantUser && applicantUser.id !== opts.actorId) ids.add(applicantUser.id);
+    if (applicantUser) ids.add(applicantUser.id);
     ids.delete(opts.actorId);
-    if (!ids.size) return;
+    if (!ids.size) {
+      console.warn(`notify cuti: tidak ada penerima untuk ${opts.requestNumber} (${opts.action})`);
+      return;
+    }
     const label = ACTION_LABEL_ID[opts.action] ?? opts.action;
     await prisma.notification.createMany({
       data: [...ids].map((userId) => ({
@@ -155,7 +206,82 @@ router.get('/', requirePermission('leave.view'), async (req, res) => {
       take: l,
     }),
   ]);
-  return ok(res, items, 'ok', { page: p, limit: l, total });
+  return ok(
+    res,
+    items.map((item) => ({
+      ...item,
+      waitingFor: waitingFor(
+        item.status,
+        item.employee?.position ?? null,
+        item.employee?.orgUnit?.type ?? null,
+      ),
+    })),
+    'ok',
+    { page: p, limit: l, total },
+  );
+});
+
+// GET /leave-requests/pending-approval — daftar tugas berdasarkan jabatan/permission.
+// Endpoint ini menjadi sumber badge "Menunggu persetujuan saya"; tidak
+// bergantung pada notifikasi yang mungkin gagal terkirim.
+router.get('/pending-approval', requirePermission('leave.view'), async (req, res) => {
+  const user = req.user!;
+  const statuses = new Set<string>();
+  const holdsSekcam = await userHoldsPosition(user.id, 'SEKCAM');
+  const holdsCamat = await userHoldsPosition(user.id, 'CAMAT');
+  if (user.role === 'SUPER_ADMIN') {
+    for (const s of ['SUBMITTED', 'REVIEWED', 'VERIFIED', 'PARAF', 'APPROVED']) statuses.add(s);
+  }
+  if (user.permissions.includes('leave.verify')) {
+    statuses.add('REVIEWED');
+    // SUBMITTED hanya tugas Kasubag bila pemohon melewati REVIEWED.
+    statuses.add('SUBMITTED');
+  }
+  if (canAny(user.permissions, ['leave.paraf']) && holdsSekcam) statuses.add('VERIFIED');
+  if (canAny(user.permissions, ['leave.approve']) && holdsCamat) {
+    statuses.add('PARAF');
+    // Pemohon Sekcam melewati paraf dan sudah menunggu Camat pada VERIFIED.
+    statuses.add('VERIFIED');
+  }
+  if (canAny(user.permissions, ['leave.register'])) statuses.add('APPROVED');
+  if (!statuses.size) return ok(res, [], 'ok', { total: 0, count: 0 });
+
+  const items = await prisma.leaveRequest.findMany({
+    where: {
+      status: { in: [...statuses] },
+      // Jangan tampilkan pengajuan sendiri sebagai tugas persetujuan sendiri.
+      ...(user.employeeId ? { employeeId: { not: user.employeeId } } : {}),
+    },
+    include: { employee: { include: { orgUnit: true } }, leaveType: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const visible = items.filter((item) => {
+    if (item.status === 'SUBMITTED' && user.role !== 'SUPER_ADMIN') {
+      return skipsReviewer(item.employee?.position ?? null, item.employee?.orgUnit?.type ?? null);
+    }
+    // Camat hanya menangani VERIFIED untuk pemohon Sekcam (lompat-paraf).
+    if (item.status === 'VERIFIED' && holdsCamat && !holdsSekcam) {
+      return hasPosition(item.employee?.position ?? null, 'SEKCAM');
+    }
+    // Sekcam tidak menangani VERIFIED pemohon Sekcam karena paraf dilewati.
+    if (item.status === 'VERIFIED' && holdsSekcam && !holdsCamat) {
+      return !hasPosition(item.employee?.position ?? null, 'SEKCAM');
+    }
+    return true;
+  });
+  return ok(
+    res,
+    visible.map((item) => ({
+      ...item,
+      waitingFor: waitingFor(
+        item.status,
+        item.employee?.position ?? null,
+        item.employee?.orgUnit?.type ?? null,
+      ),
+    })),
+    'ok',
+    { total: visible.length, count: visible.length },
+  );
 });
 
 // GET /leave-requests/:id
@@ -165,7 +291,7 @@ router.get('/:id', requirePermission('leave.view'), async (req, res) => {
   if (req.user!.role === 'EMPLOYEE' && req.user!.employeeId && r.employeeId !== req.user!.employeeId) {
     return fail(res, 403, 'Hanya boleh melihat pengajuan sendiri');
   }
-  return ok(res, await toDetail(r, req.user!.permissions, req.user!.employeeId));
+  return ok(res, await toDetail(r, req.user!));
 });
 
 // POST /leave-requests (DRAFT)
@@ -239,7 +365,7 @@ router.post('/', requirePermission('leave.create'), async (req, res) => {
     return created;
   });
   const full = await prisma.leaveRequest.findUnique({ where: { id: r.id }, include: includeDetail });
-  return res.status(201).json({ success: true, message: 'Draf cuti dibuat', data: await toDetail(full, req.user!.permissions, req.user!.employeeId), meta: null, errors: null });
+  return res.status(201).json({ success: true, message: 'Draf cuti dibuat', data: await toDetail(full, req.user!), meta: null, errors: null });
 });
 
 // PATCH /leave-requests/:id (DRAFT/REVISION, pemilik)
@@ -281,7 +407,7 @@ router.patch('/:id', requirePermission('leave.create'), async (req, res) => {
     },
     include: includeDetail,
   });
-  return ok(res, await toDetail(updated, req.user!.permissions, req.user!.employeeId));
+  return ok(res, await toDetail(updated, req.user!));
 });
 
 // POST /leave-requests/:id/documents
@@ -309,6 +435,13 @@ router.post('/:id/documents', requirePermission('leave.document.upload'), (req, 
       cleanupTemp();
       return fail(res, 409, 'Upload hanya saat DRAFT/REVISION');
     }
+    let contentHash: string;
+    try {
+      contentHash = await hashFileAtPath(file.path);
+    } catch {
+      cleanupTemp();
+      return fail(res, 422, 'Gagal membaca file untuk dihitung hash-nya');
+    }
     const storedPath = await storeUploadedFile(file, `leave/${r.id}`);
     try {
       const doc = await prisma.leaveDocument.create({
@@ -319,6 +452,7 @@ router.post('/:id/documents', requirePermission('leave.document.upload'), (req, 
           storedPath,
           mimeType: file.mimetype,
           sizeBytes: file.size,
+          contentHash,
           uploadedBy: req.user!.id,
         },
       });
@@ -365,6 +499,13 @@ router.post('/:id/answer-letter', requirePermission('leave.document.upload'), (r
       cleanupTemp();
       return fail(res, 403, 'Surat jawaban diunggah pelaksana, bukan pemohon');
     }
+    let contentHash: string;
+    try {
+      contentHash = await hashFileAtPath(file.path);
+    } catch {
+      cleanupTemp();
+      return fail(res, 422, 'Gagal membaca file untuk dihitung hash-nya');
+    }
     const storedPath = await storeUploadedFile(file, `leave/${r.id}`);
     try {
       const doc = await prisma.leaveDocument.create({
@@ -375,6 +516,7 @@ router.post('/:id/answer-letter', requirePermission('leave.document.upload'), (r
           storedPath,
           mimeType: file.mimetype,
           sizeBytes: file.size,
+          contentHash,
           uploadedBy: req.user!.id,
         },
       });
@@ -425,8 +567,22 @@ router.post('/:id/:action', async (req, res) => {
     include: { orgUnit: true },
   });
   if (!applicant) return fail(res, 422, 'Data pegawai pemohon tidak ditemukan');
-  const skipReview = skipsReviewer(applicant.position, applicant.orgUnit?.type ?? null);
+  const applicantPosition = normalizePosition(applicant.position);
+  const skipReview = skipsReviewer(applicantPosition, applicant.orgUnit?.type ?? null);
   const has = (p: string) => canAny(req.user!.permissions, [p]);
+  const isSuper = req.user!.role === 'SUPER_ADMIN';
+  async function holds(position: string): Promise<boolean> {
+    return isSuper || userHoldsPosition(req.user!.id, position);
+  }
+
+  // Wewenang paraf/persetujuan ditentukan jabatan, bukan hanya permission.
+  // Plt tetap dihitung lewat userHoldsPosition.
+  if (action === 'paraf' && !(await holds('SEKCAM'))) {
+    return fail(res, 403, 'Paraf cuti hanya oleh Sekcam (atau Plt Sekcam yang aktif)');
+  }
+  if (action === 'approve' && !(await holds('CAMAT'))) {
+    return fail(res, 403, 'Persetujuan akhir cuti hanya oleh Camat (atau Plt Camat yang aktif)');
+  }
 
   // Tahap atasan (B4): pertimbangan hanya oleh atasan langsung yang terpetakan.
   // Pemohon yang melewati REVIEWED (Camat/Sekcam/Lurah/kelurahan) tidak bisa di-review.
@@ -460,8 +616,12 @@ router.post('/:id/:action', async (req, res) => {
       } else {
         return fail(res, 422, 'Revisi saat SUBMITTED adalah wewenang atasan langsung');
       }
-    } else if (!has('leave.verify')) {
-      return fail(res, 403, 'Forbidden: butuh permission leave.verify');
+    } else if (r.status === 'REVIEWED') {
+      if (!has('leave.verify')) return fail(res, 403, 'Forbidden: butuh permission leave.verify');
+    } else if (r.status === 'VERIFIED') {
+      if (!(await holds('SEKCAM'))) return fail(res, 403, 'Pengembalian saat VERIFIED hanya oleh Sekcam');
+    } else if (r.status === 'PARAF') {
+      if (!(await holds('CAMAT'))) return fail(res, 403, 'Pengembalian saat PARAF hanya oleh Camat');
     }
   }
   // Penangguhan (B5, DITANGGUHKAN): wewenang mengikuti tahap berjalan.
@@ -475,8 +635,12 @@ router.post('/:id/:action', async (req, res) => {
       } else {
         return fail(res, 422, 'Penangguhan saat SUBMITTED adalah wewenang atasan langsung');
       }
-    } else if (r.status === 'REVIEWED' || r.status === 'VERIFIED') {
+    } else if (r.status === 'REVIEWED') {
       if (!has('leave.verify')) return fail(res, 403, 'Forbidden: butuh permission leave.verify');
+    } else if (r.status === 'VERIFIED') {
+      if (!(await holds('SEKCAM'))) return fail(res, 403, 'Penangguhan saat VERIFIED hanya oleh Sekcam');
+    } else if (r.status === 'PARAF') {
+      if (!(await holds('CAMAT'))) return fail(res, 403, 'Penangguhan saat PARAF hanya oleh Camat');
     } else if (!has('leave.reject')) {
       return fail(res, 403, 'Forbidden: butuh permission leave.reject');
     }
@@ -492,12 +656,18 @@ router.post('/:id/:action', async (req, res) => {
       return fail(res, 422, 'Penolakan saat SUBMITTED adalah wewenang atasan langsung');
     }
   }
+  if (action === 'reject' && r.status === 'VERIFIED' && !(await holds('SEKCAM'))) {
+    return fail(res, 403, 'Penolakan saat VERIFIED hanya oleh Sekcam');
+  }
+  if (action === 'reject' && r.status === 'PARAF' && !(await holds('CAMAT'))) {
+    return fail(res, 403, 'Penolakan saat PARAF hanya oleh Camat');
+  }
   // Lompat-paraf: approve langsung dari VERIFIED hanya untuk pemohon SEKCAM.
   // Pemohon lain wajib lewat PARAF. Paraf untuk pemohon SEKCAM ditolak.
-  if (action === 'approve' && r.status === 'VERIFIED' && applicant?.position !== 'SEKCAM') {
+  if (action === 'approve' && r.status === 'VERIFIED' && applicantPosition !== 'SEKCAM') {
     return fail(res, 422, 'Persetujuan harus dari PARAF (kecuali pemohon Sekcam)');
   }
-  if (action === 'paraf' && applicant?.position === 'SEKCAM') {
+  if (action === 'paraf' && applicantPosition === 'SEKCAM') {
     return fail(res, 422, 'Pengajuan Sekcam langsung ke Camat tanpa paraf Sekcam');
   }
   // Ekor BKPSDMD + arsip hanya boleh dijalankan staf kecamatan
@@ -512,7 +682,7 @@ router.post('/:id/:action', async (req, res) => {
   }
   // Forward ke Sekda hanya untuk pengajuan Camat.
   if (action === 'forward') {
-    if (applicant?.position !== 'CAMAT') {
+    if (applicantPosition !== 'CAMAT') {
       return fail(res, 422, 'Forward ke Sekda hanya untuk pengajuan Camat');
     }
     if (!note) return fail(res, 422, 'note wajib untuk forward (catat nomor/tanggal penerusan ke Sekda)');
@@ -538,12 +708,34 @@ router.post('/:id/:action', async (req, res) => {
   }
   // Snapshot persetujuan digital (B11): nama + NIP + jabatan + waktu.
   const actorFull = await prisma.user.findUnique({ where: { id: req.user!.id }, include: { employee: true } });
+  const actorName = actorFull?.employee?.name ?? req.user!.username;
+  const actorNip = actorFull?.employee?.nip ?? null;
+  const actingAs = action === 'paraf'
+    ? 'SEKCAM'
+    : action === 'approve'
+      ? 'CAMAT'
+      : (['revise', 'reject', 'postpone'].includes(action) && r.status === 'VERIFIED')
+        ? 'SEKCAM'
+        : (['revise', 'reject', 'postpone'].includes(action) && r.status === 'PARAF')
+          ? 'CAMAT'
+          : null;
+  const actorPosition = await effectivePosition(req.user!.id, req.user!.position, actingAs);
+  const currentVersion = r.version ?? 1;
+  // Versi baru terbentuk saat dokumen revisi diajukan ulang. Paraf pada versi
+  // lama tetap tersimpan di riwayat dan tidak boleh diubah.
+  const nextVersion = action === 'submit' && r.status === 'REVISION'
+    ? currentVersion + 1
+    : currentVersion;
+  const returnFrom = action === 'revise' && ['VERIFIED', 'PARAF'].includes(r.status);
+  const shouldRecordParaf = ['paraf', 'approve', 'reject'].includes(action) || returnFrom;
+  const parafAction = returnFrom ? 'RETURN' : action.toUpperCase();
 
   const updated = await prisma.$transaction(async (tx) => {
     const u = await tx.leaveRequest.update({
       where: { id: r.id },
       data: {
         status: t.to,
+        version: nextVersion,
         submittedAt: action === 'submit' ? new Date() : r.submittedAt,
         revisionNote: action === 'revise' ? note : null,
         rejectionReason: action === 'reject' ? note : null,
@@ -556,27 +748,49 @@ router.post('/:id/:action', async (req, res) => {
         leaveRequestId: r.id,
         actorUserId: req.user!.id,
         actorRole: req.user!.role,
-        actorPosition: req.user!.position,
-        actorName: actorFull?.employee?.name ?? actorFull?.username ?? null,
-        actorNip: actorFull?.employee?.nip ?? null,
+        actorPosition,
+        actorName,
+        actorNip,
         fromStatus: r.status,
         toStatus: t.to,
         action: action.toUpperCase(),
         note: note ?? null,
       },
     });
+    if (shouldRecordParaf) {
+      const docs = await tx.leaveDocument.findMany({
+        where: { leaveRequestId: r.id },
+        select: { id: true, docType: true, originalName: true, sizeBytes: true, contentHash: true },
+      });
+      const payload = leaveDocumentPayload({ ...r, version: nextVersion }, docs);
+      await recordParaf(tx, {
+        documentType: 'LEAVE',
+        documentId: r.id,
+        documentNumber: r.requestNumber,
+        documentVersion: nextVersion,
+        documentHash: hashDocument(payload),
+        actor: {
+          userId: req.user!.id,
+          name: actorName,
+          nip: actorNip,
+          position: actorPosition,
+        },
+        action: parafAction as 'PARAF' | 'APPROVE' | 'RETURN' | 'REJECT',
+        note: note ?? null,
+      });
+    }
     return u;
   });
 
   await notifyLeaveTransition({
     requestId: r.id, requestNumber: r.requestNumber, employeeId: r.employeeId,
     action, fromStatus: r.status, toStatus: t.to,
-    actorId: req.user!.id, actorName: actorFull?.employee?.name ?? req.user!.username,
-    actorPosition: req.user!.position, note,
+    actorId: req.user!.id, actorName,
+    actorPosition, note, skipReview, applicantPosition,
   });
 
   const full = await prisma.leaveRequest.findUnique({ where: { id: updated.id }, include: includeDetail });
-  return ok(res, await toDetail(full, req.user!.permissions, req.user!.employeeId), `${action} berhasil`);
+  return ok(res, await toDetail(full, req.user!), `${action} berhasil`);
 });
 
 // DELETE /leave-requests/:id — hapus DRAFT milik sendiri (tidak ada hapus untuk status lain).

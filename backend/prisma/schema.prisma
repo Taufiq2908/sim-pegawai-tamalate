@@ -142,6 +142,8 @@ model User {
   createdPromotionBatches PromotionBatch[]         @relation("CreatedPromotionBatches")
   promotionActions        PromotionApproval[]      @relation("PromotionActorActions")
   uploadedPromotionDocs   PromotionDocument[]
+  actingPositions         ActingPosition[]         @relation("ActingPositions")
+  parafActions            DocumentParaf[]          @relation("ParafActor")
 
   @@map("pengguna")
 }
@@ -185,6 +187,7 @@ model LeaveRequest {
   reason             String          @map("alasan")
   addressDuringLeave String?         @map("alamat_selama_cuti") @db.VarChar(255)
   contactDuringLeave String?         @map("kontak_selama_cuti") @db.VarChar(30)
+  version            Int             @default(1) @map("versi")
   status             String          @default("DRAFT") @map("status") @db.VarChar(20)
   submittedAt        DateTime?       @map("diajukan_pada") @db.Timestamptz
   currentHolderRole  String?         @map("peran_pemegang_saat_ini") @db.VarChar(20)
@@ -211,6 +214,7 @@ model LeaveDocument {
   storedPath     String       @map("jalur_simpan") @db.VarChar(500)
   mimeType       String       @map("tipe_mime") @db.VarChar(100)
   sizeBytes      Int          @map("ukuran_byte")
+  contentHash    String?      @map("hash_konten") @db.VarChar(64)
   uploadedBy     String       @map("diunggah_oleh") @db.Uuid
   uploader       User         @relation(fields: [uploadedBy], references: [id])
   createdAt      DateTime     @default(now()) @map("dibuat_pada") @db.Timestamptz
@@ -325,11 +329,15 @@ model KgbRequest {
   newSalary         Int           @map("gaji_baru")
   effectiveDate     DateTime      @map("tanggal_berlaku") @db.Date
   note              String?       @map("catatan")
+  version           Int           @default(1) @map("versi")
   status            String        @default("DRAFT") @map("status") @db.VarChar(20)
   submittedAt       DateTime?     @map("diajukan_pada") @db.Timestamptz
   currentHolderRole String?       @map("peran_pemegang_saat_ini") @db.VarChar(20)
   rejectionReason   String?       @map("alasan_penolakan")
   revisionNote      String?       @map("catatan_revisi")
+  approvedAt        DateTime?     @map("disetujui_pada") @db.Timestamptz
+  approvedBy        String?       @map("disetujui_oleh") @db.Uuid
+  approvalNote      String?       @map("catatan_persetujuan")
   createdBy         String        @map("dibuat_oleh") @db.Uuid
   creator           User          @relation("CreatedKgb", fields: [createdBy], references: [id])
   createdAt         DateTime      @default(now()) @map("dibuat_pada") @db.Timestamptz
@@ -350,6 +358,7 @@ model KgbDocument {
   storedPath   String     @map("jalur_simpan") @db.VarChar(500)
   mimeType     String     @map("tipe_mime") @db.VarChar(100)
   sizeBytes    Int        @map("ukuran_byte")
+  contentHash  String?    @map("hash_konten") @db.VarChar(64)
   uploadedBy   String     @map("diunggah_oleh") @db.Uuid
   uploader     User       @relation(fields: [uploadedBy], references: [id])
   createdAt    DateTime   @default(now()) @map("dibuat_pada") @db.Timestamptz
@@ -365,6 +374,8 @@ model KgbApproval {
   actor         User       @relation("KgbActorActions", fields: [actorUserId], references: [id])
   actorRole     String     @map("peran_aktor") @db.VarChar(20)
   actorPosition String?    @map("jabatan_aktor") @db.VarChar(50)
+  actorName     String?    @map("nama_aktor") @db.VarChar(150)
+  actorNip      String?    @map("nip_aktor") @db.VarChar(30)
   fromStatus    String     @map("dari_status") @db.VarChar(20)
   toStatus      String     @map("ke_status") @db.VarChar(20)
   action        String     @map("aksi") @db.VarChar(20)
@@ -881,4 +892,46 @@ model PromotionApproval {
 
   @@index([batchId])
   @@map("persetujuan_usulan_kenaikan_pangkat")
+}
+
+// Penugasan pelaksana tugas (Plt) untuk jabatan struktural. Dipakai agar
+// notifikasi dan wewenang tetap sampai ke pejabat yang sedang menjabat,
+// meskipun user.position aslinya berbeda.
+model ActingPosition {
+  id        String    @id @default(uuid()) @db.Uuid
+  position  String    @map("jabatan") @db.VarChar(50)
+  userId    String    @map("id_pengguna") @db.Uuid
+  user      User      @relation("ActingPositions", fields: [userId], references: [id], onDelete: Cascade)
+  startsAt  DateTime  @map("mulai_pada") @db.Timestamptz
+  endsAt    DateTime? @map("berakhir_pada") @db.Timestamptz
+  isActive  Boolean   @default(true) @map("aktif")
+  reason    String?   @map("alasan") @db.VarChar(255)
+  createdAt DateTime  @default(now()) @map("dibuat_pada") @db.Timestamptz
+
+  @@index([position, isActive, startsAt, endsAt])
+  @@index([userId, isActive])
+  @@map("penugasan_plt")
+}
+
+// Riwayat paraf/tindakan naskah dinas. Append-only: tidak ada endpoint
+// update/delete, dan database menolak UPDATE/DELETE lewat trigger.
+model DocumentParaf {
+  id              String   @id @default(uuid()) @db.Uuid
+  documentType    String   @map("jenis_dokumen") @db.VarChar(30)
+  documentId      String   @map("id_dokumen") @db.Uuid
+  documentNumber  String?  @map("nomor_dokumen") @db.VarChar(80)
+  documentVersion Int      @map("versi_dokumen")
+  documentHash    String   @map("hash_dokumen") @db.VarChar(64)
+  actorUserId     String   @map("id_aktor") @db.Uuid
+  actor           User     @relation("ParafActor", fields: [actorUserId], references: [id])
+  actorName       String   @map("nama_aktor") @db.VarChar(150)
+  actorNip        String?  @map("nip_aktor") @db.VarChar(30)
+  actorPosition   String?  @map("jabatan_aktor") @db.VarChar(50)
+  action          String   @map("aksi") @db.VarChar(20)
+  note            String?  @map("catatan")
+  createdAt       DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz
+
+  @@index([documentType, documentId, createdAt])
+  @@index([actorUserId])
+  @@map("riwayat_paraf")
 }

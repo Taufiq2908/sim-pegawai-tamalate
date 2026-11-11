@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { normalizePosition, userIdsForPosition } from './position.service';
 
 // Aturan rantai atasan (docs 06 B3, disepakati user):
 // - Staf Subbag Umum → Kasubag Umum & Kepegawaian; Staf Seksi → Kasi seksi tersebut.
@@ -27,8 +28,12 @@ function mini(u: any): SupervisorMini {
 }
 
 async function activeByPosition(pos: string): Promise<any | null> {
+  // Termasuk Plt aktif agar rantai atasan tidak putus saat pejabat definitif
+  // berhalangan.
+  const ids = await userIdsForPosition(pos);
+  if (!ids.length) return null;
   return prisma.user.findFirst({
-    where: { position: pos, isActive: true },
+    where: { id: { in: ids }, isActive: true },
     include: { employee: true },
     orderBy: { createdAt: 'asc' },
   });
@@ -48,14 +53,14 @@ async function firstActiveByPrefix(prefix: string): Promise<any | null> {
 // atau di luar sistem): Camat (→Sekda), Sekcam & Lurah (langsung ke Camat),
 // pegawai kelurahan (sementara, menunggu mapping final B3).
 export function skipsReviewer(position: string | null, orgType: string | null): boolean {
-  const pos = (position ?? '').toUpperCase();
+  const pos = normalizePosition(position) ?? '';
   if (pos === 'CAMAT' || pos === 'SEKCAM' || pos.startsWith('LURAH')) return true;
   if ((orgType ?? '').toUpperCase() === 'KELURAHAN') return true;
   return false;
 }
 
 export async function resolveSupervisor(employee: { position: string; orgUnit: { type: string } | null }): Promise<SupervisorResult> {
-  const pos = (employee.position ?? '').toUpperCase();
+  const pos = normalizePosition(employee.position) ?? '';
   const orgType = employee.orgUnit?.type ?? null;
   const [camat, sekcam, kasubag, kasi] = await Promise.all([
     activeByPosition('CAMAT'),

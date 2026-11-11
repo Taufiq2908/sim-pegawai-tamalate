@@ -5,29 +5,37 @@ import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
-import { deleteStoredFile, sendStoredFile, storeUploadedFile } from '../lib/storage';
+import { deleteStoredFile, hashFileAtPath, sendStoredFile, storeUploadedFile } from '../lib/storage';
 import { authRequired, requirePermission } from '../middleware/auth';
-import { availableActions, computeKgbSchedule, KGB_OVERDUE_MONTHS, KGB_REMINDER_MONTHS, KGB_REQUIRED_DOCS, TRANSITIONS } from '../services/kgb.service';
+import { availableActions, computeKgbSchedule, KGB_OVERDUE_MONTHS, KGB_REMINDER_MONTHS, KGB_REQUIRED_DOCS, TRANSITIONS, waitingFor } from '../services/kgb.service';
 import { ok, fail } from '../utils/response';
 import { can, usersForPermission } from '../lib/permissions';
 import { parseYMD } from '../services/attendance.service';
+import { effectivePosition, positionLabel, primaryUserForPosition, userIdsForPosition, userHoldsPosition } from '../services/position.service';
+import { hashDocument, kgbDocumentPayload, listParafHistory, publicParafHistory, recordParaf } from '../services/paraf.service';
 
 const router = Router();
 router.use(authRequired);
 
 const ACTION_LABEL_ID: Record<string, string> = {
   submit: 'diajukan', verify: 'diverifikasi', revise: 'diminta revisi',
-  paraf: 'diparaf', approve: 'disetujui', register: 'diregistrasi',
-  tobkpsdm: 'diteruskan ke BKPSDM', complete: 'diselesaikan',
-  archive: 'diarsipkan', reject: 'ditolak',
+  paraf: 'diparaf', return: 'dikembalikan', approve: 'disetujui',
+  register: 'diregistrasi', tobkpsdm: 'diteruskan ke BKPSDM',
+  complete: 'diselesaikan', archive: 'diarsipkan', reject: 'ditolak',
 };
 
 // Pemegang tahap berikutnya yang perlu diberi notifikasi.
 const NEXT_PERMISSION: Record<string, string | null> = {
   submit: 'kgb.verify', verify: 'kgb.paraf', revise: 'kgb.submit',
-  paraf: 'kgb.approve', approve: 'kgb.register', register: 'kgb.register',
-  tobkpsdm: 'kgb.register', complete: 'kgb.register',
+  paraf: 'kgb.approve', return: null, approve: 'kgb.register',
+  register: 'kgb.register', tobkpsdm: 'kgb.register', complete: 'kgb.register',
   archive: null, reject: null,
+};
+
+// Penerima berdasarkan jabatan (termasuk Plt aktif).
+const NEXT_POSITION: Record<string, string | null> = {
+  verify: 'SEKCAM',
+  paraf: 'CAMAT',
 };
 
 // Notifikasi tiap transisi KGB: pemegang tahap berikut + pemohon.
@@ -39,9 +47,14 @@ async function notifyKgbTransition(opts: {
 }) {
   try {
     const ids = new Set<string>();
-    const next = NEXT_PERMISSION[opts.action];
-    if (next) {
-      for (const id of await usersForPermission(next)) ids.add(id);
+    const nextPosition = NEXT_POSITION[opts.action];
+    if (nextPosition) {
+      for (const id of await userIdsForPosition(nextPosition)) ids.add(id);
+    } else {
+      const next = NEXT_PERMISSION[opts.action];
+      if (next) {
+        for (const id of await usersForPermission(next)) ids.add(id);
+      }
     }
     const applicantUser = await prisma.user.findFirst({
       where: { employeeId: opts.employeeId, isActive: true },
@@ -49,7 +62,10 @@ async function notifyKgbTransition(opts: {
     });
     if (applicantUser) ids.add(applicantUser.id);
     ids.delete(opts.actorId);
-    if (!ids.size) return;
+    if (!ids.size) {
+      console.warn(`notify KGB: tidak ada penerima untuk ${opts.requestNumber} (${opts.action})`);
+      return;
+    }
     const label = ACTION_LABEL_ID[opts.action] ?? opts.action;
     await prisma.notification.createMany({
       data: [...ids].map((userId) => ({
@@ -346,35 +362,61 @@ const upload = multer({
 
 const userMini = { select: { id: true, username: true, employee: { select: { name: true, nip: true } } } };
 
-async function toDetail(r: any, perms: string[]) {
-  const camat = await prisma.user.findFirst({
-    where: { position: 'CAMAT', isActive: true },
-    include: { employee: { select: { name: true, nip: true } } },
-  });
+async function toDetail(
+  r: any,
+  user: { id: string; permissions: string[]; position: string | null; role: string },
+) {
+  const [camat, holdsSekcam, holdsCamat, documents, parafHistory] = await Promise.all([
+    primaryUserForPosition('CAMAT'),
+    userHoldsPosition(user.id, 'SEKCAM'),
+    userHoldsPosition(user.id, 'CAMAT'),
+    Promise.resolve(r.documents ?? []),
+    listParafHistory('KGB', r.id),
+  ]);
+  const camatPosition = camat
+    ? await effectivePosition(camat.id, camat.position, 'CAMAT')
+    : null;
+  const currentDocumentHash = hashDocument(kgbDocumentPayload(r, documents));
   return {
     ...r,
-    availableActions: availableActions(r.status, perms),
-    camat: camat ? { name: camat.employee?.name ?? camat.username, nip: camat.employee?.nip ?? null, position: 'CAMAT' } : null,
-    documents: (r.documents ?? []).map((d: any) => ({
+    waitingFor: waitingFor(r.status),
+    documentVersion: r.version ?? 1,
+    currentDocumentHash,
+    availableActions: availableActions(r.status, user.permissions, {
+      role: user.role,
+      position: user.position,
+      holdsSekcam,
+      holdsCamat,
+    }),
+    camat: camat
+      ? {
+          name: camat.employee?.name ?? camat.username,
+          nip: camat.employee?.nip ?? null,
+          position: positionLabel(camatPosition) ?? 'CAMAT',
+        }
+      : null,
+    documents: documents.map((d: any) => ({
       id: d.id,
       docType: d.docType,
       originalName: d.originalName,
       mimeType: d.mimeType,
       sizeBytes: d.sizeBytes,
+      contentHash: d.contentHash ?? null,
       downloadUrl: `/api/v1/kgb-requests/${r.id}/documents/${d.id}/download`,
     })),
     timeline: (r.approvals ?? []).map((a: any) => ({
       action: a.action,
       fromStatus: a.fromStatus,
       toStatus: a.toStatus,
-      actor: `${a.actor?.username ?? '?'} (${a.actorRole}${a.actorPosition ? '/' + a.actorPosition : ''})`,
-      actorName: a.actor?.employee?.name ?? a.actor?.username ?? null,
-      actorNip: a.actor?.employee?.nip ?? null,
+      actor: `${a.actorName ?? a.actor?.employee?.name ?? a.actor?.username ?? '?'} (${a.actorRole}${a.actorPosition ? '/' + a.actorPosition : ''})`,
+      actorName: a.actorName ?? a.actor?.employee?.name ?? a.actor?.username ?? null,
+      actorNip: a.actorNip ?? a.actor?.employee?.nip ?? null,
       actorRole: a.actorRole,
       actorPosition: a.actorPosition,
       note: a.note,
       createdAt: a.createdAt,
     })),
+    parafHistory: publicParafHistory(parafHistory),
   };
 }
 
@@ -405,7 +447,42 @@ router.get('/', requirePermission('kgb.view'), async (req, res) => {
       take: l,
     }),
   ]);
-  return ok(res, items, 'ok', { page: p, limit: l, total });
+  return ok(
+    res,
+    items.map((item) => ({ ...item, waitingFor: waitingFor(item.status) })),
+    'ok',
+    { page: p, limit: l, total },
+  );
+});
+
+// GET /kgb-requests/pending-approval — daftar tugas berdasarkan jabatan/permission.
+router.get('/pending-approval', requirePermission('kgb.view'), async (req, res) => {
+  const user = req.user!;
+  const statuses = new Set<string>();
+  if (user.role === 'SUPER_ADMIN') {
+    for (const s of ['SUBMITTED', 'VERIFIED', 'PARAF', 'APPROVED']) statuses.add(s);
+  }
+  if (user.permissions.includes('kgb.verify')) statuses.add('SUBMITTED');
+  if (can(user.permissions, 'kgb.paraf') && await userHoldsPosition(user.id, 'SEKCAM')) statuses.add('VERIFIED');
+  if (can(user.permissions, 'kgb.approve') && await userHoldsPosition(user.id, 'CAMAT')) statuses.add('PARAF');
+  if (can(user.permissions, 'kgb.register')) statuses.add('APPROVED');
+  if (!statuses.size) return ok(res, [], 'ok', { total: 0, count: 0 });
+
+  const items = await prisma.kgbRequest.findMany({
+    where: {
+      status: { in: [...statuses] },
+      // Jangan tampilkan pengajuan sendiri sebagai tugas persetujuan sendiri.
+      ...(user.employeeId ? { employeeId: { not: user.employeeId } } : {}),
+    },
+    include: { employee: { include: { orgUnit: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+  return ok(
+    res,
+    items.map((item) => ({ ...item, waitingFor: waitingFor(item.status) })),
+    'ok',
+    { total: items.length, count: items.length },
+  );
 });
 
 // GET /kgb-requests/:id
@@ -415,7 +492,7 @@ router.get('/:id', requirePermission('kgb.view'), async (req, res) => {
   if (req.user!.role === 'EMPLOYEE' && req.user!.employeeId && r.employeeId !== req.user!.employeeId) {
     return fail(res, 403, 'Hanya boleh melihat pengajuan sendiri');
   }
-  return ok(res, await toDetail(r, req.user!.permissions));
+  return ok(res, await toDetail(r, req.user!));
 });
 
 // POST /kgb-requests (DRAFT)
@@ -477,7 +554,7 @@ router.post('/', requirePermission('kgb.create'), async (req, res) => {
     return created;
   });
   const full = await prisma.kgbRequest.findUnique({ where: { id: r.id }, include: includeDetail });
-  return res.status(201).json({ success: true, message: 'Draf KGB dibuat', data: await toDetail(full, req.user!.permissions), meta: null, errors: null });
+  return res.status(201).json({ success: true, message: 'Draf KGB dibuat', data: await toDetail(full, req.user!), meta: null, errors: null });
 });
 
 // PATCH /kgb-requests/:id (DRAFT/REVISION, pemilik)
@@ -508,7 +585,7 @@ router.patch('/:id', requirePermission('kgb.create'), async (req, res) => {
     },
     include: includeDetail,
   });
-  return ok(res, await toDetail(updated, req.user!.permissions));
+  return ok(res, await toDetail(updated, req.user!));
 });
 
 // POST /kgb-requests/:id/documents
@@ -534,6 +611,13 @@ router.post('/:id/documents', requirePermission('kgb.document.upload'), (req, re
       cleanupTemp();
       return fail(res, 403, 'Bukan milikmu');
     }
+    let contentHash: string;
+    try {
+      contentHash = await hashFileAtPath(file.path);
+    } catch {
+      cleanupTemp();
+      return fail(res, 422, 'Gagal membaca file untuk dihitung hash-nya');
+    }
     const storedPath = await storeUploadedFile(file, `kgb/${r.id}`);
     try {
       const doc = await prisma.kgbDocument.create({
@@ -544,6 +628,7 @@ router.post('/:id/documents', requirePermission('kgb.document.upload'), (req, re
           storedPath,
           mimeType: file.mimetype,
           sizeBytes: file.size,
+          contentHash,
           uploadedBy: req.user!.id,
         },
       });
@@ -576,8 +661,8 @@ router.post('/:id/:action', async (req, res) => {
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
   const note = parsed.data.note;
-  if ((action === 'revise' || action === 'reject') && !note) {
-    return fail(res, 422, 'note wajib untuk revise/reject');
+  if ((action === 'revise' || action === 'return' || action === 'reject') && !note) {
+    return fail(res, 422, 'note wajib untuk revise/return/reject');
   }
   if (action === 'register' && !note) {
     return fail(res, 422, 'note wajib untuk register (catat nomor surat keluar)');
@@ -592,6 +677,35 @@ router.post('/:id/:action', async (req, res) => {
     return fail(res, 403, 'Bukan milikmu');
   }
 
+  // Wewenang jabatan: paraf oleh Sekcam, keputusan akhir oleh Camat.
+  // Plt aktif dihitung lewat userHoldsPosition; SUPER_ADMIN tetap bypass.
+  const isSuper = req.user!.role === 'SUPER_ADMIN';
+  async function holds(position: string): Promise<boolean> {
+    return isSuper || userHoldsPosition(req.user!.id, position);
+  }
+  if (action === 'paraf' && !(await holds('SEKCAM'))) {
+    return fail(res, 403, 'Paraf KGB hanya oleh Sekcam (atau Plt Sekcam yang aktif)');
+  }
+  if (action === 'approve' && !(await holds('CAMAT'))) {
+    return fail(res, 403, 'Persetujuan akhir KGB hanya oleh Camat (atau Plt Camat yang aktif)');
+  }
+  if (action === 'return') {
+    if (r.status === 'VERIFIED' && !(await holds('SEKCAM'))) {
+      return fail(res, 403, 'Pengembalian saat VERIFIED hanya oleh Sekcam');
+    }
+    if (r.status === 'PARAF' && !(await holds('CAMAT'))) {
+      return fail(res, 403, 'Pengembalian saat PARAF hanya oleh Camat');
+    }
+  }
+  if (action === 'reject') {
+    if (r.status === 'VERIFIED' && !(await holds('SEKCAM'))) {
+      return fail(res, 403, 'Penolakan saat VERIFIED hanya oleh Sekcam');
+    }
+    if (r.status === 'PARAF' && !(await holds('CAMAT'))) {
+      return fail(res, 403, 'Penolakan saat PARAF hanya oleh Camat');
+    }
+  }
+
   // Guard: register (step 7) hanya staf kecamatan (catat di buku agenda surat keluar + nomor + stempel)
   if (['register', 'tobkpsdm', 'complete', 'archive'].includes(action) && req.user!.role !== 'SUPER_ADMIN') {
     const operatorOrg = req.user!.orgUnitId
@@ -602,44 +716,95 @@ router.post('/:id/:action', async (req, res) => {
     }
   }
 
-  // Snapshot aktor untuk notifikasi (nama pegawai + jabatan).
+  // Snapshot aktor untuk notifikasi + riwayat (nama/NIP tidak boleh berubah
+  // walau data pegawai diedit di kemudian hari).
   const actorFull = await prisma.user.findUnique({ where: { id: req.user!.id }, include: { employee: true } });
+  const actorName = actorFull?.employee?.name ?? req.user!.username;
+  const actorNip = actorFull?.employee?.nip ?? null;
+  const actingAs = action === 'paraf'
+    ? 'SEKCAM'
+    : action === 'approve'
+      ? 'CAMAT'
+      : (['return', 'reject'].includes(action) && r.status === 'VERIFIED')
+        ? 'SEKCAM'
+        : (['return', 'reject'].includes(action) && r.status === 'PARAF')
+          ? 'CAMAT'
+          : null;
+  const actorPosition = await effectivePosition(req.user!.id, req.user!.position, actingAs);
+  const currentVersion = r.version ?? 1;
+  const nextVersion = action === 'submit' && r.status === 'REVISION'
+    ? currentVersion + 1
+    : currentVersion;
+  const shouldRecordParaf = ['paraf', 'approve', 'return', 'reject'].includes(action);
 
   const updated = await prisma.$transaction(async (tx) => {
-    const u = await tx.kgbRequest.update({
-      where: { id: r.id },
-      data: {
-        status: t.to,
-        submittedAt: action === 'submit' ? new Date() : r.submittedAt,
-        revisionNote: action === 'revise' ? note : null,
-        rejectionReason: action === 'reject' ? note : null,
-        currentHolderRole: t.holderAfter,
-      },
-    });
+    const data: any = {
+      status: t.to,
+      version: nextVersion,
+      submittedAt: action === 'submit' ? new Date() : r.submittedAt,
+      revisionNote: ['revise', 'return'].includes(action) ? note : null,
+      rejectionReason: action === 'reject' ? note : null,
+      currentHolderRole: t.holderAfter,
+    };
+    if (action === 'approve') {
+      data.approvedAt = new Date();
+      data.approvedBy = req.user!.id;
+      data.approvalNote = note ?? null;
+    }
+    if (action === 'return') {
+      data.approvedAt = null;
+      data.approvedBy = null;
+      data.approvalNote = null;
+    }
+    const u = await tx.kgbRequest.update({ where: { id: r.id }, data });
     await tx.kgbApproval.create({
       data: {
         kgbRequestId: r.id,
         actorUserId: req.user!.id,
         actorRole: req.user!.role,
-        actorPosition: req.user!.position,
+        actorPosition,
+        actorName,
+        actorNip,
         fromStatus: r.status,
         toStatus: t.to,
         action: action.toUpperCase(),
         note: note ?? null,
       },
     });
+    if (shouldRecordParaf) {
+      const docs = await tx.kgbDocument.findMany({
+        where: { kgbRequestId: r.id },
+        select: { id: true, docType: true, originalName: true, sizeBytes: true, contentHash: true },
+      });
+      const payload = kgbDocumentPayload({ ...r, version: nextVersion }, docs);
+      await recordParaf(tx, {
+        documentType: 'KGB',
+        documentId: r.id,
+        documentNumber: r.requestNumber,
+        documentVersion: nextVersion,
+        documentHash: hashDocument(payload),
+        actor: {
+          userId: req.user!.id,
+          name: actorName,
+          nip: actorNip,
+          position: actorPosition,
+        },
+        action: action.toUpperCase() as 'PARAF' | 'APPROVE' | 'RETURN' | 'REJECT',
+        note: note ?? null,
+      });
+    }
     return u;
   });
 
   await notifyKgbTransition({
     requestId: r.id, requestNumber: r.requestNumber, employeeId: r.employeeId,
     action, fromStatus: r.status, toStatus: t.to,
-    actorId: req.user!.id, actorName: actorFull?.employee?.name ?? req.user!.username,
-    actorPosition: req.user!.position, note,
+    actorId: req.user!.id, actorName,
+    actorPosition, note,
   });
 
   const full = await prisma.kgbRequest.findUnique({ where: { id: updated.id }, include: includeDetail });
-  return ok(res, await toDetail(full, req.user!.permissions), `${action} berhasil`);
+  return ok(res, await toDetail(full, req.user!), `${action} berhasil`);
 });
 
 // DELETE /kgb-requests/:id — hapus DRAFT milik sendiri

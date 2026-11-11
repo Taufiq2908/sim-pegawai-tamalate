@@ -141,10 +141,10 @@ Setiap sukses → 200 dengan objek detail baru (status berubah) + timeline berta
 | POST /leave-requests/:id/submit | leave.submit | DRAFT,REVISION,POSTPONED | SUBMITTED (hanya pemilik employee, semua role; ≥2 dokumen + SK_TERAKHIR; SAKIT wajib SURAT_DOKTER) |
 | POST /leave-requests/:id/review | leave.review | SUBMITTED | REVIEWED (hanya atasan langsung; Camat/Sekcam/Lurah/kelurahan lewat) |
 | POST /leave-requests/:id/verify | leave.verify | REVIEWED (atau SUBMITTED khusus pemohon Camat/Sekcam/Lurah/kelurahan) | VERIFIED (Kasubag — `kasubag1`) |
-| POST /leave-requests/:id/revise | leave.verify/review | SUBMITTED (atasan langsung), REVIEWED (Kasubag) | REVISION |
+| POST /leave-requests/:id/revise | leave.verify/review/paraf/approve | SUBMITTED (atasan langsung), REVIEWED (Kasubag), VERIFIED (Sekcam), PARAF (Camat) | REVISION |
 | POST /leave-requests/:id/postpone | mengikuti wewenang tahap berjalan | SUBMITTED,REVIEWED,VERIFIED,PARAF | POSTPONED (DITANGGUHKAN; ajukan ulang via submit) |
-| POST /leave-requests/:id/paraf | leave.paraf | VERIFIED | PARAF |
-| POST /leave-requests/:id/approve | leave.approve | PARAF (atau VERIFIED khusus pemohon SEKCAM) | APPROVED (= setujui + tandatangani) |
+| POST /leave-requests/:id/paraf | leave.paraf + jabatan SEKCAM/Plt | VERIFIED | PARAF |
+| POST /leave-requests/:id/approve | leave.approve + jabatan CAMAT/Plt | PARAF (atau VERIFIED khusus pemohon SEKCAM) | APPROVED (= disetujui Camat; belum TTE) |
 | POST /leave-requests/:id/register | leave.register | APPROVED | REGISTERED (staf kecamatan saja) |
 | POST /leave-requests/:id/tobkpsdm | leave.register | REGISTERED | SUBMITTED_BKPSDMD (staf kecamatan saja) |
 | POST /leave-requests/:id/receiveresult | leave.register | SUBMITTED_BKPSDMD (wajib sudah ada SURAT_JAWABAN_BKPSDM) | COMPLETED (hasil BKPSDMD diterima + diserahkan) |
@@ -156,10 +156,14 @@ Setiap sukses → 200 dengan objek detail baru (status berubah) + timeline berta
 Pengecualian jabatan: pemohon SEKCAM lompat-paraf (`approve` langsung dari VERIFIED,
 `paraf` ditolak 422); pemohon CAMAT diteruskan ke Sekda via `forward` (bukan `approve`);
 penerusan BKPSDMD/arsip hanya staf kecamatan (403 bila operator kelurahan).
-`availableActions` sadar jabatan pemohon: `forward` disembunyikan kecuali pemohon
-CAMAT; `approve` pada VERIFIED disembunyikan kecuali pemohon SEKCAM; `paraf`
-disembunyikan untuk pemohon SEKCAM; `review` disembunyikan bila melewati REVIEWED;
-`verify` pada SUBMITTED disembunyikan bila masih menunggu REVIEWED.
+`paraf` hanya untuk pemegang jabatan SEKCAM (termasuk Plt aktif); `approve` hanya
+untuk CAMAT/Plt. `reject` dan `postpone` pada VERIFIED hanya Sekcam, pada PARAF
+hanya Camat. `revise` pada VERIFIED hanya Sekcam, pada PARAF hanya Camat.
+`availableActions` sadar jabatan pemohon dan aktor: `forward` disembunyikan kecuali
+pemohon CAMAT; `approve` pada VERIFIED disembunyikan kecuali pemohon SEKCAM;
+`paraf` disembunyikan untuk pemohon SEKCAM dan aktor non-Sekcam; `review`
+disembunyikan bila melewati REVIEWED; `verify` pada SUBMITTED disembunyikan bila
+masih menunggu REVIEWED.
 
 Contoh:
 ```http
@@ -173,7 +177,49 @@ Error tipikal:
 
 Frontend wajib: disable tombol setelah klik, tampilkan `availableActions` ulang dari response, tampilkan 409 sebagai "data sudah berubah, refresh".
 
-### 3a. Cuti — endpoint pendukung (05/06)
+### 3a. Cuti — daftar tugas dan riwayat paraf
+
+```text
+GET /leave-requests/pending-approval
+  → daftar permohonan yang menunggu aksi user login, meta {total, count}
+  Kriteria: leave.verify → REVIEWED + SUBMITTED yang melewati REVIEWED;
+  leave.paraf + jabatan SEKCAM/Plt → VERIFIED;
+  leave.approve + jabatan CAMAT/Plt → PARAF + VERIFIED khusus pemohon SEKCAM;
+  leave.register → APPROVED.
+  Pengajuan milik employee user login tidak ditampilkan.
+```
+
+Setiap item list/detail memiliki `waitingFor` (mis. `Sekcam`, `Camat`).
+Detail juga memiliki:
+
+```json
+{
+  "documentVersion": 2,
+  "currentDocumentHash": "sha256...",
+  "parafHistory": [
+    {
+      "action": "PARAF",
+      "documentVersion": 2,
+      "documentHash": "sha256...",
+      "actor": { "id": "uuid", "name": "Nama", "nip": "...", "position": "SEKCAM" },
+      "note": "Berkas lengkap",
+      "createdAt": "2026-11-11T..."
+    }
+  ]
+}
+```
+
+`parafHistory` bersifat append-only (tidak ada endpoint update/delete). Aksi
+`revise` dari VERIFIED/PARAF dicatat sebagai `RETURN`. Setiap item `documents`
+memiliki `contentHash` (SHA-256 isi file, dihitung saat upload).
+`currentDocumentHash` menggabungkan metadata dokumen dengan `contentHash`
+tersebut, sehingga perubahan isi file mengubah hash. Setelah dokumen
+diparaf, PATCH dan upload dokumen utama terkunci sampai status kembali
+`REVISION`; saat diajukan ulang `documentVersion` bertambah dan paraf harus
+diulang. Unggahan surat jawaban BKPSDM adalah dokumen pendukung, bukan dokumen
+utama.
+
+### 3b. Cuti — endpoint pendukung (05/06)
 
 ```text
 POST /leave-requests/:id/answer-letter (multipart file) → catat SURAT_JAWABAN_BKPSDM (B1)
@@ -191,9 +237,15 @@ GET /employees/:id/leave-balance?year= → {entitlement, used, remaining} cuti t
 ```
 
 Notifikasi cuti (B8): setiap transisi menulis `notifications` tipe `LEAVE` untuk
-pemegang tahap berikut (di-resolve dari permission tahap) + pemohon. Baca via
-`GET /notifications` yang sudah ada. Timeline detail menyertakan snapshot
-persetujuan digital (B11): `actorName/actorNip/actorPosition/createdAt`.
+pemegang tahap berikut + pemohon. Tahap `verify` di-resolve dari jabatan
+SEKCAM/Plt dan tahap `paraf` dari jabatan CAMAT/Plt, bukan dari permission,
+karena role `LEADER` dapat dipegang Sekcam maupun Camat. Pada `submit` yang
+melewati REVIEWED, penerima adalah pemegang `leave.verify` (Kasubag). Pada
+`verify` untuk pemohon SEKCAM, penerima adalah CAMAT karena paraf Sekcam
+dilewati. Tahap lain tetap memakai permission tahap. Baca via `GET /notifications` yang sudah ada.
+Notifikasi in-app adalah saluran utama; email/WhatsApp belum tersedia. Timeline
+detail menyertakan snapshot persetujuan digital (B11):
+`actorName/actorNip/actorPosition/createdAt`.
 
 ## 4. Presensi Apel
 
@@ -269,8 +321,8 @@ pejabat (Camat/Sekcam/Kasubag), `statusPembinaan` (Menunggu/Diproses/Selesai),
 dan `workflowStatus` (DILAPORKAN/DIPANGGIL/MENUNGGU_TINDAK_LANJUT/PEMBINAAN/SELESAI/DITERUSKAN_BKPSDM).
 
 ### GET /attendances/warning-letters (+ /:id)
-Pemegang `attendance.summary`/`attendance.manage`/`attendance.forward` melihat semua;
-pegawai hanya melihat surat teguran miliknya sendiri (difilter berdasarkan `employeeId`).
+Akses baca: `SUPER_ADMIN`, pemegang `attendance.summary`, atau pegawai pemilik surat
+(`warningLetter.employeeId === user.employeeId`). Pegawai hanya melihat surat miliknya sendiri.
 Respons daftar/detail menyertakan `workflowStatus` yang sama dengan payload cetak.
 
 ## 5. Surat Masuk & Disposisi
@@ -471,12 +523,17 @@ POST /kgb-requests {oldRank, newRank, oldSalary, newSalary, effectiveDate, note?
 PATCH /kgb-requests/:id                        (DRAFT/REVISION, pemilik)
 POST /kgb-requests/:id/documents (multipart)   docType: SK_TERAKHIR|SKP|KP4|LAINNYA
 GET  /kgb-requests/:id/documents/:docId/download
-POST /kgb-requests/:id/submit|verify|revise|paraf|approve|reject {note?}
+POST /kgb-requests/:id/submit|verify|revise|paraf|approve|return|reject {note?}
 POST /kgb-requests/:id/register {note}          APPROVED → REGISTERED (catat no. surat keluar; staf kecamatan)
 POST /kgb-requests/:id/tobkpsdm {note?}         REGISTERED → SUBMITTED_BKPSDMD (kirim ke BKD)
 POST /kgb-requests/:id/complete {note?}         SUBMITTED_BKPSDMD → COMPLETED (hasil diterima)
 POST /kgb-requests/:id/archive                  COMPLETED → ARCHIVED (staf kecamatan)
-GET  /kgb-requests?status=&q=   → detail berisi availableActions + timeline + camat
+GET  /kgb-requests?status=&q=   → detail berisi availableActions + timeline + camat + waitingFor
+GET  /kgb-requests/pending-approval → daftar tugas user login, meta {total, count}
+  Kriteria: kgb.verify → SUBMITTED;
+  kgb.paraf + jabatan SEKCAM/Plt → VERIFIED;
+  kgb.approve + jabatan CAMAT/Plt → PARAF; kgb.register → APPROVED.
+  Pengajuan milik employee user login tidak ditampilkan.
 GET  /kgb-requests/monitoring   → daftar pegawai + KGB terakhir (step 1 SOP)
   Response menyertakan nextKgbDate, monthsUntil, dueSoon (≤3 bulan), isOverdue, requiredDocs.
   Basis jatuh tempo = KGB final terakhir (COMPLETED/ARCHIVED) + 2 tahun; bila belum ada, tanggal masuk.
@@ -492,8 +549,11 @@ POST /kgb-requests/reminders/generate → buat notifikasi pengingat KGB
 DELETE /kgb-requests/:id        → hapus DRAFT milik sendiri
 ```
 
-Aturan khusus: `newSalary > oldSalary` (422 bila tidak). Ekor (register→archive) hanya staf kecamatan. `register` mensyaratkan `note` (nomor surat keluar). `complete` mensyaratkan sudah dikirim (SUBMITTED_BKPSDMD). Step 7-9 SOP terintegrasi dengan buku agenda surat keluar + buku ekspedisi (operator mencatat manual via endpoint surat yang ada). Detail menyertakan field `camat` ({name, nip, position}).
-Setiap transisi KGB membuat notifikasi `type=KGB`, `referenceType=kgb_request`, `referenceId=<id KGB>` untuk pemegang tahap berikut + pemohon. Buku register memakai nomor/tanggal dari approval REGISTER; kolom `gol`/`pangkat` memakai golongan baru.
+Aturan khusus: `newSalary > oldSalary` (422 bila tidak). Ekor (register→archive) hanya staf kecamatan. `register` mensyaratkan `note` (nomor surat keluar). `complete` mensyaratkan sudah dikirim (SUBMITTED_BKPSDMD). Step 7-9 SOP terintegrasi dengan buku agenda surat keluar + buku ekspedisi (operator mencatat manual via endpoint surat yang ada). Detail menyertakan field `camat` ({name, nip, position}) dan `waitingFor`.
+
+Wewenang KGB: `paraf` hanya Sekcam/Plt Sekcam; `approve` hanya Camat/Plt Camat; `return` dari VERIFIED hanya Sekcam dan dari PARAF hanya Camat; `reject` pada VERIFIED hanya Sekcam dan pada PARAF hanya Camat. `return` dan `reject` mewajibkan `note`. `approve` mengisi `approvedAt/approvedBy/approvalNote`; `return` menghapus penanda persetujuan sebelumnya. `return` mengubah status ke REVISION; saat diajukan ulang `version` bertambah dan paraf harus diulang.
+
+Detail KGB memiliki `documentVersion`, `currentDocumentHash`, dan `parafHistory` dengan bentuk yang sama seperti cuti. `parafHistory` tidak dapat diubah/dihapus. Notifikasi `verify`/`paraf` dikirim berdasarkan jabatan (termasuk Plt), bukan permission; transisi lain memakai permission tahap + pemohon. Buku register memakai nomor/tanggal dari approval REGISTER; kolom `gol`/`pangkat` memakai golongan baru.
 
 ## 7. Master & User (untuk dropdown & admin)
 
@@ -501,7 +561,13 @@ Setiap transisi KGB membuat notifikasi `type=KGB`, `referenceType=kgb_request`, 
 GET /leave-types                    → [{code,name,maxDays}]
 GET /employees?q=&orgUnit=&page=    → perm employee.view
 GET /users/me → sama dengan /auth/me (alias, pilih satu)
+GET /users/acting-positions?position=&active= → penugasan Plt
+POST /users/acting-positions {position,userId,startsAt,endsAt?,reason?} → perm user.manage
+PATCH /users/acting-positions/:id {isActive?,endsAt?,reason?} → perm user.manage
 ```
+
+Plt dicatat di `penugasan_plt`, bukan dengan mengganti `users.position`. Notifikasi
+dan wewenang paraf/persetujuan memakai Plt yang aktif pada waktu aksi.
 
 User/role management full (`POST /users`, `PUT /users/:id/permissions`) dikerjakan setelah cuti stabil — frontend jangan hardcode dulu.
 

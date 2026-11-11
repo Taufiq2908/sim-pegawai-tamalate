@@ -217,6 +217,12 @@ export async function deleteStoredFile(storedPath: string): Promise<void> {
   await deleteFromStorage(parsed.bucket, parsed.key);
 }
 
+/** Hash isi file upload sebelum dipindahkan ke storage permanen. */
+export async function hashFileAtPath(filePath: string): Promise<string> {
+  const buffer = await fs.promises.readFile(filePath);
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
 /** Hapus file temporary multer (selalu lokal), dipakai saat validasi gagal. */
 export function discardTempFile(filePath: string): void {
   try {

@@ -528,3 +528,35 @@ Field terstruktur untuk nomor surat (pilih salah satu):
 | LEADER (Camat) | Approve + tanda tangan | Status APPROVED; surat final; tanda tangan tercatat di timeline |
 | Semua | Buka file PDF/foto | Terunduh utuh, nama file benar |
 | Semua | Diamkan 20 menit lalu simpan form | Tetap berhasil (refresh otomatis) |
+
+---
+
+## Tambahan November 2026 — cuti, paraf, KGB
+
+Spesifikasi lengkap ada di `docs/16-revisi-cuti-kgb-paraf-nov2026.md`.
+Ringkasan pekerjaan frontend:
+
+1. **Cuti**
+   - Tambahkan halaman/kartu **Menunggu persetujuan saya** dari
+     `GET /leave-requests/pending-approval`; tampilkan `meta.count` sebagai badge.
+   - Tampilkan `waitingFor` sebagai kolom **Sedang menunggu**.
+   - Tampilkan `parafHistory`, `documentVersion`, dan `currentDocumentHash` di detail.
+   - Gunakan label **Paraf dan Teruskan** untuk aksi `paraf`.
+   - Tampilkan **Kembalikan** (`revise`) pada `VERIFIED` untuk Sekcam dan `PARAF`
+     untuk Camat; catatan wajib.
+   - Selalu render tombol dari `availableActions`, bukan menghitung jabatan sendiri.
+2. **KGB**
+   - Tambahkan halaman/kartu **Menunggu persetujuan saya** dari
+     `GET /kgb-requests/pending-approval`.
+   - Tampilkan `waitingFor`, `parafHistory`, `documentVersion`, dan
+     `currentDocumentHash`.
+   - Pada `PARAF`, tampilkan tiga tombol Camat: **Setujui** (`approve`),
+     **Kembalikan dengan catatan** (`return`), **Tolak** (`reject`).
+   - Jangan menampilkan klaim “TTE berhasil”; gunakan **Disetujui Camat** sampai
+     opsi TTE diimplementasikan.
+3. **Plt**
+   - Jangan mengganti `users.position` untuk menandai Plt.
+   - Gunakan `GET/POST/PATCH /users/acting-positions` bila halaman admin Plt dibuat.
+4. **Notifikasi**
+   - Notifikasi tetap in-app; jangan mengandalkannya sebagai satu-satunya daftar tugas.
+   - Gunakan endpoint `pending-approval` untuk badge dan daftar tugas.

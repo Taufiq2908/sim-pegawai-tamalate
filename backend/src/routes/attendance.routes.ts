@@ -483,9 +483,7 @@ type WarningViewer = {
 
 function canReadAllWarnings(user: WarningViewer): boolean {
   if (user.role === 'SUPER_ADMIN') return true;
-  return ['attendance.summary', 'attendance.manage', 'attendance.forward'].some((perm) =>
-    user.permissions.includes(perm),
-  );
+  return user.permissions.includes('attendance.summary');
 }
 
 function canReadWarning(user: WarningViewer, employeeId: string): boolean {
