@@ -92,11 +92,11 @@ const STATUS_TONE: Record<string, string> = {
   DITERUSKAN_BKPSDM: "bg-ok-100 text-ok-700",
 };
 
-export function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({ status, label }: { status: string; label?: string }) {
   const cls = STATUS_TONE[status] ?? "bg-paper text-muted";
   return (
     <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${cls}`}>
-      {STATUS_LABEL[status] ?? status}
+      {label ?? STATUS_LABEL[status] ?? status}
     </span>
   );
 }

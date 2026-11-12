@@ -8,19 +8,20 @@ import { FileButton } from "@/components/form";
 import { SignaturePad } from "@/components/signature";
 import { toast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
-import { apiFetch, apiUpload } from "@/lib/api";
+import { actionErrorMessage, apiFetch, apiUpload } from "@/lib/api";
 import { fileUrl } from "@/lib/file-url";
-import { loadSignature } from "@/lib/signature";
 import type { KgbDetail } from "@/lib/types";
 import { EmptyState, ErrorBox, ProcessTrail, Skeleton, StatusBadge } from "@/components/ui";
+import { ParafHistoryPanel } from "@/components/paraf-history";
 import { formatRupiah } from "@/lib/format";
 
 const ACTION_LABEL: Record<string, string> = {
   submit: "Ajukan",
-  verify: "Verifikasi & tanda tangan",
+  verify: "Verifikasi",
   revise: "Minta revisi",
-  paraf: "Paraf Sekcam",
-  approve: "Validasi akhir & setujui (Camat)",
+  paraf: "Paraf dan Teruskan",
+  return: "Kembalikan dengan catatan",
+  approve: "Setujui",
   reject: "Tolak",
   register: "Register",
   tobkpsdm: "Teruskan ke BKPSDM",
@@ -28,7 +29,7 @@ const ACTION_LABEL: Record<string, string> = {
   archive: "Arsip",
 };
 
-const NOTE_REQUIRED = ["revise", "reject", "register"];
+const NOTE_REQUIRED = ["revise", "return", "reject", "register"];
 
 const KGB_REQUIRED_DOCS = ["SK_CPNS_TERAKHIR", "SK_PANGKAT_TERAKHIR", "SKP_2_TAHUN"];
 
@@ -95,10 +96,6 @@ export default function KgbDetailPage() {
       );
       return;
     }
-    if ((action === "verify" || action === "approve") && user && !loadSignature(user.username)) {
-      toast.error("Simpan tanda tangan Anda terlebih dahulu sebelum memproses aksi ini.");
-      return;
-    }
     setActing(action);
     try {
       const { data } = await apiFetch<KgbDetail>(`/kgb-requests/${id}/${action}`, {
@@ -108,7 +105,7 @@ export default function KgbDetailPage() {
       setDetail(data);
       setNote("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Aksi gagal");
+      toast.error(actionErrorMessage(err, "Aksi gagal"));
     } finally {
       setActing(null);
     }
@@ -156,19 +153,16 @@ export default function KgbDetailPage() {
     (isOwner || (!!user && user.role !== "EMPLOYEE" && hasPermission("kgb.create")));
   const canUpload = canManageDraft && hasPermission("kgb.document.upload");
   const canDelete = !!detail && detail.status === "DRAFT" && (isOwner || user?.role === "SUPER_ADMIN");
-  const isSekcamActor = user?.role === "SUPER_ADMIN" || user?.position === "SEKCAM";
-  const isCamatActor = user?.role === "SUPER_ADMIN" || user?.position === "CAMAT";
-  // Permission kgb.paraf/kgb.approve dimiliki bersama oleh LEADER. Batasi UI
-  // agar Sekcam hanya memparaf dan Camat yang melakukan validasi akhir.
-  const visibleActions = (detail?.availableActions ?? []).filter((a) => {
-    if (a === "paraf" && !isSekcamActor) return false;
-    if (a === "approve" && !isCamatActor) return false;
-    return true;
-  });
-  const needsSignature =
+  // Tombol sepenuhnya mengikuti availableActions backend (permission + jabatan + Plt).
+  const visibleActions = detail?.availableActions ?? [];
+  const showSignaturePanel =
     !!detail &&
     ((detail.status === "SUBMITTED" && visibleActions.includes("verify")) ||
       (detail.status === "PARAF" && visibleActions.includes("approve")));
+  const camatApproval = detail?.parafHistory?.find((h) => h.action === "APPROVE");
+  const approveTimeline = detail?.timeline?.find((t) => t.action === "APPROVE");
+  const approvedByName = camatApproval?.actor?.name ?? approveTimeline?.actorName;
+  const approvedByPosition = camatApproval?.actor?.position ?? approveTimeline?.actorPosition;
 
   return (
     <RequirePerm perm="kgb.view" label="KGB">
@@ -212,7 +206,10 @@ export default function KgbDetailPage() {
             <div className="rounded-lg border border-line bg-surface p-5">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-bold">{detail.requestNumber}</h1>
-                <StatusBadge status={detail.status} />
+                <StatusBadge
+                  status={detail.status}
+                  label={detail.status === "APPROVED" ? "Disetujui Camat" : undefined}
+                />
                 {canManageDraft ? (
                   <div className="ml-auto flex flex-wrap gap-2">
                     <Link
@@ -240,24 +237,53 @@ export default function KgbDetailPage() {
                 <div><dt className="text-muted">Gaji</dt><dd className="font-medium">{formatRupiah(detail.oldSalary)} → {formatRupiah(detail.newSalary)}</dd></div>
                 {detail.note ? <div className="sm:col-span-2"><dt className="text-muted">Catatan pengajuan</dt><dd className="font-medium">{detail.note}</dd></div> : null}
                 {detail.rejectionReason ? <div><dt className="text-muted">Alasan penolakan</dt><dd className="font-medium text-bad-700">{detail.rejectionReason}</dd></div> : null}
+                <div>
+                  <dt className="text-muted">Sedang menunggu</dt>
+                  <dd className="font-medium">{detail.waitingFor ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted">Versi dokumen</dt>
+                  <dd className="font-medium tabular-nums">{detail.documentVersion ?? 1}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-muted">Hash dokumen saat ini (SHA-256)</dt>
+                  <dd className="break-all font-mono text-xs text-secondary">
+                    {detail.currentDocumentHash ?? "—"}
+                  </dd>
+                </div>
               </dl>
             </div>
 
+            {detail.approvedAt || detail.status === "APPROVED" ? (
+              <div className="rounded-lg border border-ok-700/30 bg-ok-100 px-4 py-3">
+                <p className="text-sm font-semibold text-ok-700">Disetujui Camat</p>
+                <p className="mt-0.5 text-sm text-secondary">
+                  {detail.approvedAt
+                    ? new Date(detail.approvedAt).toLocaleString("id-ID")
+                    : "Waktu persetujuan tidak tercatat"}
+                  {approvedByName ? ` • ${approvedByName}` : ""}
+                  {approvedByPosition ? ` (${approvedByPosition})` : ""}
+                </p>
+                {detail.approvalNote ? (
+                  <p className="mt-1 text-sm text-secondary">Catatan: {detail.approvalNote}</p>
+                ) : null}
+                <p className="mt-1 text-xs text-muted">
+                  Status ini berarti dokumen disetujui Camat. Integrasi TTE belum diaktifkan.
+                </p>
+              </div>
+            ) : null}
+
             <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Aksi persetujuan</h2>
-              {detail.status === "VERIFIED" && isSekcamActor ? (
+              {detail.status === "VERIFIED" && visibleActions.includes("paraf") ? (
                 <div className="mt-2 rounded-lg border border-info-700/30 bg-info-100 px-3 py-2 text-sm text-secondary">
-                  Kasubag sudah memverifikasi. Lakukan <b>Paraf Sekcam</b> untuk meneruskan ke Camat.
+                  Kasubag sudah memverifikasi. Klik <b>Paraf dan Teruskan</b> untuk meneruskan ke Camat.
                 </div>
               ) : null}
-              {detail.status === "VERIFIED" && isCamatActor && !isSekcamActor ? (
-                <div className="mt-2 rounded-lg border border-line bg-paper px-3 py-2 text-sm text-muted">
-                  Menunggu paraf Sekcam. Validasi akhir Camat tersedia setelah tahap paraf selesai.
-                </div>
-              ) : null}
-              {detail.status === "PARAF" && isCamatActor ? (
+              {detail.status === "PARAF" && visibleActions.includes("approve") ? (
                 <div className="mt-2 rounded-lg border border-ok-700/30 bg-ok-100 px-3 py-2 text-sm text-secondary">
-                  Sudah diparaf Sekcam. Lakukan <b>Validasi akhir &amp; setujui (Camat)</b> dan simpan tanda tangan Camat.
+                  Sudah diparaf Sekcam. Camat dapat memilih <b>Setujui</b>,{" "}
+                  <b>Kembalikan dengan catatan</b>, atau <b>Tolak</b>.
                 </div>
               ) : null}
               {visibleActions.length ? (
@@ -276,15 +302,12 @@ export default function KgbDetailPage() {
                       </button>
                     ))}
                   </div>
-                  {needsSignature && user ? (
+                  {showSignaturePanel && user ? (
                     <div className="mt-3 rounded-lg border border-line bg-paper p-3">
-                      <p className="text-sm font-semibold">
-                        {detail.status === "SUBMITTED"
-                          ? "Tanda tangan Kasubag (verifikasi)"
-                          : "Tanda tangan Camat (validasi akhir)"}
-                      </p>
+                      <p className="text-sm font-semibold">Tanda tangan untuk pratinjau surat (opsional)</p>
                       <p className="mt-0.5 text-xs text-muted">
-                        Tanda tangan disimpan di browser ini dan dipakai pada pratinjau surat KGB.
+                        Bukan TTE dan tidak disimpan di server. Aksi persetujuan tetap diproses tanpa
+                        menggambar tanda tangan.
                       </p>
                       <div className="mt-2">
                         <SignaturePad username={user.username} />
@@ -298,7 +321,7 @@ export default function KgbDetailPage() {
                       visibleActions.includes("register")
                         ? "Nomor surat keluar (wajib untuk Register), mis. 800/001/KT/XI/2026"
                         : NOTE_REQUIRED.some((a) => visibleActions.includes(a))
-                          ? "Catatan (wajib untuk revisi/tolak)"
+                          ? "Catatan (wajib untuk revisi/kembalikan/tolak)"
                           : "Catatan (opsional)"
                     }
                     rows={2}
@@ -358,6 +381,14 @@ export default function KgbDetailPage() {
                   <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-paper px-3 py-2">
                     <span className="font-semibold">{d.originalName}</span>
                     <span className="text-xs text-muted">({DOC_LABEL[d.docType] ?? d.docType})</span>
+                    {d.contentHash ? (
+                      <span
+                        className="basis-full break-all font-mono text-[11px] text-muted"
+                        title={d.contentHash}
+                      >
+                        SHA-256: {d.contentHash}
+                      </span>
+                    ) : null}
                     <a
                       href={fileUrl(d.downloadUrl)}
                       target="_blank"
@@ -405,6 +436,8 @@ export default function KgbDetailPage() {
                 </div>
               ) : null}
             </div>
+
+            <ParafHistoryPanel entries={detail.parafHistory} />
 
             <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Riwayat proses</h2>

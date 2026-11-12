@@ -44,6 +44,24 @@ export interface PageMeta {
   page: number;
   limit: number;
   total: number;
+  /** Jumlah tugas pada endpoint pending-approval. */
+  count?: number;
+}
+
+/** Baris riwayat paraf append-only dari backend. Tidak ada gambar paraf. */
+export interface ParafHistoryEntry {
+  id: string;
+  action: "PARAF" | "APPROVE" | "RETURN" | "REJECT" | string;
+  documentVersion: number;
+  documentHash: string;
+  actor: {
+    id: string;
+    name: string;
+    nip: string | null;
+    position: string | null;
+  };
+  note: string | null;
+  createdAt: string;
 }
 
 export type LeaveStatus =
@@ -82,6 +100,8 @@ export interface LeaveItem {
   status: LeaveStatus;
   currentHolderRole?: string | null;
   submittedAt?: string | null;
+  /** Pihak yang sedang ditunggu, dihitung backend dari status + jabatan. */
+  waitingFor?: string | null;
 }
 
 export interface LeaveDocument {
@@ -91,6 +111,8 @@ export interface LeaveDocument {
   mimeType: string;
   sizeBytes: number;
   downloadUrl: string;
+  /** SHA-256 isi file; null untuk dokumen lama sebelum backfill. */
+  contentHash?: string | null;
 }
 
 export interface LeaveTimelineEntry {
@@ -138,6 +160,10 @@ export interface LeaveDetail extends Omit<LeaveItem, "employee" | "leaveType"> {
   documents: LeaveDocument[];
   timeline: LeaveTimelineEntry[];
   availableActions: string[];
+  waitingFor?: string | null;
+  documentVersion?: number;
+  currentDocumentHash?: string | null;
+  parafHistory?: ParafHistoryEntry[];
 }
 
 export type AttendanceStatus = "HADIR" | "TERLAMBAT" | "IZIN" | "SAKIT" | "DL" | "ALPA";
@@ -396,6 +422,8 @@ export interface KgbItem {
   newSalary: number;
   effectiveDate: string;
   status: KgbStatus;
+  /** Pihak yang sedang ditunggu, dihitung backend. */
+  waitingFor?: string | null;
 }
 
 export interface KgbDetail extends KgbItem {
@@ -408,6 +436,38 @@ export interface KgbDetail extends KgbItem {
   documents: LeaveDocument[];
   timeline: LeaveTimelineEntry[];
   availableActions: string[];
+  waitingFor?: string | null;
+  documentVersion?: number;
+  currentDocumentHash?: string | null;
+  parafHistory?: ParafHistoryEntry[];
+  approvedAt?: string | null;
+  approvedBy?: string | null;
+  approvalNote?: string | null;
+}
+
+export interface ActingPositionItem {
+  id: string;
+  position: string;
+  startsAt: string;
+  endsAt: string | null;
+  isActive: boolean;
+  reason: string | null;
+  user: {
+    id: string;
+    username: string;
+    role: Role;
+    position: string | null;
+    employee: { name: string; nip: string | null; position: string | null } | null;
+  };
+}
+
+export interface UserListItem {
+  id: string;
+  username: string;
+  role: Role;
+  position: string | null;
+  isActive: boolean;
+  employee: { name: string; nip: string | null } | null;
 }
 
 export interface KgbMonitoringItem {

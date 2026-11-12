@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import type { LeaveItem, LeaveStatus, LeaveType, PageMeta } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
+import { PendingApprovalCard } from "@/components/pending-approval";
 
 const FILTERS: Array<{ value: "" | LeaveStatus; label: string }> = [
   { value: "", label: "Semua" },
@@ -96,6 +97,13 @@ export default function CutiListPage() {
         ) : null}
       </div>
 
+      <PendingApprovalCard
+        endpoint="/leave-requests/pending-approval"
+        href="/cuti/menunggu"
+        title="Menunggu persetujuan saya"
+        permissions={["leave.verify", "leave.paraf", "leave.approve", "leave.register"]}
+      />
+
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -175,7 +183,12 @@ export default function CutiListPage() {
                         <span className="text-muted"> ({it.totalDays} hari)</span>
                       </td>
                       <td className="px-3 py-2.5 tabular-nums text-muted">{it.submittedAt?.slice(0, 10) ?? "—"}</td>
-                      <td className="px-3 py-2.5"><StatusBadge status={it.status} /></td>
+                      <td className="px-3 py-2.5">
+                        <StatusBadge status={it.status} />
+                        {it.waitingFor ? (
+                          <span className="mt-0.5 block text-xs text-muted">Menunggu: {it.waitingFor}</span>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -233,7 +233,12 @@ export default function KgbMonitoringPage() {
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex flex-col items-start gap-1">
-                        {it.lastKgb ? <StatusBadge status={it.lastKgb.status} /> : null}
+                        {it.lastKgb ? (
+                          <StatusBadge
+                            status={it.lastKgb.status}
+                            label={it.lastKgb.status === "APPROVED" ? "Disetujui Camat" : undefined}
+                          />
+                        ) : null}
                         {it.dueSoon ? (
                           <span className="rounded bg-warn-100 px-1.5 py-0.5 text-[11px] font-semibold text-warn-700">
                             Jatuh tempo ≤ 3 bulan

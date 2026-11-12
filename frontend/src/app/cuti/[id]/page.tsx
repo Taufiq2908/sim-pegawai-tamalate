@@ -6,10 +6,11 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
-import { apiFetch, apiUpload, ownerActionMessage } from "@/lib/api";
+import { actionErrorMessage, apiFetch, apiUpload, ownerActionMessage } from "@/lib/api";
 import { fileUrl } from "@/lib/file-url";
 import type { LeaveDetail } from "@/lib/types";
 import { EmptyState, ErrorBox, ProcessTrail, Skeleton, StatusBadge } from "@/components/ui";
+import { ParafHistoryPanel } from "@/components/paraf-history";
 
 const ACTION_LABEL: Record<string, string> = {
   submit: "Ajukan",
@@ -17,8 +18,8 @@ const ACTION_LABEL: Record<string, string> = {
   verify: "Verifikasi & teruskan",
   revise: "Minta revisi",
   postpone: "Tangguhkan",
-  paraf: "Paraf Sekcam",
-  approve: "Setujui & tandatangani (Camat)",
+  paraf: "Paraf dan Teruskan",
+  approve: "Setujui",
   reject: "Tolak",
   sign: "Tandatangani",
   register: "Registrasi",
@@ -30,6 +31,11 @@ const ACTION_LABEL: Record<string, string> = {
 };
 
 const NOTE_REQUIRED = ["revise", "reject", "forward", "postpone", "register"];
+
+function actionLabel(action: string, status?: string): string {
+  if (action === "revise" && ["VERIFIED", "PARAF"].includes(status ?? "")) return "Kembalikan";
+  return ACTION_LABEL[action] ?? action;
+}
 
 export default function CutiDetailPage() {
   const params = useParams<{ id: string }>();
@@ -63,12 +69,6 @@ export default function CutiDetailPage() {
   }, [load]);
 
   async function act(action: string) {
-    // Pertimbangan atasan & keputusan Camat lewat halaman surat:
-    // tanda tangan dulu, baru status diperbarui.
-    if ((action === "review" || action === "approve") && detail) {
-      router.push(`/cuti/${detail.id}/pengajuan?act=${action}`);
-      return;
-    }
     if (action === "submit" && detail) {
       const docs = detail.documents ?? [];
       const hasSk = docs.some((d) => d.docType === "SK_TERAKHIR");
@@ -100,10 +100,8 @@ export default function CutiDetailPage() {
     } catch (err) {
       toast.error(
         action === "submit"
-          ? ownerActionMessage(err, "Aksi gagal")
-          : err instanceof Error
-            ? err.message
-            : "Aksi gagal",
+          ? ownerActionMessage(err, actionErrorMessage(err, "Aksi gagal"))
+          : actionErrorMessage(err, "Aksi gagal"),
       );
     } finally {
       setActing(null);
@@ -166,16 +164,8 @@ export default function CutiDetailPage() {
   }
 
   const isOwner = !!user?.employee && !!detail && user.employee.id === detail.employeeId;
-  const isSekcamActor = user?.role === "SUPER_ADMIN" || user?.position === "SEKCAM";
-  const isCamatActor = user?.role === "SUPER_ADMIN" || user?.position === "CAMAT";
-  // Backend mengizinkan paraf/approve berdasarkan permission LEADER. Di UI,
-  // batasi sesuai jabatan agar Sekcam tidak mengambil keputusan akhir Camat
-  // dan Camat tidak memparaf sebelum Sekcam.
-  const visibleActions = (detail?.availableActions ?? []).filter((a) => {
-    if (a === "paraf" && !isSekcamActor) return false;
-    if (a === "approve" && !isCamatActor) return false;
-    return true;
-  });
+  // Tombol sepenuhnya mengikuti availableActions backend (permission + jabatan + Plt).
+  const visibleActions = detail?.availableActions ?? [];
   const isDraftStage = !!detail && ["DRAFT", "REVISION"].includes(detail.status);
   // Backend menolak patch/upload draft oleh non-pemilik, termasuk Camat/Super Admin.
   const canEditDraft = isDraftStage && isOwner && hasPermission("leave.create");
@@ -252,6 +242,20 @@ export default function CutiDetailPage() {
                 {detail.revisionNote && detail.status !== "REVISION" ? <div><dt className="text-muted">Catatan revisi</dt><dd className="font-medium text-warn-700">{detail.revisionNote}</dd></div> : null}
                 {detail.rejectionReason ? <div><dt className="text-muted">Alasan penolakan</dt><dd className="font-medium text-bad-700">{detail.rejectionReason}</dd></div> : null}
                 {detail.postponeNote ? <div><dt className="text-muted">Catatan penangguhan</dt><dd className="font-medium text-secondary">{detail.postponeNote}</dd></div> : null}
+                <div>
+                  <dt className="text-muted">Sedang menunggu</dt>
+                  <dd className="font-medium">{detail.waitingFor ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted">Versi dokumen</dt>
+                  <dd className="font-medium tabular-nums">{detail.documentVersion ?? 1}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-muted">Hash dokumen saat ini (SHA-256)</dt>
+                  <dd className="break-all font-mono text-xs text-secondary">
+                    {detail.currentDocumentHash ?? "—"}
+                  </dd>
+                </div>
               </dl>
             </div>
 
@@ -290,24 +294,24 @@ export default function CutiDetailPage() {
 
             <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Keputusan</h2>
-              {detail.status === "REVIEWED" && hasPermission("leave.verify") ? (
+              {detail.status === "REVIEWED" && visibleActions.includes("verify") ? (
                 <div className="mt-2 rounded-lg border border-warn-700/30 bg-warn-100 px-3 py-2 text-sm text-secondary">
                   Pertimbangan atasan sudah dicatat. Klik <b>Verifikasi &amp; teruskan</b> agar permohonan masuk ke Sekcam dan Camat.
                 </div>
               ) : null}
-              {detail.status === "VERIFIED" && isSekcamActor ? (
+              {detail.status === "VERIFIED" && visibleActions.includes("paraf") ? (
                 <div className="mt-2 rounded-lg border border-info-700/30 bg-info-100 px-3 py-2 text-sm text-secondary">
-                  Kasubag sudah memverifikasi. Lakukan <b>Paraf Sekcam</b> untuk meneruskan ke Camat.
+                  Kasubag sudah memverifikasi. Klik <b>Paraf dan Teruskan</b> untuk meneruskan ke Camat.
                 </div>
               ) : null}
-              {detail.status === "VERIFIED" && isCamatActor && !isSekcamActor ? (
-                <div className="mt-2 rounded-lg border border-line bg-paper px-3 py-2 text-sm text-muted">
-                  Menunggu paraf Sekcam. Keputusan akhir Camat tersedia setelah tahap paraf selesai.
+              {detail.status === "VERIFIED" && visibleActions.includes("approve") ? (
+                <div className="mt-2 rounded-lg border border-info-700/30 bg-info-100 px-3 py-2 text-sm text-secondary">
+                  Pengajuan ini langsung menunggu keputusan Camat. Klik <b>Setujui</b> untuk validasi akhir.
                 </div>
               ) : null}
-              {detail.status === "PARAF" && isCamatActor ? (
+              {detail.status === "PARAF" && visibleActions.includes("approve") ? (
                 <div className="mt-2 rounded-lg border border-ok-700/30 bg-ok-100 px-3 py-2 text-sm text-secondary">
-                  Sudah diparaf Sekcam. Lakukan <b>Setujui &amp; tandatangani (Camat)</b> sebagai validasi akhir.
+                  Sudah diparaf Sekcam. Klik <b>Setujui</b> sebagai validasi akhir Camat.
                 </div>
               ) : null}
               {canEditDraft ? (
@@ -333,7 +337,7 @@ export default function CutiDetailPage() {
                           a === "reject" ? "bg-bad-700 hover:brightness-110" : "bg-brand-900 hover:bg-brand-800"
                         }`}
                       >
-                        {acting === a ? "Memproses…" : (ACTION_LABEL[a] ?? a)}
+                        {acting === a ? "Memproses…" : actionLabel(a, detail.status)}
                       </button>
                     ))}
                   </div>
@@ -345,7 +349,7 @@ export default function CutiDetailPage() {
                       <p>Verifikasi akan mengirim notifikasi ke Sekcam dan Camat untuk paraf/persetujuan.</p>
                     ) : null}
                     {visibleActions.includes("paraf") ? <p>Paraf Sekcam meneruskan permohonan ke Camat.</p> : null}
-                    {visibleActions.includes("approve") ? <p>Keputusan akhir Camat; surat pengantar menjadi final setelah ditandatangani.</p> : null}
+                    {visibleActions.includes("approve") ? <p>Keputusan akhir Camat; surat pengantar menjadi final setelah disetujui.</p> : null}
                   </div>
                   <textarea
                     value={note}
@@ -353,7 +357,7 @@ export default function CutiDetailPage() {
                     placeholder={
                       visibleActions.includes("register")
                         ? "Nomor surat pengantar (wajib untuk Registrasi), mis. 800/001/KT/XI/2026"
-                        : "Catatan (wajib untuk revisi/tolak/tangguhkan/forward, opsional lainnya)"
+                        : "Catatan (wajib untuk revisi/kembalikan/tolak/tangguhkan/forward, opsional lainnya)"
                     }
                     rows={2}
                     className="mt-3 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700"
@@ -412,6 +416,14 @@ export default function CutiDetailPage() {
                   <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-paper px-3 py-2">
                     <span className="font-semibold">{d.originalName}</span>
                     <span className="text-xs text-muted">({d.docType}, {(d.sizeBytes/1024).toFixed(1)} KB)</span>
+                    {d.contentHash ? (
+                      <span
+                        className="basis-full break-all font-mono text-[11px] text-muted"
+                        title={d.contentHash}
+                      >
+                        SHA-256: {d.contentHash}
+                      </span>
+                    ) : null}
                     <a
                       href={fileUrl(d.downloadUrl)}
                       target="_blank"
@@ -461,6 +473,8 @@ export default function CutiDetailPage() {
                 </div>
               ) : null}
             </div>
+
+            <ParafHistoryPanel entries={detail.parafHistory} />
 
             <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Riwayat proses</h2>

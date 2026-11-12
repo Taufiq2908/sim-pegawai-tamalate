@@ -56,8 +56,19 @@ export async function apiFetch<T>(
 
 /** Pesan seragam untuk aksi cuti yang hanya boleh dilakukan pemilik pengajuan. */
 export function ownerActionMessage(err: unknown, fallback: string): string {
+  if ((err as { status?: number } | null)?.status === 409) {
+    return actionErrorMessage(err, fallback);
+  }
   if ((err as { status?: number } | null)?.status === 403) {
     return "Hanya pemilik pengajuan yang dapat melakukan aksi ini.";
+  }
+  return err instanceof Error ? err.message : fallback;
+}
+
+/** Pesan aksi workflow. 409 berarti data di layar sudah tertinggal. */
+export function actionErrorMessage(err: unknown, fallback = "Aksi gagal"): string {
+  if ((err as { status?: number } | null)?.status === 409) {
+    return "Dokumen sudah berubah. Muat ulang halaman lalu coba lagi.";
   }
   return err instanceof Error ? err.message : fallback;
 }

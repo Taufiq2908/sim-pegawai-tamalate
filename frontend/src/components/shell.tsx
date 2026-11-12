@@ -13,6 +13,8 @@ type MenuItem = {
   label: string;
   icon?: React.ComponentType<{ className?: string }>;
   perm?: string;
+  /** Tampil bila user memiliki salah satu permission ini. */
+  anyPerm?: string[];
   /** Sembunyikan dari akun berperan EMPLOYEE (hanya melihat data sendiri). */
   hideForEmployee?: boolean;
   children?: MenuItem[];
@@ -37,7 +39,14 @@ const SECTIONS: Array<{
         label: "Cuti",
         icon: Icons.calendar,
         perm: "leave.view",
-        children: [{ href: "/cuti/baru", label: "Pengajuan Baru", perm: "leave.create" }],
+        children: [
+          {
+            href: "/cuti/menunggu",
+            label: "Menunggu Persetujuan",
+            anyPerm: ["leave.verify", "leave.paraf", "leave.approve", "leave.register"],
+          },
+          { href: "/cuti/baru", label: "Pengajuan Baru", perm: "leave.create" },
+        ],
       },
       { href: "/presensi", label: "Presensi", icon: Icons.clock, perm: "attendance.view" },
       {
@@ -46,6 +55,11 @@ const SECTIONS: Array<{
         icon: Icons.chart,
         perm: "kgb.view",
         children: [
+          {
+            href: "/kgb/menunggu",
+            label: "Menunggu Persetujuan",
+            anyPerm: ["kgb.verify", "kgb.paraf", "kgb.approve", "kgb.register"],
+          },
           { href: "/kgb/baru", label: "Pengajuan Baru", perm: "kgb.create" },
           { href: "/kgb/monitoring", label: "Monitoring", perm: "kgb.view", hideForEmployee: true },
           { href: "/kgb/register-book", label: "Buku Register", perm: "kgb.view", hideForEmployee: true },
@@ -117,6 +131,17 @@ const SECTIONS: Array<{
       },
     ],
   },
+  {
+    title: "Administrasi",
+    items: [
+      {
+        href: "/pengguna/plt",
+        label: "Penugasan Plt",
+        icon: Icons.check,
+        perm: "user.manage",
+      },
+    ],
+  },
 ];
 
 /** Lebar sidebar desktop — dipakai juga untuk posisi flyout submenu. */
@@ -130,6 +155,7 @@ function initials(name?: string | null) {
 
 const TITLES: Array<[RegExp, string]> = [
   [/^\/cuti\/baru$/, "Pengajuan Cuti Baru"],
+  [/^\/cuti\/menunggu$/, "Menunggu Persetujuan Cuti"],
   [/^\/cuti\/[^/]+\/pengajuan$/, "Surat Pengajuan Cuti"],
   [/^\/cuti\/[^/]+\/surat$/, "Surat Pengantar Cuti"],
   [/^\/cuti\/[^/]+\/edit$/, "Ubah Pengajuan Cuti"],
@@ -161,6 +187,7 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/surat-keluar\/baru$/, "Surat Keluar Baru"],
   [/^\/surat-keluar/, "Surat Keluar & Penomoran"],
   [/^\/kgb\/baru$/, "Pengajuan KGB Baru"],
+  [/^\/kgb\/menunggu$/, "Menunggu Persetujuan KGB"],
   [/^\/kgb\/monitoring$/, "Monitoring KGB"],
   [/^\/kgb\/register-book$/, "Buku Register KGB"],
   [/^\/kgb\/[^/]+\/surat$/, "Surat Pengantar KGB"],
@@ -170,19 +197,23 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/arsip\/daftar$/, "Daftar Arsip"],
   [/^\/arsip$/, "Buku Arsip"],
   [/^\/notifikasi$/, "Notifikasi"],
+  [/^\/pengguna\/plt$/, "Penugasan Plt"],
   [/^\/$/, "Dashboard"],
 ];
 
 const SUBTITLES: Array<[RegExp, string]> = [
+  [/^\/cuti\/menunggu$/, "Daftar tugas persetujuan cuti berdasarkan jabatan dan permission"],
   [/^\/cuti$/, "Kelola pengajuan cuti dan proses persetujuan pegawai"],
   [/^\/presensi$/, "Pencatatan apel, rekap sesi, dan pembinaan"],
   [/^\/surat-masuk$/, "Agenda, disposisi, distribusi, dan arsip"],
   [/^\/surat-keluar$/, "Penomoran naskah dinas dan reservasi nomor"],
+  [/^\/kgb\/menunggu$/, "Daftar tugas persetujuan KGB berdasarkan jabatan dan permission"],
   [/^\/kgb$/, "Pengajuan kenaikan gaji berkala"],
   [/^\/pensiun$/, "Kelola usulan pensiun PNS"],
   [/^\/kenaikan-pangkat$/, "Kelola pengajuan kenaikan pangkat ASN"],
   [/^\/arsip$/, "Penyimpanan dan penelusuran arsip"],
   [/^\/notifikasi$/, "Disposisi dan informasi untuk Anda"],
+  [/^\/pengguna\/plt$/, "Catat pejabat pelaksana tugas tanpa mengubah jabatan utama"],
   [/^\/$/, "Ruang kerja administrasi kecamatan"],
 ];
 
@@ -417,8 +448,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     (it: MenuItem) => {
       // Saat auth masih memuat, hanya menu publik (tanpa permission) yang dirender
       // supaya menu yang tidak berhak tidak sempat berkedip muncul.
-      if (loading) return !it.perm;
+      if (loading) return !it.perm && !it.anyPerm;
       if (it.perm && !hasPermission(it.perm)) return false;
+      if (it.anyPerm && !it.anyPerm.some((p) => hasPermission(p))) return false;
       if (it.hideForEmployee && user?.role === "EMPLOYEE") return false;
       return true;
     },

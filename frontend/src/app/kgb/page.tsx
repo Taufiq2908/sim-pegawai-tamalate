@@ -8,6 +8,7 @@ import { apiFetch } from "@/lib/api";
 import type { KgbItem, KgbStatus, PageMeta } from "@/lib/types";
 import { formatRupiah } from "@/lib/format";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
+import { PendingApprovalCard } from "@/components/pending-approval";
 
 const FILTERS: Array<{ value: "" | KgbStatus; label: string }> = [
   { value: "", label: "Semua" },
@@ -16,7 +17,7 @@ const FILTERS: Array<{ value: "" | KgbStatus; label: string }> = [
   { value: "REVISION", label: "Perlu perbaikan" },
   { value: "VERIFIED", label: "Terverifikasi" },
   { value: "PARAF", label: "Paraf" },
-  { value: "APPROVED", label: "Disetujui" },
+  { value: "APPROVED", label: "Disetujui Camat" },
   { value: "REGISTERED", label: "Diregistrasi" },
   { value: "SUBMITTED_BKPSDMD", label: "Ke BKPSDM" },
   { value: "COMPLETED", label: "Selesai" },
@@ -90,6 +91,13 @@ export default function KgbListPage() {
         ) : null}
       </div>
 
+      <PendingApprovalCard
+        endpoint="/kgb-requests/pending-approval"
+        href="/kgb/menunggu"
+        title="Menunggu persetujuan saya"
+        permissions={["kgb.verify", "kgb.paraf", "kgb.approve", "kgb.register"]}
+      />
+
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -153,7 +161,15 @@ export default function KgbListPage() {
                       <td className="px-3 py-2.5 text-muted">{it.oldRank} → {it.newRank}</td>
                       <td className="px-3 py-2.5 tabular-nums text-muted">{formatRupiah(it.oldSalary)} → {formatRupiah(it.newSalary)}</td>
                       <td className="px-3 py-2.5 tabular-nums text-muted">{it.effectiveDate?.slice(0, 10)}</td>
-                      <td className="px-3 py-2.5"><StatusBadge status={it.status} /></td>
+                      <td className="px-3 py-2.5">
+                        <StatusBadge
+                          status={it.status}
+                          label={it.status === "APPROVED" ? "Disetujui Camat" : undefined}
+                        />
+                        {it.waitingFor ? (
+                          <span className="mt-0.5 block text-xs text-muted">Menunggu: {it.waitingFor}</span>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
