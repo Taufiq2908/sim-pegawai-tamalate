@@ -48,15 +48,25 @@ GET  /attendances/session-photos?from=&to=
 Max 5MB, jpg/png saja. 1 foto per sesi per tanggal (upsert atau 409 bila sudah ada).
 
 ### 2.4 Pembinaan dalam fitur presensi — baru, minimal
-SOP: bermasalah → lapor Sekcam → koordinasi Kasubag → verifikasi Camat →
-surat panggilan → pembinaan → teruskan BKPSDM bila perlu. Usulan kontrak minimal:
+SOP: bermasalah → **laporan ke Sekcam** → Sekcam meneruskan ke Camat →
+Camat memutuskan tindak lanjut/tidak → surat teguran + panggilan/pembinaan,
+atau pembinaan Kasi tanpa surat teguran. Kontrak:
 ```text
+POST  /attendances/warning-letters/generate { weekStart }
+  → membuat LAPORAN-YYYY-NNNN (bukan surat teguran), notifikasi Sekcam
+POST  /attendances/warning-letters/:id/forward { note? }
+  → Sekcam meneruskan laporan ke Camat
+POST  /attendances/warning-letters/:id/decide { decision: FOLLOW_UP|NO_FOLLOW_UP, note?, instruction? }
+  → Camat memutuskan; FOLLOW_UP menerbitkan TEGURAN-YYYY-NNNN
 POST  /attendances/warning-letters/:id/summon { scheduledAt, note? }
-  → surat panggilan (perm: attendance.manage)
+  → surat panggilan; hanya setelah keputusan FOLLOW_UP (perm: attendance.manage)
 PATCH /attendances/warning-letters/:id/coaching { result, followUp: NONE|BKPSDM, note? }
-  → catat hasil pembinaan (perm: attendance.manage)
+  → catat hasil pembinaan; Kasi boleh mencatat untuk keputusan NO_FOLLOW_UP
 GET   /attendances/warning-letters (tambah filter followUp=BKPSDM)
 ```
+
+Keputusan `NO_FOLLOW_UP` tidak menerbitkan surat teguran. Laporan masuk ke
+daftar Kasi, dan Kasi menyelesaikannya lewat pembinaan internal (`NONE`).
 
 ## 3. Catatan untuk frontend (sudah dikerjakan / menunggu)
 
@@ -68,8 +78,10 @@ GET   /attendances/warning-letters (tambah filter followUp=BKPSDM)
 - §2.1 problematic per sesi + `days[]` ✅ — frontend pakai `days[]`, label TK.
 - §2.2 `GET /employees` (+ `GET /users`) ✅ — dropdown pegawai & penerima disposisi.
 - §2.3 foto sesi ✅ (`POST/GET /attendances/session-photos`) — galeri + upload di `/presensi`.
-- §2.4 pembinaan + eskalasi ✅ (`summon` + `coaching` + `forward` Sekcam→Camat +
-  `instruct` Camat + payload cetak + notifikasi) — UI di detail teguran.
+- §2.4 pembinaan + eskalasi ✅ (`generate` laporan + `forward` Sekcam→Camat +
+  `decide` Camat + `summon` + `coaching` + payload cetak + notifikasi) — UI di
+  detail laporan/teguran. `instruct` lama tetap tersedia sebagai alias
+  `FOLLOW_UP`.
 - Baru v4: status DL (memaafkan 2 sesi); kunci harian Kasubag (`POST /lock`,
   materialisasi TK, 409 bila terkunci); `GET /weekly-recap` (rekap + TK/izin/DL
   + flag bermasalah) — frontend pakai endpoint ini; summary + kantor/rekapitulasi.

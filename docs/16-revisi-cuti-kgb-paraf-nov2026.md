@@ -12,6 +12,7 @@ tidak diubah pada tahap ini; daftar pekerjaan frontend ada di bagian akhir.
 | 3 | Keputusan akhir Camat pada KGB: setujui / kembalikan / tolak | Selesai; migrasi diterapkan |
 | 4 | Integrasi TTE | Belum diputuskan; tidak diimplementasikan |
 | 5 | Dokumen revisi yang dapat diuji | Selesai (dokumen ini) |
+| 6 | Arsip cuti masuk Buku Arsip dan dashboard Sekcam/Camat | Selesai; migrasi diterapkan |
 
 Prinsip yang dipakai:
 
@@ -232,12 +233,29 @@ Yang belum disepakati:
 | Endpoint | Perubahan |
 |---|---|
 | `GET /kgb-requests` | Item memiliki `waitingFor`; `version` tersedia |
+| `GET /kgb-requests/prefill?employeeId=` | Baru; golongan, gaji pokok, MKG, dan TMT otomatis dari master pegawai + skala gaji PP 5/2024 |
 | `GET /kgb-requests/pending-approval` | Baru; daftar tugas + `count` |
-| `GET /kgb-requests/:id` | `waitingFor`, `documentVersion`, `currentDocumentHash`, `parafHistory`, `approvedAt` |
+| `GET /kgb-requests/:id` | `waitingFor`, `documentVersion`, `parafHistory`, `approvedAt`, `outgoingLetter`, `expeditionStatus` |
 | `POST /kgb-requests/:id/return` | Baru; dari `VERIFIED` (Sekcam) atau `PARAF` (Camat); catatan wajib |
 | `POST /kgb-requests/:id/approve` | Hanya Camat/Plt Camat; mengisi `approvedAt` |
 | `POST /kgb-requests/:id/paraf` | Hanya Sekcam/Plt Sekcam |
 | `POST /kgb-requests/:id/reject` | Pada `VERIFIED` hanya Sekcam; pada `PARAF` hanya Camat |
+| `POST /kgb-requests/:id/register` | `APPROVED → REGISTERED`; otomatis membuat `OutgoingLetter` + baris ekspedisi `BELUM_DIKIRIM`; catatan opsional |
+| `POST /kgb-requests/:id/tobkpsdm` | `REGISTERED → SUBMITTED_BKPSDMD`; mencatat serah terima ke caraka (`DIKIRIM`) |
+| `POST /kgb-requests/:id/complete` | `SUBMITTED_BKPSDMD → COMPLETED`; mencatat bukti terima BKD (`DITERIMA`) |
+
+### Buku ekspedisi surat keluar
+
+| Endpoint | Perubahan |
+|---|---|
+| `GET /outgoing-letters/expedition-book` | Baru; buku ekspedisi tersendiri, default hanya baris yang sudah dicatat. `includeUnrecorded=1` untuk monitoring surat yang belum dicatat |
+| `POST /outgoing-letters/:id/expedition` | Catat serah terima ke caraka/pengekspedisi (`BELUM_DIKIRIM → DIKIRIM`) |
+| `POST /outgoing-letters/:id/expedition/receipt` | Catat bukti terima instansi tujuan (`DIKIRIM → DITERIMA`) |
+| `GET /outgoing-letters/register-book` | Kolom baru `ekspedisi`, `ekspedisiReg`, `ekspedisiDiterima` |
+
+Buku Agenda Surat Keluar dan Buku Ekspedisi Surat Keluar adalah dua buku berbeda.
+Buku agenda adalah inventaris nomor surat; buku ekspedisi adalah bukti serah
+terima. Surat masuk juga tetap punya buku ekspedisinya sendiri.
 
 ### Plt
 
@@ -253,15 +271,18 @@ Permission: `user.view` untuk baca, `user.manage` untuk tulis.
 
 ## 6. Yang harus dilakukan frontend
 
-Frontend tidak diubah pada pekerjaan ini. Berikut daftar yang perlu disesuaikan:
+Frontend sudah disesuaikan untuk poin-poin berikut. Daftar ini juga menjadi acuan
+bila perlu penyesuaian lanjutan:
 
 ### Cuti
 
 1. Tambahkan halaman/kartu **Menunggu persetujuan saya** yang memanggil
    `GET /leave-requests/pending-approval` dan menampilkan `meta.count`.
 2. Tampilkan kolom **Sedang menunggu** dari `waitingFor` pada daftar.
-3. Tampilkan `parafHistory`, `documentVersion`, dan `currentDocumentHash` pada
-   detail. Jangan menampilkan gambar paraf.
+3. Tampilkan `parafHistory` dan `documentVersion` pada detail. Jangan
+   menampilkan `currentDocumentHash`, `contentHash`, atau hash SHA-256 apa pun
+   di UI; hash tetap disimpan backend untuk integritas. Jangan menampilkan
+   gambar paraf.
 4. Ubah label tombol paraf menjadi **Paraf dan Teruskan**.
 5. Sediakan tombol **Kembalikan** (`revise`) pada status `VERIFIED` untuk
    Sekcam dan `PARAF` untuk Camat, dengan catatan wajib.
@@ -274,16 +295,28 @@ Frontend tidak diubah pada pekerjaan ini. Berikut daftar yang perlu disesuaikan:
 
 1. Tambahkan halaman/kartu **Menunggu persetujuan saya** dari
    `GET /kgb-requests/pending-approval`.
-2. Tampilkan `waitingFor`, `parafHistory`, `documentVersion`, dan
-   `currentDocumentHash`.
+2. Tampilkan `waitingFor`, `parafHistory`, dan `documentVersion`. Jangan
+   menampilkan hash dokumen di UI.
 3. Tampilkan tiga tombol Camat pada status `PARAF`:
    - **Setujui** → `POST /kgb-requests/:id/approve`;
    - **Kembalikan dengan catatan** → `POST /kgb-requests/:id/return`;
    - **Tolak** → `POST /kgb-requests/:id/reject`.
 4. Catatan wajib untuk `return` dan `reject`.
-5. Jangan menampilkan klaim “TTE berhasil” sebelum opsi TTE diimplementasikan.
+5. Form KGB baru memakai `GET /kgb-requests/prefill`: golongan/gaji/MKG ditampilkan
+   read-only dan tidak dikirim manual. Gaji baru dihitung dari tabel PP 5/2024
+   pada MKG + 2 tahun. Jika MKG sudah maksimum, tombol simpan/ajukan dinonaktifkan.
+6. Detail KGB menampilkan kartu **Surat pengantar & ekspedisi**:
+   - setelah `register`, tampilkan nomor surat keluar dan status ekspedisi
+     `BELUM_DIKIRIM`;
+   - setelah `tobkpsdm`, tampilkan status `DIKIRIM` dan data caraka;
+   - setelah `complete`, tampilkan status `DITERIMA`, tanggal, penerima, dan
+     nomor tanda terima.
+7. Sediakan tautan ke **Buku Agenda Surat Keluar** dan **Buku Ekspedisi Surat
+   Keluar**. Jangan menampilkan tombol “Catat surat keluar” manual dari KGB;
+   surat keluar dibuat otomatis oleh aksi `register`.
+8. Jangan menampilkan klaim “TTE berhasil” sebelum opsi TTE diimplementasikan.
    Untuk sementara gunakan label **Disetujui Camat**.
-6. Jika Opsi 1 dipilih, tambahkan UI unggah PDF bertanda tangan dan tampilkan
+9. Jika Opsi 1 dipilih, tambahkan UI unggah PDF bertanda tangan dan tampilkan
    status verifikasinya.
 
 ### Notifikasi
@@ -320,10 +353,20 @@ Frontend tidak diubah pada pekerjaan ini. Berikut daftar yang perlu disesuaikan:
 12. Cuti pemohon Sekcam: setelah Kasubag `verify`, Camat menerima notifikasi
     dan item muncul di `pending-approval` Camat; Sekcam tidak menerima tugas
     paraf untuk pengajuan itu.
+13. KGB `APPROVED` → `register`: surat keluar baru muncul di Buku Agenda Surat
+    Keluar dan baris `BELUM_DIKIRIM` muncul di Buku Ekspedisi Surat Keluar.
+14. KGB `REGISTERED` → `tobkpsdm`: status ekspedisi menjadi `DIKIRIM` dan data
+    caraka/tanggal serah terima tampil.
+15. KGB `SUBMITTED_BKPSDMD` → `complete`: status ekspedisi menjadi `DITERIMA`,
+    tanggal/penerima/nomor tanda terima tampil, dan surat tetap ada di buku
+    agenda.
+16. Buku Agenda Surat Masuk, Buku Agenda Surat Keluar, Buku Ekspedisi Surat
+    Masuk, dan Buku Ekspedisi Surat Keluar tampil sebagai menu/daftar terpisah.
 
 ## 8. Deployment
 
-Migrasi: `20261111000000_paraf_history_and_camat_decision`.
+Migrasi terkait: `20261111000000_paraf_history_and_camat_decision`,
+`20261116020000_kgb_salary_scale`, `20261116030000_outgoing_expedition`.
 
 Langkah:
 
@@ -352,3 +395,25 @@ Pemeriksaan runtime read-only yang sudah dilakukan:
 UAT tulis (paraf/approve/return/reject) belum dijalankan agar data produksi
 tidak berubah. Jalankan skenario UAT minimal di environment uji setelah
 frontend siap.
+
+## 5. Arsip cuti dan Daftar Arsip
+
+### Kebutuhan yang dapat diuji
+
+1. Staf menjalankan `archive` pada cuti `COMPLETED`; status menjadi `ARCHIVED`.
+2. Backend membuat satu `ArchiveRecord` dengan `sourceType=LEAVE`, `leaveRequestId`, nomor arsip, uraian, nomor dokumen, tanggal dokumen, klasifikasi sesuai jenis cuti, dan `listId=null`.
+3. Record muncul di Buku Arsip (`/arsip`) dan di dashboard Sekcam/Camat sebagai arsip belum masuk daftar.
+4. Sekcam/Camat dapat menyusun Daftar Arsip dari record tersebut dan menandatanganinya.
+5. Setelah daftar `SIGNED`, staf dengan `archive.update` dapat mengisi `code` dan `bundleCode`; metadata lain terkunci.
+6. `SUPER_ADMIN` tetap dapat mengoreksi metadata lain, tetapi setelah daftar ditandatangani juga hanya `code`/`bundleCode` yang dapat diubah.
+7. Detail cuti menampilkan nomor arsip, kode, dan daftar arsip bila sudah ada.
+8. Backfill membuat record untuk cuti lama yang sudah `ARCHIVED` dan belum punya record.
+
+### Implementasi
+
+- Kolom baru `arsip.id_permohonan_cuti` (UNIQUE, FK ke `permohonan_cuti`).
+- `createArchiveRecordTx()` dipanggil di dalam transaksi aksi `archive` cuti.
+- `GET /archives` menerima `sourceType=LEAVE`; detail menyertakan `leaveRequest`.
+- `PATCH /archives/:id` mengizinkan staf mengubah kode; setelah `SIGNED` hanya kode arsip/kode berkas.
+- Dashboard LEADER/SUPER_ADMIN menampilkan metrik `Arsip belum masuk daftar` dan `Daftar arsip menunggu tanda tangan`; dashboard VERIFIER menampilkan daftar arsip yang sudah ditandatangani untuk diberi kode.
+- Migration `20261116000000_leave_archive_records` diterapkan dan mem-backfill cuti `ARCHIVED` lama.

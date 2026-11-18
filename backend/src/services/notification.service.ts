@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { userIdsForPosition } from './position.service';
 
 export interface NotificationInput {
   type: string;
@@ -15,17 +16,17 @@ export interface ArchiveNotificationInput {
   referenceId: string;
 }
 
-/** Kirim notifikasi ke semua user aktif dengan posisi tertentu. Best-effort. */
+/** Kirim notifikasi ke semua user aktif dengan posisi tertentu, termasuk Plt aktif. Best-effort. */
 export async function notifyPositions(positions: string[], input: NotificationInput): Promise<void> {
-  const users = await prisma.user.findMany({
-    where: { isActive: true, position: { in: positions } },
-    select: { id: true },
-  });
-  if (users.length === 0) return;
+  const ids = new Set<string>();
+  for (const position of positions) {
+    for (const id of await userIdsForPosition(position)) ids.add(id);
+  }
+  if (ids.size === 0) return;
 
   await prisma.notification.createMany({
-    data: users.map((u) => ({
-      userId: u.id,
+    data: [...ids].map((userId) => ({
+      userId,
       type: input.type,
       title: input.title.slice(0, 255),
       body: input.body,
@@ -49,9 +50,12 @@ export async function notifyUser(userId: string, input: NotificationInput): Prom
   });
 }
 
-/** Notifikasi dashboard Sekcam/Camat saat surat masuk/keluar masuk antrean arsip. */
+/**
+ * Notifikasi antrean arsip. Staf arsip ikut diberi tahu karena sekarang dapat
+ * menyelesaikan arsip surat masuk; Sekcam/Camat tetap menjadi approver.
+ */
 export async function notifyArchiveApprovers(input: ArchiveNotificationInput): Promise<void> {
-  await notifyPositions(['SEKCAM', 'CAMAT'], {
+  await notifyPositions(['SEKCAM', 'CAMAT', 'STAF_KEPEGAWAIAN', 'ARSIP'], {
     type: 'ARCHIVE_APPROVAL',
     title: input.title,
     body: input.body,

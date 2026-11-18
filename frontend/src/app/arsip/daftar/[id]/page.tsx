@@ -215,6 +215,7 @@ export default function ArsipDaftarDetailPage() {
                       <th className="px-3 py-2">Nomor Arsip</th>
                       <th className="px-3 py-2">Uraian</th>
                       <th className="px-3 py-2">Sumber</th>
+                      <th className="px-3 py-2">Kode</th>
                       <th className="px-3 py-2">Tgl. Arsip</th>
                       <th className="px-3 py-2">Kategori</th>
                       <th className="px-3 py-2">Lokasi</th>
@@ -226,7 +227,8 @@ export default function ArsipDaftarDetailPage() {
                       <tr key={r.id} className="border-b last:border-0">
                         <td className="px-3 py-2 font-medium">{r.archiveNumber}</td>
                         <td className="px-3 py-2">{r.title}</td>
-                        <td className="px-3 py-2">{r.sourceType === "INCOMING" ? "Masuk" : "Keluar"}</td>
+                        <td className="px-3 py-2">{r.sourceType === "INCOMING" ? "Masuk" : r.sourceType === "OUTGOING" ? "Keluar" : "Cuti"}</td>
+                        <td className="px-3 py-2">{r.code}</td>
                         <td className="px-3 py-2">{r.archiveDate.slice(0, 10)}</td>
                         <td className="px-3 py-2">{r.category}</td>
                         <td className="px-3 py-2">{locationLabel(r.location)}</td>
@@ -238,6 +240,13 @@ export default function ArsipDaftarDetailPage() {
                             >
                               Keluarkan
                             </button>
+                          ) : canUpdate ? (
+                            <Link
+                              href={`/arsip/${r.id}`}
+                              className="rounded-md border border-line px-2 py-1 text-xs font-medium text-ink hover:bg-paper"
+                            >
+                              Beri kode
+                            </Link>
                           ) : (
                             <span className="text-xs text-muted">—</span>
                           )}

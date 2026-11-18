@@ -55,10 +55,10 @@ export default function EkspedisiPage() {
   }, []);
 
   return (
-    <RequirePerm perm="letter.view" label="Buku Ekspedisi" denyForEmployee>
+    <RequirePerm perm="letter.view" label="Buku Ekspedisi Surat Masuk" denyForEmployee>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold">Buku Ekspedisi</h1>
+          <h1 className="text-xl font-bold">Buku Ekspedisi Surat Masuk</h1>
           <p className="mt-0.5 text-sm text-muted">
             Baris tercatat otomatis saat penerima disposisi menekan <strong>Terima &amp; Baca</strong>. Tidak ada pencatatan manual.
           </p>

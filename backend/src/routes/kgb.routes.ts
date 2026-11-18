@@ -10,18 +10,47 @@ import { authRequired, requirePermission } from '../middleware/auth';
 import { availableActions, computeKgbSchedule, KGB_OVERDUE_MONTHS, KGB_REMINDER_MONTHS, KGB_REQUIRED_DOCS, TRANSITIONS, waitingFor } from '../services/kgb.service';
 import { ok, fail } from '../utils/response';
 import { can, usersForPermission } from '../lib/permissions';
-import { parseYMD } from '../services/attendance.service';
+import { parseYMD, todayYMD } from '../services/attendance.service';
+import { formatLetterNumber, letterUnitCode } from '../services/numbering.service';
+import { NumberingError, allocateOutgoingSequence, claimOutgoingBuffer } from '../services/outgoing-numbering.service';
 import { effectivePosition, positionLabel, primaryUserForPosition, userIdsForPosition, userHoldsPosition } from '../services/position.service';
 import { hashDocument, kgbDocumentPayload, listParafHistory, publicParafHistory, recordParaf } from '../services/paraf.service';
+import { buildKgbPrefill } from '../services/kgb-prefill.service';
+import {
+  OutgoingExpeditionError,
+  ensureOutgoingExpedition,
+  markOutgoingExpeditionReceived,
+  markOutgoingExpeditionSent,
+  outgoingExpeditionStatus,
+  publicOutgoingExpedition,
+} from '../services/outgoing-expedition.service';
 
 const router = Router();
 router.use(authRequired);
 
+// Klasifikasi arsip untuk usulan KGB dan instansi tujuan surat pengantar.
+const KGB_OUTGOING_CLASSIFICATION = '800.1.11.13';
+const KGB_RECIPIENT = 'Kepala Badan Kepegawaian dan Pengembangan SDM Daerah Kota Makassar';
+
+/** Nomor permohonan KGB memakai urutan terbesar tahun berjalan, bukan count. */
+async function nextKgbRequestNumber(): Promise<string> {
+  const year = new Date().getFullYear();
+  const prefix = `KGB-${year}-`;
+  const last = await prisma.kgbRequest.findFirst({
+    where: { requestNumber: { startsWith: prefix } },
+    orderBy: { requestNumber: 'desc' },
+    select: { requestNumber: true },
+  });
+  const lastSeq = last?.requestNumber ? Number(last.requestNumber.slice(prefix.length)) : 0;
+  const next = Number.isFinite(lastSeq) ? lastSeq + 1 : 1;
+  return `${prefix}${String(next).padStart(4, '0')}`;
+}
+
 const ACTION_LABEL_ID: Record<string, string> = {
   submit: 'diajukan', verify: 'diverifikasi', revise: 'diminta revisi',
   paraf: 'diparaf', return: 'dikembalikan', approve: 'disetujui',
-  register: 'diregistrasi', tobkpsdm: 'diteruskan ke BKPSDM',
-  complete: 'diselesaikan', archive: 'diarsipkan', reject: 'ditolak',
+  register: 'dicatat di buku agenda surat keluar', tobkpsdm: 'dicatat di buku ekspedisi',
+  complete: 'bukti terima BKD diterima', archive: 'diarsipkan', reject: 'ditolak',
 };
 
 // Pemegang tahap berikutnya yang perlu diberi notifikasi.
@@ -130,6 +159,7 @@ router.get('/register-book', requirePermission('kgb.view'), async (req, res) => 
     },
     include: {
       employee: { include: { orgUnit: true } },
+      outgoingLetter: { select: { letterNumber: true, letterDate: true, issuedAt: true } },
       approvals: {
         where: { action: 'REGISTER' },
         orderBy: { createdAt: 'desc' as const },
@@ -161,10 +191,18 @@ router.get('/register-book', requirePermission('kgb.view'), async (req, res) => 
 
     const joinDate = emp.joinDate ? new Date(emp.joinDate) : null;
     const register = k.approvals?.[0] ?? null;
-    const registerDate = register?.createdAt ? new Date(register.createdAt) : null;
+    const registerDate = k.outgoingLetter?.letterDate
+      ? new Date(k.outgoingLetter.letterDate)
+      : register?.createdAt
+        ? new Date(register.createdAt)
+        : null;
     const previousRegister = previous?.approvals?.[0] ?? null;
     const previousDate = previous ? new Date(previous.effectiveDate) : null;
-    const previousRegisterDate = previousRegister?.createdAt ? new Date(previousRegister.createdAt) : null;
+    const previousRegisterDate = previous?.outgoingLetter?.letterDate
+      ? new Date(previous.outgoingLetter.letterDate)
+      : previousRegister?.createdAt
+        ? new Date(previousRegister.createdAt)
+        : null;
     const nextKgb = new Date(effDate);
     nextKgb.setFullYear(nextKgb.getFullYear() + 2);
 
@@ -185,9 +223,10 @@ router.get('/register-book', requirePermission('kgb.view'), async (req, res) => 
       jabatan: emp.position,
       unitKerja: emp.orgUnit?.name ?? '-',
       lama: {
-        nomorSk: previousRegister
-          ? registerNumberFromNote(previousRegister.note, previous.requestNumber)
-          : '-',
+        nomorSk: previous?.outgoingLetter?.letterNumber
+          ?? (previousRegister
+            ? registerNumberFromNote(previousRegister.note, previous.requestNumber)
+            : '-'),
         tanggalSk: previousRegisterDate ? previousRegisterDate.toISOString().slice(0, 10) : '-',
         tglMulai: previousDate ? previousDate.toISOString().slice(0, 10) : '-',
         masaKerja: masaLama,
@@ -350,6 +389,20 @@ router.post('/reminders/generate', requirePermission('kgb.remind'), async (req, 
   return ok(res, result, `${result.length} pengingat dibuat${overdueCount ? ` (${overdueCount} terlambat)` : ''}`);
 });
 
+// GET /kgb-requests/prefill?employeeId= — data otomatis untuk form KGB.
+// Golongan, gaji pokok, MKG, dan TMT dihitung dari master kepegawaian + PP 5/2024.
+router.get('/prefill', requirePermission('kgb.create'), async (req, res) => {
+  const requested = typeof req.query.employeeId === 'string' ? req.query.employeeId : null;
+  if (requested && req.user!.role === 'EMPLOYEE' && requested !== req.user!.employeeId) {
+    return fail(res, 403, 'Tidak boleh melihat data pegawai lain');
+  }
+  const employeeId = requested ?? req.user!.employeeId;
+  if (!employeeId) return fail(res, 422, 'User ini tidak terhubung ke data employee');
+  const prefill = await buildKgbPrefill(employeeId);
+  if (!prefill) return fail(res, 404, 'Employee tidak ditemukan');
+  return ok(res, prefill);
+});
+
 fs.mkdirSync(env.uploadDir, { recursive: true });
 const upload = multer({
   dest: env.uploadDir,
@@ -388,6 +441,27 @@ async function toDetail(
       holdsSekcam,
       holdsCamat,
     }),
+    outgoingLetter: r.outgoingLetter
+      ? {
+          id: r.outgoingLetter.id,
+          letterNumber: r.outgoingLetter.letterNumber,
+          subject: r.outgoingLetter.subject,
+          recipient: r.outgoingLetter.recipient,
+          letterDate: r.outgoingLetter.letterDate?.toISOString().slice(0, 10) ?? null,
+          status: r.outgoingLetter.status,
+          signerName: r.outgoingLetter.signerName,
+          outgoingExpedition: publicOutgoingExpedition(r.outgoingLetter.outgoingExpedition),
+          archiveRecord: r.outgoingLetter.archiveRecord
+            ? {
+                id: r.outgoingLetter.archiveRecord.id,
+                archiveNumber: r.outgoingLetter.archiveRecord.archiveNumber,
+                archiveDate: r.outgoingLetter.archiveRecord.archiveDate?.toISOString().slice(0, 10) ?? null,
+                listId: r.outgoingLetter.archiveRecord.listId,
+              }
+            : null,
+        }
+      : null,
+    expeditionStatus: outgoingExpeditionStatus(r.outgoingLetter?.outgoingExpedition),
     camat: camat
       ? {
           name: camat.employee?.name ?? camat.username,
@@ -423,6 +497,12 @@ async function toDetail(
 const includeDetail = {
   employee: { include: { orgUnit: true } },
   documents: true,
+  outgoingLetter: {
+    include: {
+      outgoingExpedition: true,
+      archiveRecord: { select: { id: true, archiveNumber: true, archiveDate: true, listId: true } },
+    },
+  },
   approvals: { include: { actor: { omit: { passwordHash: true }, include: { employee: { select: { name: true, nip: true } } } } }, orderBy: { createdAt: 'asc' as const } },
 };
 
@@ -497,21 +577,20 @@ router.get('/:id', requirePermission('kgb.view'), async (req, res) => {
 
 // POST /kgb-requests (DRAFT)
 router.post('/', requirePermission('kgb.create'), async (req, res) => {
+  // Golongan/gaji boleh dikirim untuk kompatibilitas, tetapi bila kosong
+  // backend mengisinya dari master kepegawaian + skala gaji PP 5/2024.
   const schema = z.object({
-    oldRank: z.string().min(1, 'Golongan lama wajib'),
-    newRank: z.string().min(1, 'Golongan baru wajib'),
-    oldSalary: z.number().int().positive('Gaji lama harus > 0'),
-    newSalary: z.number().int().positive('Gaji baru harus > 0'),
-    effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    oldRank: z.string().min(1).optional(),
+    newRank: z.string().min(1).optional(),
+    oldSalary: z.number().int().positive().optional(),
+    newSalary: z.number().int().positive().optional(),
+    effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     note: z.string().max(1000).optional(),
     employeeId: z.string().uuid().optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
   const b = parsed.data;
-
-  if (b.newSalary <= b.oldSalary) return fail(res, 422, 'Gaji baru harus lebih besar dari gaji lama');
-  if (!parseYMD(b.effectiveDate)) return fail(res, 422, 'effectiveDate tidak valid');
 
   let employeeId = req.user!.employeeId;
   if (b.employeeId) {
@@ -520,39 +599,63 @@ router.post('/', requirePermission('kgb.create'), async (req, res) => {
   }
   if (!employeeId) return fail(res, 422, 'User ini tidak terhubung ke data employee');
 
-  const count = await prisma.kgbRequest.count();
-  const requestNumber = `KGB-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+  const prefill = await buildKgbPrefill(employeeId);
+  if (!prefill) return fail(res, 404, 'Employee tidak ditemukan');
+  const oldRank = b.oldRank ?? prefill.oldRank;
+  const newRank = b.newRank ?? prefill.newRank;
+  const oldSalary = b.oldSalary ?? prefill.oldSalary;
+  const newSalary = b.newSalary ?? prefill.newSalary;
+  const effectiveDate = b.effectiveDate ?? prefill.effectiveDate;
+  if (!(newSalary > oldSalary)) {
+    return fail(
+      res,
+      422,
+      prefill.atMax
+        ? `MKG ${prefill.mkg} sudah mencapai batas golongan ${prefill.oldRank}; gaji pokok tidak dapat naik lagi`
+        : 'Gaji baru harus lebih besar dari gaji lama',
+    );
+  }
+  if (!parseYMD(effectiveDate)) return fail(res, 422, 'effectiveDate tidak valid');
 
-  const r = await prisma.$transaction(async (tx) => {
-    const created = await tx.kgbRequest.create({
-      data: {
-        requestNumber,
-        employeeId: employeeId!,
-        oldRank: b.oldRank,
-        newRank: b.newRank,
-        oldSalary: b.oldSalary,
-        newSalary: b.newSalary,
-        effectiveDate: parseYMD(b.effectiveDate)!,
-        note: b.note,
-        status: 'DRAFT',
-        currentHolderRole: 'EMPLOYEE',
-        createdBy: req.user!.id,
-      },
-      include: includeDetail,
-    });
-    await tx.kgbApproval.create({
-      data: {
-        kgbRequestId: created.id,
-        actorUserId: req.user!.id,
-        actorRole: req.user!.role,
-        actorPosition: req.user!.position,
-        fromStatus: '-',
-        toStatus: 'DRAFT',
-        action: 'CREATE',
-      },
-    });
-    return created;
-  });
+  let r: any = null;
+  for (let attempt = 0; attempt < 3 && !r; attempt += 1) {
+    const requestNumber = await nextKgbRequestNumber();
+    try {
+      r = await prisma.$transaction(async (tx) => {
+        const created = await tx.kgbRequest.create({
+          data: {
+            requestNumber,
+            employeeId: employeeId!,
+            oldRank,
+            newRank,
+            oldSalary,
+            newSalary,
+            effectiveDate: parseYMD(effectiveDate)!,
+            note: b.note,
+            status: 'DRAFT',
+            currentHolderRole: 'EMPLOYEE',
+            createdBy: req.user!.id,
+          },
+          include: includeDetail,
+        });
+        await tx.kgbApproval.create({
+          data: {
+            kgbRequestId: created.id,
+            actorUserId: req.user!.id,
+            actorRole: req.user!.role,
+            actorPosition: req.user!.position,
+            fromStatus: '-',
+            toStatus: 'DRAFT',
+            action: 'CREATE',
+          },
+        });
+        return created;
+      });
+    } catch (e: any) {
+      if (e?.code !== 'P2002') throw e;
+    }
+  }
+  if (!r) return fail(res, 409, 'Nomor permohonan KGB bentrok, ulangi pengajuan');
   const full = await prisma.kgbRequest.findUnique({ where: { id: r.id }, include: includeDetail });
   return res.status(201).json({ success: true, message: 'Draf KGB dibuat', data: await toDetail(full, req.user!), meta: null, errors: null });
 });
@@ -574,13 +677,26 @@ router.patch('/:id', requirePermission('kgb.create'), async (req, res) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
   const b = parsed.data;
-  const finalOld = b.oldSalary ?? r.oldSalary;
-  const finalNew = b.newSalary ?? r.newSalary;
-  if (finalNew <= finalOld) return fail(res, 422, 'Gaji baru harus lebih besar dari gaji lama');
+  const prefill = await buildKgbPrefill(r.employeeId);
+  const finalOld = b.oldSalary ?? prefill?.oldSalary ?? r.oldSalary;
+  const finalNew = b.newSalary ?? prefill?.newSalary ?? r.newSalary;
+  if (finalNew <= finalOld) {
+    return fail(
+      res,
+      422,
+      prefill?.atMax
+        ? `MKG ${prefill.mkg} sudah mencapai batas golongan ${prefill.oldRank}; gaji pokok tidak dapat naik lagi`
+        : 'Gaji baru harus lebih besar dari gaji lama',
+    );
+  }
   const updated = await prisma.kgbRequest.update({
     where: { id: r.id },
     data: {
       ...b,
+      ...(b.oldRank === undefined && prefill ? { oldRank: prefill.oldRank } : {}),
+      ...(b.newRank === undefined && prefill ? { newRank: prefill.newRank } : {}),
+      ...(b.oldSalary === undefined ? { oldSalary: finalOld } : {}),
+      ...(b.newSalary === undefined ? { newSalary: finalNew } : {}),
       ...(b.effectiveDate ? { effectiveDate: parseYMD(b.effectiveDate)! } : {}),
     },
     include: includeDetail,
@@ -657,18 +773,25 @@ router.post('/:id/:action', async (req, res) => {
   if (!t) return fail(res, 404, `Action tidak dikenal: ${action}`);
   if (!can(req.user!.permissions, t.permission)) return fail(res, 403, `Forbidden: butuh permission ${t.permission}`);
 
-  const schema = z.object({ note: z.string().optional() });
+  const schema = z.object({
+    note: z.string().optional(),
+    courierName: z.string().max(150).optional(),
+    sentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    receivedByName: z.string().max(150).optional(),
+    receiptNumber: z.string().max(100).optional(),
+    receivedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  });
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
-  const note = parsed.data.note;
+  const { note, courierName, sentDate, receivedByName, receiptNumber, receivedDate } = parsed.data;
   if ((action === 'revise' || action === 'return' || action === 'reject') && !note) {
     return fail(res, 422, 'note wajib untuk revise/return/reject');
   }
-  if (action === 'register' && !note) {
-    return fail(res, 422, 'note wajib untuk register (catat nomor surat keluar)');
-  }
 
-  const r = await prisma.kgbRequest.findUnique({ where: { id: req.params.id } });
+  const r = await prisma.kgbRequest.findUnique({
+    where: { id: req.params.id },
+    include: { employee: true, outgoingLetter: { include: { outgoingExpedition: true } } },
+  });
   if (!r) return fail(res, 404, 'Tidak ditemukan');
   if (!t.from.includes(r.status)) {
     return fail(res, 409, `Status harus ${t.from.join('/')} , saat ini ${r.status}`);
@@ -736,65 +859,148 @@ router.post('/:id/:action', async (req, res) => {
     ? currentVersion + 1
     : currentVersion;
   const shouldRecordParaf = ['paraf', 'approve', 'return', 'reject'].includes(action);
+  const camatForLetter = action === 'register' ? await primaryUserForPosition('CAMAT') : null;
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const data: any = {
-      status: t.to,
-      version: nextVersion,
-      submittedAt: action === 'submit' ? new Date() : r.submittedAt,
-      revisionNote: ['revise', 'return'].includes(action) ? note : null,
-      rejectionReason: action === 'reject' ? note : null,
-      currentHolderRole: t.holderAfter,
-    };
-    if (action === 'approve') {
-      data.approvedAt = new Date();
-      data.approvedBy = req.user!.id;
-      data.approvalNote = note ?? null;
-    }
-    if (action === 'return') {
-      data.approvedAt = null;
-      data.approvedBy = null;
-      data.approvalNote = null;
-    }
-    const u = await tx.kgbRequest.update({ where: { id: r.id }, data });
-    await tx.kgbApproval.create({
-      data: {
-        kgbRequestId: r.id,
-        actorUserId: req.user!.id,
-        actorRole: req.user!.role,
-        actorPosition,
-        actorName,
-        actorNip,
-        fromStatus: r.status,
-        toStatus: t.to,
-        action: action.toUpperCase(),
-        note: note ?? null,
-      },
-    });
-    if (shouldRecordParaf) {
-      const docs = await tx.kgbDocument.findMany({
-        where: { kgbRequestId: r.id },
-        select: { id: true, docType: true, originalName: true, sizeBytes: true, contentHash: true },
-      });
-      const payload = kgbDocumentPayload({ ...r, version: nextVersion }, docs);
-      await recordParaf(tx, {
-        documentType: 'KGB',
-        documentId: r.id,
-        documentNumber: r.requestNumber,
-        documentVersion: nextVersion,
-        documentHash: hashDocument(payload),
-        actor: {
-          userId: req.user!.id,
-          name: actorName,
-          nip: actorNip,
-          position: actorPosition,
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const data: any = {
+        status: t.to,
+        version: nextVersion,
+        submittedAt: action === 'submit' ? new Date() : r.submittedAt,
+        revisionNote: ['revise', 'return'].includes(action) ? note : null,
+        rejectionReason: action === 'reject' ? note : null,
+        currentHolderRole: t.holderAfter,
+      };
+      if (action === 'approve') {
+        data.approvedAt = new Date();
+        data.approvedBy = req.user!.id;
+        data.approvalNote = note ?? null;
+      }
+      if (action === 'return') {
+        data.approvedAt = null;
+        data.approvedBy = null;
+        data.approvalNote = null;
+      }
+
+      // Langkah 7 SOP: register membuat surat keluar resmi di buku agenda
+      // surat keluar sekaligus baris ekspedisi (masih belum dikirim).
+      if (action === 'register' && !r.outgoingLetterId) {
+        const cls = await tx.archiveClassification.findUnique({
+          where: { code: KGB_OUTGOING_CLASSIFICATION },
+        });
+        if (!cls || !cls.isActive) {
+          throw new NumberingError(422, `Klasifikasi arsip ${KGB_OUTGOING_CLASSIFICATION} tidak ditemukan`);
+        }
+        const letterDateYmd = todayYMD();
+        const alloc = await allocateOutgoingSequence(tx, letterDateYmd);
+        const nipPart = r.employee?.nip ? ` (NIP ${r.employee.nip})` : '';
+        const letter = await tx.outgoingLetter.create({
+          data: {
+            letterNumber: formatLetterNumber(cls.code, alloc.sequence, letterUnitCode(), letterDateYmd),
+            sequenceNumber: alloc.sequence,
+            year: Number(letterDateYmd.slice(0, 4)),
+            classificationId: cls.id,
+            subject: `Usulan Kenaikan Gaji Berkala a.n. ${r.employee?.name ?? r.requestNumber}${nipPart}`.slice(0, 500),
+            recipient: KGB_RECIPIENT,
+            personInCharge: actorName,
+            letterCode: cls.code,
+            remarks: `Register KGB ${r.requestNumber}${note ? ` — ${note}` : ''}`.slice(0, 500),
+            letterDate: parseYMD(letterDateYmd)!,
+            priority: 'BIASA',
+            secrecy: 'B',
+            signerName: camatForLetter?.employee?.name ?? null,
+            status: 'TERKIRIM',
+            issuedAt: new Date(),
+            createdBy: req.user!.id,
+          },
+        });
+        await claimOutgoingBuffer(tx, alloc.bufferId, letter.id);
+        await ensureOutgoingExpedition(tx, {
+          letterId: letter.id,
+          recipientName: KGB_RECIPIENT,
+          createdBy: req.user!.id,
+        });
+        data.outgoingLetterId = letter.id;
+      }
+
+      // Langkah 8 SOP: catat penyerahan ke caraka di buku ekspedisi keluar.
+      if (action === 'tobkpsdm') {
+        if (!r.outgoingLetterId) {
+          throw new OutgoingExpeditionError(409, 'Register surat ke buku agenda surat keluar terlebih dahulu');
+        }
+        if (!r.outgoingLetter?.outgoingExpedition?.sentAt) {
+          await markOutgoingExpeditionSent(tx, {
+            letterId: r.outgoingLetterId,
+            recipientName: KGB_RECIPIENT,
+            sentDate,
+            courierName: courierName ?? actorName,
+            note,
+            createdBy: req.user!.id,
+          });
+        }
+      }
+
+      // Langkah 9 SOP: bukti terima dari BKD sudah diterima.
+      if (action === 'complete' && r.outgoingLetterId && !r.outgoingLetter?.outgoingExpedition?.receivedDate) {
+        await markOutgoingExpeditionReceived(tx, {
+          letterId: r.outgoingLetterId,
+          recipientName: KGB_RECIPIENT,
+          receivedDate,
+          receivedByName: receivedByName ?? 'BKD Kota Makassar',
+          receiptNumber,
+          note,
+          receivedBy: req.user!.id,
+          createdBy: req.user!.id,
+        });
+      }
+
+      const u = await tx.kgbRequest.update({ where: { id: r.id }, data });
+      await tx.kgbApproval.create({
+        data: {
+          kgbRequestId: r.id,
+          actorUserId: req.user!.id,
+          actorRole: req.user!.role,
+          actorPosition,
+          actorName,
+          actorNip,
+          fromStatus: r.status,
+          toStatus: t.to,
+          action: action.toUpperCase(),
+          note: note ?? null,
         },
-        action: action.toUpperCase() as 'PARAF' | 'APPROVE' | 'RETURN' | 'REJECT',
-        note: note ?? null,
       });
+      if (shouldRecordParaf) {
+        const docs = await tx.kgbDocument.findMany({
+          where: { kgbRequestId: r.id },
+          select: { id: true, docType: true, originalName: true, sizeBytes: true, contentHash: true },
+        });
+        const payload = kgbDocumentPayload({ ...r, version: nextVersion }, docs);
+        await recordParaf(tx, {
+          documentType: 'KGB',
+          documentId: r.id,
+          documentNumber: r.requestNumber,
+          documentVersion: nextVersion,
+          documentHash: hashDocument(payload),
+          actor: {
+            userId: req.user!.id,
+            name: actorName,
+            nip: actorNip,
+            position: actorPosition,
+          },
+          action: action.toUpperCase() as 'PARAF' | 'APPROVE' | 'RETURN' | 'REJECT',
+          note: note ?? null,
+        });
+      }
+      return u;
+    });
+  } catch (e: any) {
+    if (e instanceof NumberingError || e instanceof OutgoingExpeditionError) {
+      return fail(res, e.status, e.message);
     }
-    return u;
-  });
+    if (e?.code === 'P2002') return fail(res, 409, 'Nomor surat/ekspedisi bentrok, ulangi aksi');
+    throw e;
+  }
 
   await notifyKgbTransition({
     requestId: r.id, requestNumber: r.requestNumber, employeeId: r.employeeId,

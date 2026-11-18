@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { authRequired, requirePermission } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
 import { parseYMD } from '../services/attendance.service';
+import { userHoldsPosition } from '../services/position.service';
 import {
   ARCHIVE_CATEGORIES,
   ARCHIVE_LIST_STATUS,
@@ -37,6 +38,17 @@ const outgoingSourceSelect = {
   status: true,
 };
 
+const leaveSourceSelect = {
+  id: true,
+  requestNumber: true,
+  startDate: true,
+  endDate: true,
+  totalDays: true,
+  status: true,
+  leaveType: { select: { code: true, name: true } },
+  employee: { select: { id: true, name: true, nip: true } },
+};
+
 const creatorSelect = {
   id: true,
   username: true,
@@ -47,6 +59,7 @@ const includeRecord = {
   classification: true,
   incomingLetter: { select: sourceSelect },
   outgoingLetter: { select: outgoingSourceSelect },
+  leaveRequest: { select: leaveSourceSelect },
   list: { select: { id: true, listNumber: true, status: true, signedAt: true } },
   creator: { select: creatorSelect },
 };
@@ -55,6 +68,7 @@ const includeRecordInList = {
   classification: true,
   incomingLetter: { select: sourceSelect },
   outgoingLetter: { select: outgoingSourceSelect },
+  leaveRequest: { select: leaveSourceSelect },
   creator: { select: creatorSelect },
 };
 
@@ -294,7 +308,10 @@ router.post('/lists/:id/sign', requirePermission('archive.sign'), async (req, re
   if (list._count.records === 0) return fail(res, 409, 'Daftar arsip masih kosong');
 
   const isSuper = req.user!.permissions.includes('*');
-  if (!isSuper && !['SEKCAM', 'CAMAT'].includes(req.user!.position ?? '')) {
+  const holdsSignerPosition = isSuper
+    || (await userHoldsPosition(req.user!.id, 'SEKCAM'))
+    || (await userHoldsPosition(req.user!.id, 'CAMAT'));
+  if (!holdsSignerPosition) {
     return fail(res, 403, 'Daftar arsip hanya dapat ditandatangani Sekcam atau Camat');
   }
   const signer = await prisma.user.findUnique({
@@ -407,10 +424,11 @@ router.get('/:id', requirePermission('archive.view'), async (req, res) => {
 });
 
 // ---------- PATCH /archives/:id ----------
+// Staf arsip dapat melengkapi kode arsip/kode berkas. Setelah daftar
+// ditandatangani, hanya kode arsip/kode berkas yang masih boleh diubah
+// (SOP langkah 3: pemberian kode pada file/bundel).
 router.patch('/:id', requirePermission('archive.update'), async (req, res) => {
-  if (req.user!.role !== 'SUPER_ADMIN') {
-    return fail(res, 403, 'Metadata arsip yang sudah diarsipkan terkunci; hubungi admin untuk koreksi');
-  }
+  const isSuper = req.user!.role === 'SUPER_ADMIN';
   const schema = z.object({
     classificationCode: z.string().max(30).nullable().optional(),
     code: z.string().max(100).nullable().optional(),
@@ -430,8 +448,17 @@ router.patch('/:id', requirePermission('archive.update'), async (req, res) => {
     include: { list: true },
   });
   if (!record) return fail(res, 404, 'Record arsip tidak ditemukan');
-  if (record.list?.status === 'SIGNED') {
-    return fail(res, 409, 'Arsip dalam daftar yang sudah ditandatangani tidak dapat diubah');
+  const signed = record.list?.status === 'SIGNED';
+  if (!isSuper) {
+    const keys = Object.keys(b).filter((k) => (b as any)[k] !== undefined);
+    if (keys.some((k) => !['code', 'bundleCode', 'physicalLocation'].includes(k))) {
+      return fail(res, 403, 'Staf arsip hanya dapat mengubah kode arsip/kode berkas/lokasi fisik');
+    }
+  } else if (signed) {
+    const keys = Object.keys(b).filter((k) => (b as any)[k] !== undefined);
+    if (keys.some((k) => !['code', 'bundleCode', 'physicalLocation'].includes(k))) {
+      return fail(res, 409, 'Daftar sudah ditandatangani; hanya kode arsip/kode berkas/lokasi fisik yang dapat diubah');
+    }
   }
 
   const data: any = {};

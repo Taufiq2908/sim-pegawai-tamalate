@@ -58,6 +58,20 @@ Jalur kembali:
 
 Catatan:
 
+- Grant role untuk tabel di atas ada di `backend/prisma/seed.ts` (`ROLE_MAP`). Migrasi
+  `20261116010000_restore_promotion_permissions` dan
+  `20261117020000_restore_promotion_and_archive_permissions` memulihkan grant yang
+  hilang pada database yang belum menjalankan seed terbaru. Jika menu Kenaikan
+  Pangkat tidak muncul, jalankan `npx prisma migrate deploy` lalu login ulang.
+- Seed bersifat **aditif**: grant yang tidak ada di `ROLE_MAP` tidak lagi dihapus
+  otomatis. Pencabutan hanya lewat `ROLE_REVOKES` (saat ini `leave.create` untuk
+  VERIFIER). Sebelumnya seed menghapus semua grant di luar `ROLE_MAP`, sehingga
+  seed lama yang belum memuat `promotion.*` menghapus akses Staf Kepegawaian
+  (VERIFIER) dan Sekcam/Camat secara berulang.
+- Staf Kepegawaian memakai role `VERIFIER`: `promotion.view`, `promotion.create`,
+  `promotion.legalize`, `promotion.register`, `promotion.archive`, dan
+  `promotion.document.upload`. Jika grant ini hilang, menu Kenaikan Pangkat tidak
+  muncul untuk role tersebut.
 - `legalize`, `register`, dan `archive` hanya untuk user dengan `orgUnit = KEC-TAMALATE`.
 - `paraf` ditolak backend bila jabatan bukan `SEKCAM`; `approve` ditolak bila jabatan bukan `CAMAT`.
 - Pegawai hanya dapat melihat usulan yang memuat dirinya. Daftar calon, register, nominatif, dan buku arsip hanya untuk petugas.

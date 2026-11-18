@@ -19,6 +19,9 @@ export interface EmployeeRef {
   rank?: string | null;
   rankTmt?: string | null;
   joinDate?: string | null;
+  /** Gaji pokok terakhir dari master kepegawaian (PP 5/2024). */
+  salary?: number | null;
+  phone?: string | null;
   orgUnit?: OrgUnit | null;
 }
 
@@ -27,9 +30,43 @@ export interface AuthUser {
   username: string;
   role: Role;
   position: string | null;
+  email?: string | null;
+  phone?: string | null;
   orgUnit: OrgUnit | null;
   employee: EmployeeRef | null;
   permissions: string[];
+}
+
+/** Profil akun sendiri dari GET /users/me. */
+export interface UserProfile {
+  id: string;
+  username: string;
+  role: Role;
+  position: string | null;
+  email: string | null;
+  phone: string | null;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  orgUnit: OrgUnit | null;
+  employee: {
+    id: string;
+    nip: string | null;
+    employeeNumber: string;
+    name: string;
+    gender: string;
+    birthPlace: string | null;
+    birthDate: string | null;
+    employmentStatus: string;
+    position: string;
+    rank: string | null;
+    rankTmt: string | null;
+    joinDate: string | null;
+    phone: string | null;
+    address: string | null;
+    isActive: boolean;
+    orgUnit: OrgUnit | null;
+  } | null;
 }
 
 export interface Envelope<T> {
@@ -164,6 +201,15 @@ export interface LeaveDetail extends Omit<LeaveItem, "employee" | "leaveType"> {
   documentVersion?: number;
   currentDocumentHash?: string | null;
   parafHistory?: ParafHistoryEntry[];
+  archiveRecord?: {
+    id: string;
+    archiveNumber: string;
+    code: string;
+    bundleCode: string | null;
+    listId: string | null;
+    archiveDate?: string;
+    list?: { id: string; listNumber: string; status: string } | null;
+  } | null;
 }
 
 export type AttendanceStatus = "HADIR" | "TERLAMBAT" | "IZIN" | "SAKIT" | "DL" | "ALPA";
@@ -247,6 +293,11 @@ export interface WarningLetterDetail {
   instructedBy?: string | null;
   instructedAt?: string | null;
   instruction?: string | null;
+  decision: "PENDING" | "FOLLOW_UP" | "NO_FOLLOW_UP";
+  decisionNote?: string | null;
+  decidedAt?: string | null;
+  decidedBy?: string | null;
+  coachedBy?: string | null;
   createdAt: string;
   workflowStatus?: string;
   employee?: { name: string; position: string; nip: string | null };
@@ -256,12 +307,14 @@ export type LetterType = "BIASA" | "UNDANGAN";
 
 export type LetterStatus =
   | "DRAFT_TU"
+  | "REVISI_TU"
   | "REVIEW_SEKCAM"
   | "DISPOSISI_CAMAT"
   | "DITERUSKAN"
   | "PROSES"
   | "MENUNGGU_ARSIP"
-  | "DIARSIPKAN";
+  | "DIARSIPKAN"
+  | "DIBATALKAN";
 
 export interface Disposition {
   id: string;
@@ -329,6 +382,12 @@ export interface IncomingLetter {
   completedAt?: string | null;
   completionNote?: string | null;
   resolutionDate?: string | null;
+  revisionNote?: string | null;
+  revisionRequestedAt?: string | null;
+  revisionRequestedBy?: string | null;
+  cancelReason?: string | null;
+  cancelledAt?: string | null;
+  cancelledBy?: string | null;
   createdAt?: string;
   updatedAt?: string;
   availableActions?: string[];
@@ -370,6 +429,23 @@ export interface IncomingLetter {
 
 export type OutgoingLetterStatus = "RESERVED" | "TERKIRIM" | "DIARSIPKAN" | "CANCELLED";
 
+export type OutgoingExpeditionStatus = "BELUM_DICATAT" | "BELUM_DIKIRIM" | "DIKIRIM" | "DITERIMA";
+
+export interface OutgoingExpedition {
+  id: string;
+  regNumber: string;
+  letterId: string;
+  sentDate: string | null;
+  courierName: string | null;
+  recipientName: string;
+  receiptNumber: string | null;
+  receivedDate: string | null;
+  receivedByName: string | null;
+  note: string | null;
+  status: OutgoingExpeditionStatus;
+  createdAt?: string | null;
+}
+
 export interface OutgoingLetter {
   id: string;
   letterNumber: string;
@@ -398,6 +474,9 @@ export interface OutgoingLetter {
   availableActions?: string[];
   classification?: { id: string; code: string; name: string } | null;
   documents?: LetterDocument[];
+  outgoingExpedition?: OutgoingExpedition | null;
+  expeditionStatus?: OutgoingExpeditionStatus;
+  kgbRequest?: { id: string; requestNumber: string; status: string } | null;
   archiveRecord?: {
     id: string;
     archiveNumber: string;
@@ -426,6 +505,29 @@ export interface KgbItem {
   waitingFor?: string | null;
 }
 
+/** Data otomatis form KGB dari master kepegawaian + skala gaji PP 5/2024. */
+export interface KgbPrefill {
+  employeeId: string;
+  employeeName: string;
+  nip: string | null;
+  rank: string;
+  rankTmt: string | null;
+  joinDate: string | null;
+  totalYears: number;
+  oldRank: string;
+  newRank: string;
+  oldSalary: number;
+  newSalary: number;
+  mkg: number;
+  newMkg: number;
+  maxMkg: number;
+  atMax: boolean;
+  scheduledDate: string;
+  effectiveDate: string;
+  overdueMonths: number;
+  regulation: string;
+}
+
 export interface KgbDetail extends KgbItem {
   note: string | null;
   revisionNote: string | null;
@@ -443,6 +545,23 @@ export interface KgbDetail extends KgbItem {
   approvedAt?: string | null;
   approvedBy?: string | null;
   approvalNote?: string | null;
+  outgoingLetter?: {
+    id: string;
+    letterNumber: string;
+    subject: string;
+    recipient: string | null;
+    letterDate: string | null;
+    status: OutgoingLetterStatus;
+    signerName: string | null;
+    outgoingExpedition: OutgoingExpedition | null;
+    archiveRecord?: {
+      id: string;
+      archiveNumber: string;
+      archiveDate: string | null;
+      listId: string | null;
+    } | null;
+  } | null;
+  expeditionStatus?: OutgoingExpeditionStatus;
 }
 
 export interface ActingPositionItem {
@@ -468,6 +587,54 @@ export interface UserListItem {
   position: string | null;
   isActive: boolean;
   employee: { name: string; nip: string | null } | null;
+}
+
+/** Data lengkap untuk halaman manajemen pengguna (SUPER_ADMIN). */
+export interface ManagedEmployee {
+  id: string;
+  nip: string | null;
+  employeeNumber: string;
+  name: string;
+  gender: string;
+  birthPlace: string | null;
+  birthDate: string | null;
+  employmentStatus: string;
+  position: string;
+  rank: string | null;
+  rankTmt: string | null;
+  joinDate: string | null;
+  salary: number | null;
+  phone: string | null;
+  address: string | null;
+  isActive: boolean;
+  orgUnit?: OrgUnit | null;
+}
+
+export interface ManagedUser {
+  id: string;
+  username: string;
+  role: Role;
+  position: string | null;
+  isActive: boolean;
+  employee: ManagedEmployee | null;
+  orgUnit: OrgUnit | null;
+}
+
+export interface UserRoleOption {
+  code: Role;
+  label: string;
+  description: string;
+  defaultPosition: string;
+}
+
+export interface UserManagementOptions {
+  roles: UserRoleOption[];
+  positions: Array<{ value: string; label: string }>;
+  orgUnits: Array<{ id: string; code: string; name: string; type: string }>;
+  ranks: Array<{ rank: string; minMkg: number; maxMkg: number }>;
+  salaryScale: Array<{ rank: string; mkg: number; salary: number }>;
+  regulation: string;
+  today: string;
 }
 
 export interface KgbMonitoringItem {
@@ -502,7 +669,7 @@ export interface KgbReminderResult {
   notified: number;
 }
 
-export type ArchiveSourceType = "INCOMING" | "OUTGOING";
+export type ArchiveSourceType = "INCOMING" | "OUTGOING" | "LEAVE";
 export type ArchiveCategory = "AKTIF" | "INAKTIF" | "PENTING";
 export type ArchiveLocation = "LEMARI_ARSIP" | "GUDANG_ARSIP" | "LURAH";
 export type ArchiveListStatus = "DRAFT" | "SIGNED";
@@ -513,6 +680,7 @@ export interface ArchiveRecord {
   sourceType: ArchiveSourceType;
   incomingLetterId: string | null;
   outgoingLetterId: string | null;
+  leaveRequestId?: string | null;
   classificationId: string | null;
   code: string;
   bundleCode: string | null;
@@ -546,6 +714,16 @@ export interface ArchiveRecord {
     recipient: string;
     letterDate: string;
     status: string;
+  } | null;
+  leaveRequest?: {
+    id: string;
+    requestNumber: string;
+    startDate: string;
+    endDate: string;
+    totalDays: number;
+    status: string;
+    leaveType?: { code: string; name: string } | null;
+    employee?: { id: string; name: string; nip: string | null } | null;
   } | null;
   list?: {
     id: string;
@@ -700,6 +878,18 @@ export interface PensionBatch {
   receiptNumber: string | null;
   receiptDate: string | null;
   receivedBy: string | null;
+  expeditionStatus?: OutgoingExpeditionStatus;
+  outgoingLetter?: {
+    id: string;
+    letterNumber: string;
+    subject: string;
+    letterDate: string;
+    status: OutgoingLetterStatus;
+    recipient: string | null;
+    signerName?: string | null;
+    classification?: { code: string; name: string } | null;
+    outgoingExpedition: OutgoingExpedition | null;
+  } | null;
   items: PensionItem[];
   timeline: Array<{
     action: string;
@@ -780,6 +970,8 @@ export interface PensionRegisterRow {
   tanggalEkspedisi: string | null;
   nomorTandaTerima: string | null;
   tanggalTandaTerima: string | null;
+  statusEkspedisi?: OutgoingExpeditionStatus;
+  outgoingLetterId?: string | null;
   createdAt: string | null;
 }
 
@@ -810,15 +1002,21 @@ export interface PensionNominativeRow {
   missingDocuments: string[];
   nomorSurat: string | null;
   nomorAgenda: string | null;
+  nomorEkspedisi: string | null;
+  statusEkspedisi?: OutgoingExpeditionStatus;
   nomorTandaTerima: string | null;
   tanggalTandaTerima: string | null;
 }
 
 export interface PensionExpeditionRow {
   id: string;
+  batchId: string;
+  letterId: string;
   tanggalEkspedisi: string | null;
   nomorEkspedisi: string | null;
   nomorSurat: string | null;
+  tanggalSurat: string | null;
+  perihal: string | null;
   tujuan: string;
   penerima: string | null;
   jumlahPegawai: number;
@@ -828,6 +1026,10 @@ export interface PensionExpeditionRow {
   }>;
   status: PensionStatus;
   statusLabel: string;
+  statusEkspedisi: OutgoingExpeditionStatus;
+  nomorTandaTerima: string | null;
+  tanggalDiterima: string | null;
+  diterimaOleh: string | null;
   catatan: string | null;
 }
 

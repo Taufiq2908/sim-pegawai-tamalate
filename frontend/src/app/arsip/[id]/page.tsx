@@ -15,8 +15,9 @@ const CATEGORIES: Array<ArchiveRecord["category"]> = ["AKTIF", "INAKTIF", "PENTI
 export default function ArsipDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { user } = useAuth();
-  const canEditMetadata = user?.role === "SUPER_ADMIN";
+  const { user, hasPermission } = useAuth();
+  const isSuper = user?.role === "SUPER_ADMIN";
+  const canUpdate = hasPermission("archive.update");
 
   const [record, setRecord] = useState<ArchiveRecord | null>(null);
   const [classes, setClasses] = useState<Array<{ code: string; name: string }>>([]);
@@ -65,11 +66,11 @@ export default function ArsipDetailPage() {
   }, [load]);
 
   useEffect(() => {
-    if (!canEditMetadata) return;
+    if (!isSuper) return;
     apiFetch<Array<{ code: string; name: string }>>("/letters/classifications")
       .then(({ data }) => setClasses(Array.isArray(data) ? data : []))
       .catch(() => {});
-  }, [canEditMetadata]);
+  }, [isSuper]);
 
   async function onUpdate(e: React.FormEvent) {
     e.preventDefault();
@@ -80,16 +81,21 @@ export default function ArsipDetailPage() {
     }
     setSaving(true);
     try {
-      const body = {
-        classificationCode: editForm.classificationCode || null,
-        code: editForm.code.trim(),
-        bundleCode: editForm.bundleCode.trim() || null,
-        category: editForm.category,
-        archiveDate: editForm.archiveDate || undefined,
-        retentionUntil: editForm.retentionUntil || null,
-        physicalLocation: editForm.physicalLocation.trim() || null,
-        notes: editForm.notes.trim() || null,
-      };
+      const body = isSuper
+        ? {
+            classificationCode: editForm.classificationCode || null,
+            code: editForm.code.trim(),
+            bundleCode: editForm.bundleCode.trim() || null,
+            category: editForm.category,
+            archiveDate: editForm.archiveDate || undefined,
+            retentionUntil: editForm.retentionUntil || null,
+            physicalLocation: editForm.physicalLocation.trim() || null,
+            notes: editForm.notes.trim() || null,
+          }
+        : {
+            code: editForm.code.trim(),
+            bundleCode: editForm.bundleCode.trim() || null,
+          };
 
       const { data } = await apiFetch<ArchiveRecord>(`/archives/${id}`, {
         method: "PATCH",
@@ -114,7 +120,7 @@ export default function ArsipDetailPage() {
     }
   }
 
-  const canEdit = canEditMetadata && record?.list?.status !== "SIGNED";
+  const canEdit = canUpdate;
 
   const locationLabel = (loc: string): string => {
     switch (loc) {
@@ -131,6 +137,11 @@ export default function ArsipDetailPage() {
       case "PENTING": return "Penting";
       default: return c;
     }
+  };
+  const sourceLabel = (s: string): string => {
+    if (s === "INCOMING") return "Surat Masuk";
+    if (s === "OUTGOING") return "Surat Keluar";
+    return "Surat Cuti";
   };
 
   return (
@@ -150,7 +161,7 @@ export default function ArsipDetailPage() {
             <div>
               <h1 className="text-lg font-bold">{record.archiveNumber}</h1>
               <p className="text-sm text-muted">
-                {record.sourceType === "INCOMING" ? "Surat Masuk" : "Surat Keluar"} •{" "}
+                {sourceLabel(record.sourceType)} •{" "}
                 {categoryLabel(record.category)} • {record.physicalLocation || locationLabel(record.location)}
               </p>
             </div>
@@ -170,15 +181,17 @@ export default function ArsipDetailPage() {
                   onClick={() => setEditMode(true)}
                   className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-paper"
                 >
-                  Ubah data
+                  {record.list?.status === "SIGNED" ? "Beri kode" : "Ubah data"}
                 </button>
               ) : null}
             </div>
           </div>
 
-          {!canEditMetadata ? (
+          {!isSuper ? (
             <p className="rounded-lg border border-line bg-paper px-3 py-2 text-xs text-muted">
-              Metadata arsip hanya dapat dikoreksi oleh SUPER_ADMIN. Data lain bersifat baca-saja.
+              {record.list?.status === "SIGNED"
+                ? "Daftar sudah ditandatangani. Staf arsip masih dapat melengkapi kode arsip dan kode berkas."
+                : "Staf arsip dapat melengkapi kode arsip dan kode berkas. Perubahan metadata lain hanya oleh SUPER_ADMIN."}
             </p>
           ) : null}
 
@@ -186,7 +199,7 @@ export default function ArsipDetailPage() {
             <h2 className="mb-3 font-semibold">Data Arsip</h2>
             <dl className="grid gap-3 text-sm sm:grid-cols-2">
               <div><dt className="text-muted">Nomor Arsip</dt><dd className="font-medium">{record.archiveNumber}</dd></div>
-              <div><dt className="text-muted">Sumber</dt><dd className="font-medium">{record.sourceType === "INCOMING" ? "Surat Masuk" : "Surat Keluar"}</dd></div>
+              <div><dt className="text-muted">Sumber</dt><dd className="font-medium">{sourceLabel(record.sourceType)}</dd></div>
               <div><dt className="text-muted">Tanggal Arsip</dt><dd className="font-medium">{record.archiveDate.slice(0, 10)}</dd></div>
               <div><dt className="text-muted">Kategori</dt><dd className="font-medium">{categoryLabel(record.category)}</dd></div>
               <div><dt className="text-muted">Lokasi Kategori</dt><dd className="font-medium">{locationLabel(record.location)}</dd></div>
@@ -238,59 +251,92 @@ export default function ArsipDetailPage() {
                 </p>
               </div>
             ) : null}
+            {record.leaveRequest ? (
+              <div className="mt-4 border-t border-line pt-3">
+                <h3 className="text-sm font-semibold">Sumber: Surat Cuti</h3>
+                <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+                  <div><dt className="text-muted">Nomor Permohonan</dt><dd className="font-medium">{record.leaveRequest.requestNumber}</dd></div>
+                  <div><dt className="text-muted">Pegawai</dt><dd className="font-medium">{record.leaveRequest.employee?.name ?? "—"}</dd></div>
+                  <div><dt className="text-muted">Jenis Cuti</dt><dd className="font-medium">{record.leaveRequest.leaveType?.name ?? "—"}</dd></div>
+                  <div><dt className="text-muted">Periode</dt><dd className="font-medium">{record.leaveRequest.startDate.slice(0, 10)} → {record.leaveRequest.endDate.slice(0, 10)} ({record.leaveRequest.totalDays} hari)</dd></div>
+                  <div><dt className="text-muted">Status</dt><dd className="font-medium"><StatusBadge status={record.leaveRequest.status} /></dd></div>
+                </dl>
+                <p className="mt-2">
+                  <Link href={`/cuti/${record.leaveRequest.id}`} className="text-sm font-semibold text-brand-900 hover:underline">
+                    Buka pengajuan cuti
+                  </Link>
+                </p>
+              </div>
+            ) : null}
           </div>
 
-          {record.list && record.list.status === "DRAFT" ? (
+          {record.list ? (
             <div className="rounded-lg border border-line bg-surface p-4">
               <h2 className="font-semibold">Daftar Arsip</h2>
               <p className="text-sm text-muted">
-                Masuk daftar <b>{record.list.listNumber}</b> (belum ditandatangani).
+                Masuk daftar <b>{record.list.listNumber}</b>
+                {record.list.status === "SIGNED" ? " (sudah ditandatangani)" : " (belum ditandatangani)"}.
               </p>
               <Link href={`/arsip/daftar/${record.list.id}`} className="mt-2 inline-block rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-800">
                 Buka daftar arsip
               </Link>
             </div>
-          ) : null}
+          ) : (
+            <div className="rounded-lg border border-line bg-surface p-4">
+              <h2 className="font-semibold">Daftar Arsip</h2>
+              <p className="text-sm text-muted">
+                Arsip ini belum masuk daftar. Sekcam/Camat dapat menyusun daftar arsip dari arsip yang belum terdaftar.
+              </p>
+            </div>
+          )}
 
           {editMode ? (
             <div className="rounded-lg border border-warn-700/30 bg-warm-100 p-4">
-              <h2 className="mb-3 font-semibold">Ubah Data Arsip</h2>
+              <h2 className="mb-3 font-semibold">{record.list?.status === "SIGNED" ? "Beri Kode Arsip" : "Ubah Data Arsip"}</h2>
               <form onSubmit={onUpdate} className="space-y-3">
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Klasifikasi">
-                    <select value={editForm.classificationCode} onChange={(e) => setEditForm((f) => ({ ...f, classificationCode: e.target.value }))} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700">
-                      <option value="">— tanpa klasifikasi —</option>
-                      {classes.map((c) => (
-                        <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
-                      ))}
-                    </select>
-                  </Field>
+                  {isSuper ? (
+                    <Field label="Klasifikasi">
+                      <select value={editForm.classificationCode} onChange={(e) => setEditForm((f) => ({ ...f, classificationCode: e.target.value }))} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700">
+                        <option value="">— tanpa klasifikasi —</option>
+                        {classes.map((c) => (
+                          <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
+                        ))}
+                      </select>
+                    </Field>
+                  ) : null}
                   <Field label="Kode arsip*">
                     <input required value={editForm.code} onChange={(e) => setEditForm((f) => ({ ...f, code: e.target.value }))} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
                   </Field>
                   <Field label="Kode berkas">
                     <input value={editForm.bundleCode} onChange={(e) => setEditForm((f) => ({ ...f, bundleCode: e.target.value }))} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
                   </Field>
-                  <Field label="Kategori">
-                    <select value={editForm.category} onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value as ArchiveRecord["category"] }))} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700">
-                      {CATEGORIES.map((c) => (
-                        <option key={c} value={c}>{categoryLabel(c)}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Tanggal arsip">
-                    <input type="date" value={editForm.archiveDate} onChange={(e) => setEditForm((f) => ({ ...f, archiveDate: e.target.value }))} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  </Field>
-                  <Field label="Retensi sampai">
-                    <input type="date" value={editForm.retentionUntil} onChange={(e) => setEditForm((f) => ({ ...f, retentionUntil: e.target.value }))} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  </Field>
-                  <Field label="Lokasi fisik">
-                    <input value={editForm.physicalLocation} onChange={(e) => setEditForm((f) => ({ ...f, physicalLocation: e.target.value }))} placeholder="cth: Lemari A, rak 2" className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                  </Field>
+                  {isSuper ? (
+                    <>
+                      <Field label="Kategori">
+                        <select value={editForm.category} onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value as ArchiveRecord["category"] }))} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700">
+                          {CATEGORIES.map((c) => (
+                            <option key={c} value={c}>{categoryLabel(c)}</option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Tanggal arsip">
+                        <input type="date" value={editForm.archiveDate} onChange={(e) => setEditForm((f) => ({ ...f, archiveDate: e.target.value }))} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Retensi sampai">
+                        <input type="date" value={editForm.retentionUntil} onChange={(e) => setEditForm((f) => ({ ...f, retentionUntil: e.target.value }))} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Lokasi fisik">
+                        <input value={editForm.physicalLocation} onChange={(e) => setEditForm((f) => ({ ...f, physicalLocation: e.target.value }))} placeholder="cth: Lemari A, rak 2" className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                    </>
+                  ) : null}
                 </div>
-                <Field label="Catatan">
-                  <textarea value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} rows={2} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                </Field>
+                {isSuper ? (
+                  <Field label="Catatan">
+                    <textarea value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} rows={2} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                  </Field>
+                ) : null}
                 {error ? <ErrorBox message={error} /> : null}
                 <div className="flex gap-2">
                   <SubmitButton loading={saving}>Simpan</SubmitButton>

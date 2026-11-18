@@ -1,5 +1,8 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../src/lib/prisma';
+import { PNS_SALARY_REGULATION, PNS_SALARY_SCALE } from '../src/data/pns-salary-2024';
+import { fullYearsBetween, normalizeRank, salaryAt } from '../src/services/pns-salary';
+import { KASUBAG_GRANTS } from '../src/lib/role-grants';
 
 const PERMS = [
   ['auth.me', 'auth', 'me'],
@@ -86,7 +89,7 @@ const PERMS = [
 
 const ROLE_MAP: Record<string, string[]> = {
   // VERIFIER basis = operator (Staf Kepegawaian/Arsip). Pemeriksa (Kasubag) via GRANT per user.
-  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.expedition', 'kgb.view', 'kgb.create', 'kgb.document.upload', 'kgb.register', 'kgb.remind', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel', 'archive.view', 'archive.update', 'pension.view', 'pension.create', 'pension.document.upload', 'pension.send', 'promotion.view', 'promotion.create', 'promotion.legalize', 'promotion.register', 'promotion.archive', 'promotion.document.upload'],
+  VERIFIER: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.receive', 'leave.register', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'attendance.manage', 'letter.view', 'letter.create', 'letter.register', 'letter.document.upload', 'letter.archive', 'letter.expedition', 'kgb.view', 'kgb.create', 'kgb.document.upload', 'kgb.register', 'kgb.remind', 'outgoing.view', 'outgoing.create', 'outgoing.reserve', 'outgoing.issue', 'outgoing.cancel', 'archive.view', 'archive.update', 'pension.view', 'pension.create', 'pension.document.upload', 'pension.register', 'pension.expedite', 'pension.send', 'promotion.view', 'promotion.create', 'promotion.legalize', 'promotion.register', 'promotion.archive', 'promotion.document.upload'],
   // SUPERVISOR = atasan langsung (Kasi, Lurah, Seklur): melihat + pertimbangan.
   // Tanpa verify/approve/sign/dispose/complete/manage. Kasubag = SUPERVISOR + GRANT di bawah.
   SUPERVISOR: ['auth.me', 'user.view', 'employee.view', 'leave.view', 'leave.review', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.review', 'kgb.document.upload', 'archive.view', 'pension.view', 'promotion.view'],
@@ -94,9 +97,14 @@ const ROLE_MAP: Record<string, string[]> = {
   EMPLOYEE: ['auth.me', 'leave.view', 'leave.create', 'leave.submit', 'leave.document.upload', 'attendance.view', 'attendance.checkin', 'letter.view', 'letter.followup', 'kgb.view', 'kgb.create', 'kgb.submit', 'kgb.document.upload', 'pension.view', 'promotion.view'],
 };
 
-// Hak pemeriksa Kasubag (di-GRANT ke user position KASUBAG): verifikasi cuti/KGB/pensiun
-// + rekap + input/koreksi presensi + foto apel (attendance.manage).
-const KASUBAG_GRANTS = ['leave.verify', 'leave.revise', 'leave.reject', 'leave.forward', 'attendance.summary', 'attendance.manage', 'kgb.verify', 'kgb.revise', 'kgb.reject', 'kgb.register', 'kgb.remind', 'pension.create', 'pension.document.upload', 'pension.verify', 'pension.revise', 'pension.reject', 'pension.register', 'pension.expedite', 'promotion.verify', 'promotion.revise', 'promotion.reject'];
+// Pencabutan grant yang memang disengaja. Jangan memakai "hapus semua yang
+// tidak ada di ROLE_MAP": migrasi fitur baru bisa menambah permission yang
+// belum tercantum di seed, dan seed lama akan menghapusnya. Itu penyebab
+// fitur Kenaikan Pangkat hilang berulang kali dari role non-SUPER_ADMIN.
+const ROLE_REVOKES: Record<string, string[]> = {
+  // Kebijakan cuti: VERIFIER tidak membuat cuti untuk orang lain.
+  VERIFIER: ['leave.create'],
+};
 
 async function main() {
   for (const [code, resource, action] of PERMS) {
@@ -106,23 +114,24 @@ async function main() {
     await prisma.role.upsert({ where: { code }, update: {}, create: { code, name: code } });
   }
   // role_permissions (SUPER_ADMIN = semua via bypass, tetap isi penuh agar eksplisit).
-  // Sinkronisasi penuh: link yang tidak lagi di ROLE_MAP dihapus (mis. setelah split operator/Kasubag).
+  // Seed bersifat aditif. Grant yang tidak ada di ROLE_MAP tidak dihapus otomatis;
+  // pencabutan hanya lewat ROLE_REVOKES agar grant dari migrasi fitur baru aman.
   const allPerms = await prisma.permission.findMany();
   for (const rp of await prisma.role.findMany()) {
     const codes = rp.code === 'SUPER_ADMIN' ? allPerms.map((p) => p.code) : ROLE_MAP[rp.code] ?? [];
-    const wantedIds: string[] = [];
     for (const c of codes) {
       const p = allPerms.find((x) => x.code === c)!;
-      wantedIds.push(p.id);
       await prisma.rolePermission.upsert({
         where: { roleId_permissionId: { roleId: rp.id, permissionId: p.id } },
         update: {},
         create: { roleId: rp.id, permissionId: p.id },
       });
     }
-    if (rp.code !== 'SUPER_ADMIN') {
+    const revokeCodes = ROLE_REVOKES[rp.code] ?? [];
+    const revokeIds = allPerms.filter((p) => revokeCodes.includes(p.code)).map((p) => p.id);
+    if (revokeIds.length > 0) {
       await prisma.rolePermission.deleteMany({
-        where: { roleId: rp.id, permissionId: { notIn: wantedIds } },
+        where: { roleId: rp.id, permissionId: { in: revokeIds } },
       });
     }
   }
@@ -209,6 +218,18 @@ async function main() {
     await prisma.dispositionTarget.upsert({ where: { code }, update: { name, sortOrder }, create: { code, name, sortOrder } });
   }
 
+  // Master gaji pokok PNS (PP 5/2024). Dipakai form KGB untuk mengisi
+  // golongan/gaji/MKG otomatis. createMany + skipDuplicates agar seed cepat.
+  await prisma.pnsSalaryScale.createMany({
+    data: PNS_SALARY_SCALE.map((row) => ({
+      rank: row.rank,
+      mkg: row.mkg,
+      salary: row.salary,
+      regulation: PNS_SALARY_REGULATION,
+    })),
+    skipDuplicates: true,
+  });
+
   // Data kepegawaian dummy untuk form (nama, NIP, jabatan, masa kerja via joinDate, unit kerja).
   // employmentStatus: PNS|PPPK|HONORER. joinDate dipakai frontend menghitung masa kerja.
   async function mkUser(username: string, password: string, role: any, position: string, empNum: string, name: string, extraDeny: string[] = [], extraGrant: string[] = [], empExtra: { nip?: string; joinDate?: string; rank?: string; rankTmt?: string; orgCode?: string; gender?: string; birthDate?: string } = {}) {
@@ -262,7 +283,7 @@ async function main() {
   // Staf Kepegawaian = operator (murni administrasi, tanpa hak verifikasi).
   await mkUser('verifier1', 'Verifier123!', 'VERIFIER', 'STAF_KEPEGAWAIAN', 'EMP-001', 'Staf Kepegawaian', [], [], { nip: '199203032020121002', birthDate: '1992-03-03', joinDate: '2020-12-01', rank: 'III/a', rankTmt: '2021-04-01' });
   // Kasubag Umum & Kepegawaian = SUPERVISOR + GRANT pemeriksa (verifikasi + teruskan).
-  await mkUser('kasubag1', 'Kasubag123!', 'SUPERVISOR', 'KASUBAG', 'EMP-005', 'Kasubag Umum', [], KASUBAG_GRANTS, { nip: '198707152010012003', birthDate: '1987-07-15', joinDate: '2010-01-15', rank: 'III/d', rankTmt: '2021-04-01' });
+  await mkUser('kasubag1', 'Kasubag123!', 'SUPERVISOR', 'KASUBAG', 'EMP-005', 'Kasubag Umum', [], [...KASUBAG_GRANTS], { nip: '198707152010012003', birthDate: '1987-07-15', joinDate: '2010-01-15', rank: 'III/d', rankTmt: '2021-04-01' });
   // Kasi = atasan langsung (SUPERVISOR murni, hanya pertimbangan).
   await mkUser('kasi1', 'Kasi123!', 'SUPERVISOR', 'KASI', 'EMP-007', 'Kasi Pemerintahan', [], [], { nip: '199001012015021008', birthDate: '1990-01-01', joinDate: '2015-02-10', rank: 'III/c', rankTmt: '2022-04-01' });
   await mkUser('sekcam1', 'Sekcam123!', 'LEADER', 'SEKCAM', 'EMP-002', 'Sekcam Satu', ['leave.approve', 'leave.sign'], [], { nip: '198205102008011004', birthDate: '1982-05-10', joinDate: '2008-01-20', rank: 'IV/a', rankTmt: '2020-04-01' });
@@ -294,6 +315,31 @@ async function main() {
       if (revoked.count) console.log(`Cabut GRANT leave.create VERIFIER: ${revoked.count}`);
     }
   }
+
+  // Lengkapi data kepegawaian yang belum punya golongan/tanggal masuk/TMT/gaji.
+  // Gaji pokok dihitung dari golongan + MKG berjalan (PP 5/2024).
+  const employees = await prisma.employee.findMany();
+  const today = new Date();
+  let salaryFilled = 0;
+  for (const e of employees) {
+    // Fallback III/a hanya untuk akun demo yang benar-benar belum punya golongan.
+    const rank = normalizeRank(e.rank) ?? 'III/a';
+    const rankTmt = e.rankTmt ?? e.joinDate ?? today;
+    const joinDate = e.joinDate ?? rankTmt;
+    const mkg = fullYearsBetween(rankTmt, today);
+    const salary = salaryAt(rank, mkg);
+    await prisma.employee.update({
+      where: { id: e.id },
+      data: {
+        rank: normalizeRank(e.rank) ?? rank,
+        rankTmt: e.rankTmt ?? rankTmt,
+        joinDate: e.joinDate ?? joinDate,
+        ...(e.salary == null && salary != null ? { salary } : {}),
+      },
+    });
+    if (e.salary == null && salary != null) salaryFilled += 1;
+  }
+  if (salaryFilled) console.log(`Gaji pokok diisi untuk ${salaryFilled} pegawai`);
 
   console.log('Seed OK');
 }

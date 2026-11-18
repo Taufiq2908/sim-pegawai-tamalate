@@ -127,7 +127,7 @@ export default function PromotionDetailPage() {
     title: `${t.action} — ${t.fromStatus} → ${t.toStatus}`,
     subtitle: [t.actorName ?? t.actorRole, t.actorPosition ?? null].filter(Boolean).join(" • "),
     note: t.note,
-    time: new Date(t.createdAt).toLocaleString("id-ID"),
+    time: new Date(t.createdAt).toLocaleString("id-ID", { hour12: false }),
     state:
       (i < arr.length - 1 ||
       ["ARCHIVED", "REJECTED"].includes(detail?.status ?? "")
@@ -594,7 +594,7 @@ export default function PromotionDetailPage() {
                   {t.fromStatus} → {t.toStatus} • {t.actorName ?? t.actorRole}{t.actorPosition ? ` (${t.actorPosition})` : ""}
                 </p>
                 {t.note ? <p className="text-xs text-muted mt-1">“{t.note}”</p> : null}
-                <p className="text-xs text-muted">{new Date(t.createdAt).toLocaleString("id-ID")}</p>
+                <p className="text-xs text-muted">{new Date(t.createdAt).toLocaleString("id-ID", { hour12: false })}</p>
               </li>
             ))}
           </ul>

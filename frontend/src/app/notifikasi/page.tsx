@@ -37,6 +37,9 @@ function notificationLink(
       ? { href: "/kgb", label: "Buka KGB" }
       : { href: "/kgb/monitoring", label: "Buka monitoring KGB" };
   }
+  if (n.referenceType === "pension_batch" && n.referenceId) {
+    return { href: `/pensiun/${n.referenceId}`, label: "Buka pengajuan pensiun" };
+  }
   if (n.referenceType === "archive_list" && n.referenceId) {
     return { href: `/arsip/daftar/${n.referenceId}`, label: "Buka daftar arsip" };
   }
@@ -82,6 +85,12 @@ function notificationBadge(n: NotificationItem): { label: string; className: str
   }
   if (n.type === "KGB" || n.referenceType === "kgb_request") {
     return { label: "KGB", className: "bg-info-100 text-info-700" };
+  }
+  if (n.type === "PENSIUN_READY") {
+    return { label: "Verifikasi Pensiun", className: "bg-warn-100 text-warn-700" };
+  }
+  if (n.type === "PENSIUN" || n.referenceType === "pension_batch") {
+    return { label: "Pensiun", className: "bg-info-100 text-info-700" };
   }
   return null;
 }
@@ -236,7 +245,7 @@ export default function NotifikasiPage() {
                         <span className="rounded-full bg-brand-900 px-2 py-0.5 text-xs font-semibold text-white">Baru</span>
                       ) : null}
                       <span className="ml-auto text-xs text-muted">
-                        {new Date(n.createdAt).toLocaleString("id-ID")}
+                        {new Date(n.createdAt).toLocaleString("id-ID", { hour12: false })}
                       </span>
                     </div>
                     <p className="mt-1 text-sm text-muted">{n.body}</p>

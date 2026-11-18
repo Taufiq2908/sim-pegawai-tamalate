@@ -8,11 +8,6 @@ const ACTION_LABEL: Record<string, string> = {
   REJECT: "Ditolak",
 };
 
-function shortHash(hash: string | null | undefined): string {
-  if (!hash) return "—";
-  return `${hash.slice(0, 12)}…${hash.slice(-8)}`;
-}
-
 /** Riwayat paraf append-only. Bukti paraf adalah baris riwayat, bukan gambar. */
 export function ParafHistoryPanel({ entries }: { entries?: ParafHistoryEntry[] | null }) {
   const rows = entries ?? [];
@@ -31,7 +26,7 @@ export function ParafHistoryPanel({ entries }: { entries?: ParafHistoryEntry[] |
             .filter(Boolean)
             .join(" • "),
           note: h.note,
-          time: `${new Date(h.createdAt).toLocaleString("id-ID")} • Hash ${shortHash(h.documentHash)}`,
+          time: new Date(h.createdAt).toLocaleString("id-ID", { hour12: false }),
           state: i < rows.length - 1 ? "done" : "now",
         }))}
       />

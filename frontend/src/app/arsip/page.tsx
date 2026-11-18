@@ -42,6 +42,7 @@ interface BatchResult {
 const SOURCE_OPTIONS: Array<{ value: ArchiveSourceType; label: string }> = [
   { value: "INCOMING", label: "Surat Masuk" },
   { value: "OUTGOING", label: "Surat Keluar" },
+  { value: "LEAVE", label: "Surat Cuti" },
 ];
 const CATEGORY_OPTIONS: Array<{ value: ArchiveCategory; label: string }> = [
   { value: "AKTIF", label: "Aktif" },
@@ -59,7 +60,6 @@ export default function ArsipPage() {
   const canApprove = hasPermission("archive.approve") && archiveApprover;
   const canReject = hasPermission("archive.reject") && archiveApprover;
   const canUpdate = hasPermission("archive.update");
-  const canEditMetadata = user?.role === "SUPER_ADMIN";
 
   const [items, setItems] = useState<ArchiveRecord[]>([]);
   const [meta, setMeta] = useState<{ page: number; limit: number; total: number } | null>(null);
@@ -79,6 +79,7 @@ export default function ArsipPage() {
 
   const [queueType, setQueueType] = useState<"incoming" | "outgoing">("incoming");
   const [queueRows, setQueueRows] = useState<ArchiveQueueRow[]>([]);
+  const [queueCounts, setQueueCounts] = useState({ incoming: 0, outgoing: 0 });
   const [queueLoading, setQueueLoading] = useState(false);
   const [queueError, setQueueError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -141,6 +142,33 @@ export default function ArsipPage() {
     void loadQueue();
   }, [loadQueue]);
 
+  const loadQueueCounts = useCallback(async () => {
+    if (!canApprove) return;
+    try {
+      const [incoming, outgoing] = await Promise.all([
+        apiFetch<ArchiveQueueRow[]>("/letters/archive-queue?limit=1"),
+        apiFetch<ArchiveQueueRow[]>("/outgoing-letters/archive-queue?limit=1"),
+      ]);
+      setQueueCounts({
+        incoming: (incoming.meta as { total?: number } | null)?.total ?? incoming.data.length,
+        outgoing: (outgoing.meta as { total?: number } | null)?.total ?? outgoing.data.length,
+      });
+    } catch {
+      // Badge jumlah antrean bersifat informatif; error ditampilkan oleh loadQueue.
+    }
+  }, [canApprove]);
+
+  useEffect(() => {
+    void loadQueueCounts();
+  }, [loadQueueCounts]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("unlisted") === "true") setUnlisted(true);
+    const src = params.get("sourceType");
+    if (src === "INCOMING" || src === "OUTGOING" || src === "LEAVE") setSourceType(src);
+  }, []);
+
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("tab") !== "antrean") return;
     const timer = window.setTimeout(() => {
@@ -158,8 +186,11 @@ export default function ArsipPage() {
     }
   };
 
-  const sourceLabel = (s: ArchiveRecord["sourceType"]): string =>
-    s === "INCOMING" ? "Masuk" : "Keluar";
+  const sourceLabel = (s: ArchiveRecord["sourceType"]): string => {
+    if (s === "INCOMING") return "Masuk";
+    if (s === "OUTGOING") return "Keluar";
+    return "Cuti";
+  };
 
   const queueNumber = (row: ArchiveQueueRow): string =>
     queueType === "incoming" ? row.agendaNumber ?? row.letterNumber : row.letterNumber;
@@ -255,8 +286,7 @@ export default function ArsipPage() {
       }
       refreshNotificationBadge();
       setSelected(new Set());
-      await loadQueue();
-      await load();
+      await Promise.all([loadQueue(), loadQueueCounts(), load()]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Batch arsip gagal");
     } finally {
@@ -270,7 +300,7 @@ export default function ArsipPage() {
         <div>
           <h1 className="text-xl font-bold">Buku Arsip</h1>
           <p className="mt-0.5 text-sm text-muted">
-            Arsip dibuat otomatis dari persetujuan surat masuk dan surat keluar. Tidak ada pencatatan arsip manual.
+            Arsip dibuat otomatis dari persetujuan surat masuk/keluar dan pengarsipan cuti. Tidak ada pencatatan arsip manual.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -285,6 +315,12 @@ export default function ArsipPage() {
         </div>
       </div>
 
+      {unlisted ? (
+        <div className="mt-4 rounded-lg border border-warn-700/25 bg-warn-100 px-4 py-3 text-sm text-ink">
+          Menampilkan arsip yang belum masuk Daftar Arsip. Gunakan <b>+ Susun daftar</b> untuk memasukkannya.
+        </div>
+      ) : null}
+
       {canApprove ? (
         <section id="antrean-arsip" className="mt-4 rounded-lg border border-line bg-surface">
           <div className="flex flex-wrap items-center gap-3 border-b border-line p-4">
@@ -298,14 +334,14 @@ export default function ArsipPage() {
                 onClick={() => setQueueType("incoming")}
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium ${queueType === "incoming" ? "bg-brand-900 text-white" : "border border-line bg-field text-muted hover:bg-paper"}`}
               >
-                Surat Masuk
+                Surat Masuk ({queueCounts.incoming})
               </button>
               <button
                 type="button"
                 onClick={() => setQueueType("outgoing")}
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium ${queueType === "outgoing" ? "bg-brand-900 text-white" : "border border-line bg-field text-muted hover:bg-paper"}`}
               >
-                Surat Keluar
+                Surat Keluar ({queueCounts.outgoing})
               </button>
             </div>
           </div>
@@ -320,8 +356,12 @@ export default function ArsipPage() {
                 title="Antrean kosong"
                 hint={
                   queueType === "incoming"
-                    ? "Surat akan muncul setelah semua target disposisi selesai."
-                    : "Surat akan muncul setelah surat terkirim dan siap diarsipkan."
+                    ? queueCounts.outgoing > 0
+                      ? `Tidak ada antrean surat masuk. Ada ${queueCounts.outgoing} surat keluar menunggu persetujuan — buka tab Surat Keluar.`
+                      : "Surat akan muncul setelah semua target disposisi selesai."
+                    : queueCounts.incoming > 0
+                      ? `Tidak ada antrean surat keluar. Ada ${queueCounts.incoming} surat masuk menunggu persetujuan — buka tab Surat Masuk.`
+                      : "Surat akan muncul setelah surat terkirim dan siap diarsipkan."
                 }
               />
             ) : (
@@ -536,7 +576,7 @@ export default function ArsipPage() {
       ) : items.length === 0 ? (
         <EmptyState
           title="Tidak ada data arsip"
-          hint="Coba ubah filter. Arsip dibuat dari persetujuan surat masuk/keluar."
+          hint="Coba ubah filter. Arsip dibuat dari persetujuan surat masuk/keluar dan pengarsipan cuti."
         />
       ) : (
         <>
@@ -591,12 +631,12 @@ export default function ArsipPage() {
                         >
                           Detail
                         </Link>
-                        {canEditMetadata && r.list?.status !== "SIGNED" ? (
+                        {canUpdate ? (
                           <Link
                             href={`/arsip/${r.id}`}
                             className="rounded-md bg-brand-900 px-2.5 py-1 text-xs text-white hover:bg-brand-800"
                           >
-                            Ubah
+                            {r.list?.status === "SIGNED" ? "Beri kode" : "Ubah"}
                           </Link>
                         ) : null}
                       </div>

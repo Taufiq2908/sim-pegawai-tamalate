@@ -149,13 +149,18 @@ Setiap sukses → 200 dengan objek detail baru (status berubah) + timeline berta
 | POST /leave-requests/:id/tobkpsdm | leave.register | REGISTERED | SUBMITTED_BKPSDMD (staf kecamatan saja) |
 | POST /leave-requests/:id/receiveresult | leave.register | SUBMITTED_BKPSDMD (wajib sudah ada SURAT_JAWABAN_BKPSDM) | COMPLETED (hasil BKPSDMD diterima + diserahkan) |
 | POST /leave-requests/:id/complete | leave.sign | FORWARDED (jalur Camat→Sekda) | COMPLETED |
-| POST /leave-requests/:id/archive | leave.register | COMPLETED | ARCHIVED (staf kecamatan saja) |
+| POST /leave-requests/:id/archive | leave.register | COMPLETED | ARCHIVED (staf kecamatan saja; otomatis membuat `ArchiveRecord` sumber `LEAVE`) |
 | POST /leave-requests/:id/forward | leave.forward | VERIFIED (khusus pemohon CAMAT) | FORWARDED |
 | POST /leave-requests/:id/reject | leave.reject | SUBMITTED,VERIFIED,PARAF | REJECTED |
 
 Pengecualian jabatan: pemohon SEKCAM lompat-paraf (`approve` langsung dari VERIFIED,
 `paraf` ditolak 422); pemohon CAMAT diteruskan ke Sekda via `forward` (bukan `approve`);
 penerusan BKPSDMD/arsip hanya staf kecamatan (403 bila operator kelurahan).
+Saat `archive`, backend membuat `ArchiveRecord` dengan `sourceType=LEAVE` dan
+`leaveRequestId` dalam transaksi yang sama. Record langsung masuk Buku Arsip
+sebagai arsip belum terdaftar (`listId=null`), tampil di dashboard Sekcam/Camat,
+lalu dimasukkan ke Daftar Arsip dan ditandatangani. Kode arsip boleh dilengkapi
+staf setelah daftar ditandatangani.
 `paraf` hanya untuk pemegang jabatan SEKCAM (termasuk Plt aktif); `approve` hanya
 untuk CAMAT/Plt. `reject` dan `postpone` pada VERIFIED hanya Sekcam, pada PARAF
 hanya Camat. `revise` pada VERIFIED hanya Sekcam, pada PARAF hanya Camat.
@@ -304,26 +309,45 @@ Perm: `attendance.summary`. `weekStart` wajib Senin. Pegawai dengan ≥5 sesi
 tidak hadir (IZIN/SAKIT/DL memaafkan kedua sesi; ALPA/tanpa catatan = 2 sesi).
 
 ### POST /attendances/warning-letters/generate {weekStart}
-Perm: `attendance.manage`. Terbitkan surat teguran per pegawai bermasalah (idempoten per pekan).
-Isi: Nama, NIP, Jabatan/Unit, periode, total sesi TK + rincian harian.
-Saat surat baru dibuat: notifikasi pegawai penerima, Sekcam, dan pemegang `attendance.summary` (tipe `ATTENDANCE`).
+Perm: `attendance.manage`. Membuat **laporan** `LAPORAN-YYYY-NNNN` per pegawai
+bermasalah (idempoten per pekan); belum menerbitkan surat teguran.
+Saat laporan baru dibuat: notifikasi Sekcam dan pelaksana presensi (Kasubag/staf).
+Pegawai belum menerima surat teguran pada tahap ini.
 
-### POST /attendances/warning-letters/:id/summon → notifikasi pegawai yang dipanggil.
 ### POST /attendances/warning-letters/:id/forward {note?}
-Perm: `attendance.forward` + position SEKCAM. Eskalasi Sekcam → Camat (notifikasi Camat).
+Perm: `attendance.forward` + position SEKCAM. Meneruskan laporan ke Camat
+(notifikasi Camat). Belum ada keputusan tindak lanjut.
+
+### POST /attendances/warning-letters/:id/decide {decision, note?, instruction?}
+Perm: `attendance.forward` + position CAMAT. `decision`:
+- `FOLLOW_UP` → menerbitkan `TEGURAN-YYYY-NNNN`, notifikasi pelaksana + pegawai.
+- `NO_FOLLOW_UP` → tidak ada surat teguran; laporan masuk ke Kasi untuk
+  pembinaan (notifikasi Kasi + pegawai).
+
 ### POST /attendances/warning-letters/:id/instruct {instruction}
-Perm: `attendance.forward` + position CAMAT. "Tindak Lanjuti" (notifikasi pelaksana).
+Alias lama untuk keputusan `FOLLOW_UP`. Dipertahankan untuk kompatibilitas.
+
+### POST /attendances/warning-letters/:id/summon
+Hanya setelah keputusan `FOLLOW_UP`. Notifikasi pegawai yang dipanggil.
+
 ### PATCH /attendances/warning-letters/:id/coaching {result, followUp, note?}
-Perm: `attendance.manage`. Catat hasil pembinaan; notifikasi laporan hasil ke Sekcam + Camat.
+Perm: `attendance.manage`, atau Kasi untuk laporan `NO_FOLLOW_UP`.
+Pembinaan Kasi selalu diselesaikan internal (`NONE`); notifikasi hasil ke
+Sekcam + Camat.
+
 ### GET /attendances/warning-letters/:id/print
 Payload cetak/laporan BKPSDM: pegawai lengkap, summon, coaching, eskalasi,
-pejabat (Camat/Sekcam/Kasubag), `statusPembinaan` (Menunggu/Diproses/Selesai),
-dan `workflowStatus` (DILAPORKAN/DIPANGGIL/MENUNGGU_TINDAK_LANJUT/PEMBINAAN/SELESAI/DITERUSKAN_BKPSDM).
+keputusan Camat, pejabat (Camat/Sekcam/Kasubag), `statusPembinaan`
+(Menunggu/Diproses/Pembinaan Kasi/Selesai), dan `workflowStatus`
+(DILAPORKAN/DIPANGGIL/MENUNGGU_TINDAK_LANJUT/SURAT_TEGURAN/PEMBINAAN/
+PEMBINAAN_KASI/SELESAI/DITERUSKAN_BKPSDM).
 
 ### GET /attendances/warning-letters (+ /:id)
-Akses baca: `SUPER_ADMIN`, pemegang `attendance.summary`, atau pegawai pemilik surat
-(`warningLetter.employeeId === user.employeeId`). Pegawai hanya melihat surat miliknya sendiri.
-Respons daftar/detail menyertakan `workflowStatus` yang sama dengan payload cetak.
+Akses baca: `SUPER_ADMIN`, pemegang `attendance.summary`, jabatan `KASI`, atau
+pegawai pemilik surat (`warningLetter.employeeId === user.employeeId`). Pegawai
+hanya melihat surat miliknya sendiri.
+Respons daftar/detail menyertakan `decision`, `decisionNote`, `decidedAt`,
+`coachedBy`, dan `workflowStatus`.
 
 ## 5. Surat Masuk & Disposisi
 
@@ -332,8 +356,11 @@ POST /letters (JSON, atau multipart + file)          → DRAFT_TU   (letter.crea
   field: letterType=BIASA|UNDANGAN, submit=true|false, summary, classificationCode,
   activityDate?, activityStartTime?, activityEndTime?, activityLocation?, assignedUserIds[]
   submit=true → langsung REVIEW_SEKCAM; file/ringkasan/klasifikasi wajib
+PATCH /letters/:id {field surat...}                  → edit DRAFT_TU/REVISI_TU (letter.create)
 POST /letters/:id/submit                             → REVIEW_SEKCAM (letter.create)
-POST /letters/:id/documents (multipart, max 10MB)                 (letter.document.upload, hanya DRAFT_TU)
+POST /letters/:id/revision {note}                    → REVISI_TU (letter.paraf, posisi SEKCAM)
+POST /letters/:id/cancel {reason}                    → DIBATALKAN sebelum disposisi (letter.create)
+POST /letters/:id/documents (multipart, max 10MB)                 (letter.document.upload, DRAFT_TU/REVISI_TU)
 GET  /letters/:id/documents/:docId/download                       (letter.view, scope surat)
 POST /letters/:id/forward {note?}                    → DISPOSISI_CAMAT (letter.paraf, posisi SEKCAM)
 POST /letters/:id/paraf {note?}                      → alias forward
@@ -345,10 +372,11 @@ POST /letters/:id/dispositions {instruction, deadline?, targets[]?, targetCodes[
 POST /letters/dispositions/:dispId/accept             → ACCEPTED + buku ekspedisi (letter.followup, penerima)
 POST /letters/dispositions/:dispId/followup {note}    → DONE; semua DONE → MENUNGGU_ARSIP
 POST /letters/:id/complete {note?, dispositionId?}    → DONE untuk disposisi user; status agregat dihitung
-POST /letters/:id/archive                            → DIARSIPKAN (archive.approve, Sekcam/Camat)
+POST /letters/:id/archive {physicalLocation?, notes?, ...}
+  → DIARSIPKAN (letter.archive untuk staf arsip, atau archive.approve untuk Sekcam/Camat)
 PATCH /letters/:id/agenda {activityDate?, activityStartTime?, activityEndTime?,
   activityLocation?, assignedUserIds[]?}                            (letter.register)
-GET  /letters?status=&q=                  → scoped: admin/verifier semua, Sekcam tahap REVIEW_SEKCAM,
+GET  /letters?status=&q=                  → scoped: admin/verifier semua, Sekcam tahap REVIEW_SEKCAM/REVISI_TU,
                                             Camat tahap DISPOSISI_CAMAT, penerima surat terkait
 GET  /letters/:id                        → detail + dispositions[] + agendaAssignments[] + availableActions
   → dispositions[] memakai bentuk kanonik `from`/`to` (sama dengan GET /letters)
@@ -359,16 +387,18 @@ GET  /letters/agenda/tomorrow             → bentuk sama, untuk agenda esok har
 ```
 
 Status surat masuk:
-`DRAFT_TU|REVIEW_SEKCAM|DISPOSISI_CAMAT|DITERUSKAN|PROSES|MENUNGGU_ARSIP|DIARSIPKAN`.
+`DRAFT_TU|REVISI_TU|REVIEW_SEKCAM|DISPOSISI_CAMAT|DITERUSKAN|PROSES|MENUNGGU_ARSIP|DIARSIPKAN|DIBATALKAN`.
 Status lama `RECEIVED` dimigrasikan ke `REVIEW_SEKCAM` agar tetap terlihat oleh Sekcam.
 Status surat keluar: `RESERVED|TERKIRIM|DIARSIPKAN|CANCELLED`.
 Status disposisi: `PENDING|ACCEPTED|DONE`.
 
 `GET /letters/:id` juga mengembalikan `letterType`, `submittedAt`,
-`completedAt`, `completionNote`, `archiveRecord`, dan `documents[].downloadUrl`.
-Nilai `availableActions[]`: `submit`, `forward`, `dispose`, `accept`,
-`complete`, `archive`, `upload` (bukan `paraf`). Setiap item `dispositions[]`
-memiliki `acceptedAt`, `canAccept`, `canComplete`, dan `canFollowUp`.
+`completedAt`, `completionNote`, `revisionNote`, `revisionRequestedAt`,
+`cancelReason`, `cancelledAt`, `archiveRecord`, dan `documents[].downloadUrl`.
+Nilai `availableActions[]`: `submit`, `edit`, `cancel`, `revise`, `forward`,
+`dispose`, `accept`, `complete`, `archive`, `upload` (bukan `paraf`). Setiap
+item `dispositions[]` memiliki `acceptedAt`, `canAccept`, `canComplete`, dan
+`canFollowUp`.
 Catatan Sekcam adalah disposisi dengan `from.id === to.id`; jangan dihitung
 sebagai target/progres.
 
@@ -419,10 +449,23 @@ POST /outgoing-letters/:id/cancel {reason} → CANCELLED, nomor tidak dipakai ul
 POST /outgoing-letters/:id/documents (multipart, 10MB)
 GET  /outgoing-letters/:id/documents/:docId/download            (outgoing.view)
 GET  /outgoing-letters?status=&q=  |  GET /outgoing-letters/:id
-  → detail dan response mutasi memuat availableActions[]: issue, cancel, upload, resubmit_archive
+  → detail dan response mutasi memuat availableActions[]: issue, cancel, upload, resubmit_archive,
+    record_expedition, mark_expedition_sent, mark_expedition_received
+POST /outgoing-letters/:id/expedition {sentDate?, courierName?, recipientName?, note?}
+  → catat serah terima ke caraka di Buku Ekspedisi Surat Keluar  (outgoing.issue)
+POST /outgoing-letters/:id/expedition/receipt {receivedDate?, receivedByName, receiptNumber?, note?}
+  → catat bukti terima instansi tujuan; hanya setelah expedition tercatat (outgoing.issue)
 GET  /outgoing-letters/register-book?year=&from=&to=&q=&status=
   → [{nomor, nomorUrut, instansiDituju, nomorTujuan, nomorSurat, tanggalSurat, tanggalCatat,
-      perihal, penanggungJawab, kodeSurat, klasifikasi, penandatangan, ket, status}]
+      perihal, penanggungJawab, kodeSurat, klasifikasi, penandatangan, ket, status,
+      ekspedisi, ekspedisiReg, ekspedisiDiterima}]
+GET  /outgoing-letters/expedition-book?year=&from=&to=&q=&status=&includeUnrecorded=
+  → baris Buku Ekspedisi Surat Keluar. Default hanya surat yang sudah punya baris ekspedisi;
+    includeUnrecorded=1 menampilkan surat TERKIRIM yang belum dicatat.
+    Status: BELUM_DICATAT | BELUM_DIKIRIM | DIKIRIM | DITERIMA.
+    [{id, letterId, regNumber, sentDate, courierName, recipientName, receiptNumber,
+      receivedDate, receivedByName, note, status, nomorSurat, tanggalSurat, perihal,
+      instansiTujuan, penerimaSurat}]
 GET  /outgoing-letters/numbering?year= → status nomor terakhir + buffer backdate
 ```
 
@@ -439,10 +482,20 @@ GET /archives/stats?year=2026                                      (archive.view
   → {year, total, unlisted, signedLists, byCategory, bySource}
 GET /archives?year=&sourceType=&category=&classificationCode=&q=&page=&limit= (archive.view)
 GET /archives/:id                                                  (archive.view; termasuk physicalLocation)
-PATCH /archives/:id {..., physicalLocation?}                        (archive.update, hanya SUPER_ADMIN)
+PATCH /archives/:id {..., physicalLocation?}                        (archive.update)
 POST /archives/lists | GET /archives/lists | POST /archives/lists/:id/records
 POST /archives/lists/:id/sign
 ```
+
+`sourceType` menerima `INCOMING`, `OUTGOING`, atau `LEAVE`. Record `LEAVE`
+memiliki `leaveRequestId` dan relasi `leaveRequest` (nomor permohonan, jenis
+cuti, pegawai, periode).
+
+`PATCH /archives/:id`:
+- `SUPER_ADMIN` boleh mengubah seluruh metadata, tetapi setelah daftar
+  `SIGNED` hanya `code` dan `bundleCode`.
+- Staf dengan `archive.update` hanya boleh mengubah `code` dan `bundleCode`,
+  termasuk setelah daftar `SIGNED` (SOP pemberian kode pada berkas fisik).
 
 `GET /archives` mendukung filter tahun, `classificationCode`, dan `q`
 (nomor arsip/uraian/nomor dokumen/kode/berkas/catatan/lokasi fisik/pengirim/
@@ -465,7 +518,7 @@ Spesifikasi lengkap ada di `docs/14-surat-workflow-revision.md`. Ringkasan
 kontrak final:
 
 ```text
-GET  /letters/archive-queue?q=&page=&limit=            (archive.approve)
+GET  /letters/archive-queue?q=&page=&limit=            (letter.view + staf arsip/approver)
   → surat masuk status MENUNGGU_ARSIP, archiveRecord null
 GET  /outgoing-letters/archive-queue?q=&page=&limit=   (archive.approve)
   → surat keluar status TERKIRIM, archiveRecord null, archiveRejectedAt null
@@ -499,7 +552,9 @@ Keduanya masih menyertakan alias lama (`nomor`, `nomorSurat`, `perihal`,
 untuk kompatibilitas UI; field kanonik adalah sumber utama.
 
 Surat masuk memakai `MENUNGGU_ARSIP` sebagai antrean dan `DIARSIPKAN`
-setelah disetujui. Surat keluar memakai `TERKIRIM` sebagai antrean dan
+setelah diselesaikan. Staf arsip dengan `letter.archive` dapat langsung
+mengarsipkan lewat `POST /letters/:id/archive`; Sekcam/Camat tetap dapat
+menyetujui lewat batch. Surat keluar memakai `TERKIRIM` sebagai antrean dan
 `DIARSIPKAN` setelah disetujui; `archiveRejectedAt` menandakan perlu revisi.
 Permission `archive.approve`/`archive.reject` tidak cukup: route juga
 mensyaratkan posisi `SEKCAM`/`CAMAT` atau role `SUPER_ADMIN`. Approver pertama
@@ -514,19 +569,35 @@ sudah ada. Setiap surat yang masuk antrean mengirim notifikasi tipe
 GET /notifications?unread=true  |  GET /notifications/unread-count  |  PATCH /notifications/:id/read
 PATCH /notifications/read-all   → { updated } semua notifikasi user login
 ```
-Disposisi baru otomatis membuat notifikasi untuk penerima.
+Disposisi baru otomatis membuat notifikasi untuk penerima. Notifikasi pensiun memakai
+`referenceType = pension_batch` dan `referenceId = <id usulan>`; setelah seluruh dokumen
+inti lengkap, Kasubag menerima tipe `PENSIUN_READY` untuk melakukan verifikasi.
 
 ## 6. KGB (pola sama seperti cuti, prefix `kgb.`)
 
 ```text
-POST /kgb-requests {oldRank, newRank, oldSalary, newSalary, effectiveDate, note?} → DRAFT
+GET  /kgb-requests/prefill?employeeId= → {oldRank,newRank,oldSalary,newSalary,mkg,newMkg,maxMkg,
+  atMax,scheduledDate,effectiveDate,overdueMonths,regulation}
+  Golongan dari pegawai.rank, MKG dari TMT pangkat terakhir, gaji dari master skala_gaji_pns
+  (PP 5/2024). Employee hanya boleh meminta datanya sendiri.
+POST /kgb-requests {effectiveDate?, note?, employeeId?} → DRAFT
+  oldRank/newRank/oldSalary/newSalary boleh dikirim untuk kompatibilitas, tetapi bila kosong
+  backend menghitung dari master + skala gaji. Gaji baru = tabel(golongan, MKG + 2).
+  Ditolak 422 bila MKG sudah maksimum atau gaji baru tidak lebih besar.
 PATCH /kgb-requests/:id                        (DRAFT/REVISION, pemilik)
+  Bila field gaji tidak dikirim, backend menghitung ulang dari master.
 POST /kgb-requests/:id/documents (multipart)   docType: SK_TERAKHIR|SKP|KP4|LAINNYA
 GET  /kgb-requests/:id/documents/:docId/download
 POST /kgb-requests/:id/submit|verify|revise|paraf|approve|return|reject {note?}
-POST /kgb-requests/:id/register {note}          APPROVED → REGISTERED (catat no. surat keluar; staf kecamatan)
-POST /kgb-requests/:id/tobkpsdm {note?}         REGISTERED → SUBMITTED_BKPSDMD (kirim ke BKD)
-POST /kgb-requests/:id/complete {note?}         SUBMITTED_BKPSDMD → COMPLETED (hasil diterima)
+POST /kgb-requests/:id/register {note?}         APPROVED → REGISTERED
+  Membuat OutgoingLetter resmi (klasifikasi 800.1.11.13, nomor otomatis lewat
+  outgoing numbering), menautkannya ke KGB, dan membuat baris Buku Ekspedisi
+  Surat Keluar berstatus BELUM_DIKIRIM. Catatan register opsional.
+POST /kgb-requests/:id/tobkpsdm {note?, sentDate?, courierName?}
+  REGISTERED → SUBMITTED_BKPSDMD. Mencatat serah terima ke caraka di Buku
+  Ekspedisi Surat Keluar (status DIKIRIM).
+POST /kgb-requests/:id/complete {note?, receivedByName?, receiptNumber?, receivedDate?}
+  SUBMITTED_BKPSDMD → COMPLETED. Menandai bukti terima BKD (status DITERIMA).
 POST /kgb-requests/:id/archive                  COMPLETED → ARCHIVED (staf kecamatan)
 GET  /kgb-requests?status=&q=   → detail berisi availableActions + timeline + camat + waitingFor
 GET  /kgb-requests/pending-approval → daftar tugas user login, meta {total, count}
@@ -549,18 +620,24 @@ POST /kgb-requests/reminders/generate → buat notifikasi pengingat KGB
 DELETE /kgb-requests/:id        → hapus DRAFT milik sendiri
 ```
 
-Aturan khusus: `newSalary > oldSalary` (422 bila tidak). Ekor (register→archive) hanya staf kecamatan. `register` mensyaratkan `note` (nomor surat keluar). `complete` mensyaratkan sudah dikirim (SUBMITTED_BKPSDMD). Step 7-9 SOP terintegrasi dengan buku agenda surat keluar + buku ekspedisi (operator mencatat manual via endpoint surat yang ada). Detail menyertakan field `camat` ({name, nip, position}) dan `waitingFor`.
+Aturan khusus: `newSalary > oldSalary` (422 bila tidak). Ekor (register→archive) hanya staf kecamatan. KGB final terakhir menggeser jadwal +2 tahun. Langkah 7–9 SOP terintegrasi: `register` membuat surat keluar + baris ekspedisi, `tobkpsdm` mencatat serah terima caraka, `complete` mencatat bukti terima BKD. Detail menyertakan field `camat` ({name, nip, position}), `waitingFor`, `outgoingLetter` (termasuk `archiveRecord` bila sudah disetujui), dan `expeditionStatus`. `archive` menandai KGB selesai; surat pengantar tetap di **antrean arsip surat keluar** sampai Sekcam/Camat menyetujui arsip.
 
 Wewenang KGB: `paraf` hanya Sekcam/Plt Sekcam; `approve` hanya Camat/Plt Camat; `return` dari VERIFIED hanya Sekcam dan dari PARAF hanya Camat; `reject` pada VERIFIED hanya Sekcam dan pada PARAF hanya Camat. `return` dan `reject` mewajibkan `note`. `approve` mengisi `approvedAt/approvedBy/approvalNote`; `return` menghapus penanda persetujuan sebelumnya. `return` mengubah status ke REVISION; saat diajukan ulang `version` bertambah dan paraf harus diulang.
 
-Detail KGB memiliki `documentVersion`, `currentDocumentHash`, dan `parafHistory` dengan bentuk yang sama seperti cuti. `parafHistory` tidak dapat diubah/dihapus. Notifikasi `verify`/`paraf` dikirim berdasarkan jabatan (termasuk Plt), bukan permission; transisi lain memakai permission tahap + pemohon. Buku register memakai nomor/tanggal dari approval REGISTER; kolom `gol`/`pangkat` memakai golongan baru.
+Detail KGB memiliki `documentVersion`, `currentDocumentHash`, dan `parafHistory` dengan bentuk yang sama seperti cuti. Hash tetap disimpan di backend untuk integritas, tetapi tidak ditampilkan di UI. `parafHistory` tidak dapat diubah/dihapus. Notifikasi `verify`/`paraf` dikirim berdasarkan jabatan (termasuk Plt), bukan permission; transisi lain memakai permission tahap + pemohon. Buku register memakai nomor/tanggal dari surat keluar hasil `register` (fallback catatan register untuk data lama); kolom `gol`/`pangkat` memakai golongan baru.
 
 ## 7. Master & User (untuk dropdown & admin)
 
 ```text
 GET /leave-types                    → [{code,name,maxDays}]
 GET /employees?q=&orgUnit=&page=    → perm employee.view
-GET /users/me → sama dengan /auth/me (alias, pilih satu)
+GET /users/me                        → profil akun sendiri (semua user login)
+PATCH /users/me {email?,phone?}      → ubah email/nomor telepon sendiri
+GET /users?q=&role=&active=&page=   → perm user.view (q juga mencari nama/NIP/nomor pegawai)
+GET /users/options                  → perm user.manage; role, jabatan, unit, golongan, tabel gaji
+POST /users                         → perm user.manage; buat akun + data pegawai
+PATCH /users/:id                    → perm user.manage; role, status, password, data pegawai
+DELETE /users/:id                   → perm user.manage; lihat aturan hapus di bawah
 GET /users/acting-positions?position=&active= → penugasan Plt
 POST /users/acting-positions {position,userId,startsAt,endsAt?,reason?} → perm user.manage
 PATCH /users/acting-positions/:id {isActive?,endsAt?,reason?} → perm user.manage
@@ -569,7 +646,41 @@ PATCH /users/acting-positions/:id {isActive?,endsAt?,reason?} → perm user.mana
 Plt dicatat di `penugasan_plt`, bukan dengan mengganti `users.position`. Notifikasi
 dan wewenang paraf/persetujuan memakai Plt yang aktif pada waktu aksi.
 
-User/role management full (`POST /users`, `PUT /users/:id/permissions`) dikerjakan setelah cuti stabil — frontend jangan hardcode dulu.
+### Profil akun sendiri
+
+Halaman `/profil` dapat dibuka semua user login. `GET /users/me` mengembalikan data
+akun, unit kerja, serta data pegawai. `PATCH /users/me` hanya menerima `email` dan
+`phone`; field lain tidak dapat diubah sendiri.
+
+- `email` disimpan di `pengguna.email` dan dinormalisasi lowercase. Boleh kosong/null.
+- `phone` disimpan di `pegawai.telepon` (kolom lama). Boleh kosong/null.
+- Email belum dipakai untuk pengiriman otomatis; disiapkan untuk notifikasi email
+  tahap berikutnya.
+- Data kepegawaian lain (nama, NIP, golongan, jabatan, unit) tetap dikelola
+  SUPER_ADMIN melalui halaman `/pengguna`.
+
+### Manajemen akun SUPER_ADMIN
+
+Halaman `/pengguna` memakai `user.manage` (hanya SUPER_ADMIN). Form membuat
+akun sekaligus data pegawai: `username`, `password`, `role`, `position`,
+`orgUnitCode`, dan objek `employee` (`name`, `nip`, `gender`, `birthDate`,
+`employmentStatus`, `rank`, `rankTmt`, `joinDate`, `phone`, `address`).
+`employeeNumber` kosong akan dibuat otomatis (`EMP-###`).
+
+- Gaji pokok dihitung backend dari `rank` + MKG (`rankTmt`, fallback `joinDate`)
+  memakai PP 5/2024. Perubahan `rank`/`rankTmt`/`joinDate` menghitung ulang gaji.
+- `POST /users` dan perubahan role/jabatan menerapkan kebijakan permission
+  berbasis jabatan: Kasubag mendapat grant pemeriksa; Sekcam tidak mendapat
+  `leave.approve`/`leave.sign`; Camat mendapat keduanya dan tidak `leave.verify`.
+  Perubahan role/jabatan menghapus override lama lalu menerapkan kebijakan baru.
+- `DELETE /users/:id` menghapus permanen bila akun belum punya riwayat
+  transaksi. Bila sudah punya riwayat, akun dan pegawainya dinonaktifkan agar
+  relasi/audit tetap utuh. Akun sendiri dan Super Admin aktif terakhir tidak
+  dapat dihapus.
+- Untuk simulasi: tombol **Isi contoh pensiun 58 th** mengisi tanggal lahir 58
+  tahun lalu dan role VERIFIER (pelaksana usulan); **Isi contoh pegawai KGB**
+  mengisi masa kerja 4 tahun dengan golongan III/a. Nilai dapat diubah manual.
+- `user.manage` tidak diberikan ke role selain SUPER_ADMIN oleh seed/migrasi.
 
 ## 8. Contoh Alur Frontend (Cuti)
 
@@ -604,16 +715,16 @@ POST /pension-requests/:id/items/:itemId/documents (multipart)  docType
 GET  /pension-requests/:id/items/:itemId/documents/:docId/download
 DELETE /pension-requests/:id/items/:itemId/documents/:docId
 POST /pension-requests/:id/verify|revise|reject|paraf|approve {note?}
-POST /pension-requests/:id/register                    APPROVED → REGISTERED
-POST /pension-requests/:id/expedite                    REGISTERED → EXPEDITED
-POST /pension-requests/:id/send                        EXPEDITED → SENT
+POST /pension-requests/:id/register {outgoingLetterDate?, createOutgoingLetter?, outgoingLetterId?, classificationCode?, note?}
+POST /pension-requests/:id/expedite {expeditionDate?, courierName, note?}
+POST /pension-requests/:id/send {receiptNumber, receiptDate, receivedByName?, note?}
 POST /pension-requests/:id/complete                    SENT → COMPLETED
 POST /pension-requests/:id/archive                     COMPLETED → ARCHIVED
 GET  /pension-requests?status=&year=&q=&page=&limit=
 GET  /pension-requests/:id                            → items, checklist, timeline, availableActions
 GET  /pension-requests/register?year=
 GET  /pension-requests/nominative?year=&month=
-GET  /pension-requests/expedition-book?year=
+GET  /pension-requests/expedition-book?year=&from=&to=
 DELETE /pension-requests/:id                          → hapus DRAFT milik sendiri
 ```
 
@@ -622,9 +733,22 @@ catatan minimal 5 karakter; `paraf` hanya jabatan `SEKCAM`; `approve` hanya jaba
 `CAMAT`; `register`/`expedite`/`send`/`complete`/`archive` hanya `orgUnit.code =
 KEC-TAMALATE`. `register` tanpa surat keluar manual dan tanpa
 `createOutgoingLetter: false` akan membuat surat keluar otomatis memakai service
-penomoran (buffer backdate 3 nomor ditangani backend). Frontend tidak boleh membuat
-tombol reservasi nomor. List/detail `EMPLOYEE` otomatis dibatasi ke usulan yang
-memuat dirinya; buku register/nominatif/ekspedisi hanya untuk petugas.
+penomoran (buffer backdate 3 nomor ditangani backend) dan langsung menyiapkan baris
+`ekspedisi_surat_keluar` berstatus `BELUM_DIKIRIM`. `expedite` mengisi tanggal
+serah terima + nama caraka pada baris ekspedisi (`DIKIRIM`), lalu `send` mencatat
+nomor/tanggal bukti terima dan nama penerima (`DITERIMA`). Detail batch memuat
+`outgoingLetter.outgoingExpedition` dan `expeditionStatus`; kolom lama
+`expeditionNumber`/`receiptNumber` tetap dikirim sebagai fallback data historis.
+`expedition-book` pensiun adalah tampilan terfilter dari `ekspedisi_surat_keluar`
+untuk surat usulan pensiun, bukan tabel terpisah. Checklist dokumen untuk demo
+hanya memuat empat berkas inti: `DPCP`, `SK PNS`, `SK Pangkat Terakhir`, dan
+`SK Jabatan Terakhir`. Jenis dokumen lama tetap tersimpan di database bila sudah
+ada, tetapi tidak lagi diminta, dihitung, atau ditampilkan. Frontend menyediakan
+pemilih beberapa berkas sekaligus dan satu tombol **Unggah semua**; backend tetap
+menerima satu berkas per request.
+Frontend tidak boleh membuat tombol reservasi nomor. List/detail `EMPLOYEE`
+otomatis dibatasi ke usulan yang memuat dirinya; buku register/nominatif/ekspedisi
+hanya untuk petugas.
 
 ## 11. Kenaikan Pangkat ASN (prefix `promotion.`)
 

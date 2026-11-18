@@ -24,6 +24,8 @@ async function userPayload(userId: string) {
     username: user.username,
     role: user.role,
     position: user.position,
+    email: user.email ?? null,
+    phone: user.employee?.phone ?? null,
     orgUnit: user.orgUnit ? { id: user.orgUnit.id, code: user.orgUnit.code, name: user.orgUnit.name } : null,
     // DATA PEGAWAI untuk form (nama, NIP, jabatan=position, masa kerja dihitung frontend dari joinDate, unit kerja).
     employee: user.employee
@@ -32,6 +34,8 @@ async function userPayload(userId: string) {
           position: user.employee.position, rank: user.employee.rank,
           rankTmt: user.employee.rankTmt ? user.employee.rankTmt.toISOString().slice(0, 10) : null,
           joinDate: user.employee.joinDate ? user.employee.joinDate.toISOString().slice(0, 10) : null,
+          salary: user.employee.salary,
+          phone: user.employee.phone,
           employmentStatus: user.employee.employmentStatus,
           orgUnit: user.employee.orgUnit ? { id: user.employee.orgUnit.id, code: user.employee.orgUnit.code, name: user.employee.orgUnit.name } : null,
         }

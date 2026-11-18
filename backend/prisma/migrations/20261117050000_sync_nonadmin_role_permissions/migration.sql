@@ -1,0 +1,132 @@
+-- Sinkronkan izin role non-SUPER_ADMIN dengan kebijakan seed saat ini.
+--
+-- Latar belakang: database ini dipakai bersama beberapa lingkungan. Seed lama
+-- (versi sebelum seed dibuat aditif) pernah menghapus link peran_izin untuk
+-- fitur yang belum tercantum di peta lama. Akibatnya Staf Kepegawaian
+-- kehilangan akses Kenaikan Pangkat dan langkah register/ekspedisi pensiun.
+-- Migrasi ini idempoten: hanya menambah link yang hilang, tidak mencabut
+-- grant lain (mis. grant per user Kasubag).
+
+INSERT INTO "peran_izin" ("id_peran", "id_izin")
+SELECT r."id", p."id"
+FROM (
+  VALUES
+    -- VERIFIER / Staf Kepegawaian: operator administrasi.
+    ('VERIFIER', 'auth.me'),
+    ('VERIFIER', 'user.view'),
+    ('VERIFIER', 'employee.view'),
+    ('VERIFIER', 'leave.view'),
+    ('VERIFIER', 'leave.receive'),
+    ('VERIFIER', 'leave.register'),
+    ('VERIFIER', 'leave.document.upload'),
+    ('VERIFIER', 'attendance.view'),
+    ('VERIFIER', 'attendance.checkin'),
+    ('VERIFIER', 'attendance.manage'),
+    ('VERIFIER', 'letter.view'),
+    ('VERIFIER', 'letter.create'),
+    ('VERIFIER', 'letter.register'),
+    ('VERIFIER', 'letter.document.upload'),
+    ('VERIFIER', 'letter.expedition'),
+    ('VERIFIER', 'kgb.view'),
+    ('VERIFIER', 'kgb.create'),
+    ('VERIFIER', 'kgb.document.upload'),
+    ('VERIFIER', 'kgb.register'),
+    ('VERIFIER', 'kgb.remind'),
+    ('VERIFIER', 'outgoing.view'),
+    ('VERIFIER', 'outgoing.create'),
+    ('VERIFIER', 'outgoing.reserve'),
+    ('VERIFIER', 'outgoing.issue'),
+    ('VERIFIER', 'outgoing.cancel'),
+    ('VERIFIER', 'archive.view'),
+    ('VERIFIER', 'archive.update'),
+    ('VERIFIER', 'pension.view'),
+    ('VERIFIER', 'pension.create'),
+    ('VERIFIER', 'pension.document.upload'),
+    ('VERIFIER', 'pension.register'),
+    ('VERIFIER', 'pension.expedite'),
+    ('VERIFIER', 'pension.send'),
+    ('VERIFIER', 'promotion.view'),
+    ('VERIFIER', 'promotion.create'),
+    ('VERIFIER', 'promotion.legalize'),
+    ('VERIFIER', 'promotion.register'),
+    ('VERIFIER', 'promotion.archive'),
+    ('VERIFIER', 'promotion.document.upload'),
+
+    -- SUPERVISOR / Kasi: melihat dan memberi pertimbangan.
+    ('SUPERVISOR', 'auth.me'),
+    ('SUPERVISOR', 'user.view'),
+    ('SUPERVISOR', 'employee.view'),
+    ('SUPERVISOR', 'leave.view'),
+    ('SUPERVISOR', 'leave.review'),
+    ('SUPERVISOR', 'leave.document.upload'),
+    ('SUPERVISOR', 'attendance.view'),
+    ('SUPERVISOR', 'attendance.checkin'),
+    ('SUPERVISOR', 'letter.view'),
+    ('SUPERVISOR', 'letter.followup'),
+    ('SUPERVISOR', 'kgb.view'),
+    ('SUPERVISOR', 'kgb.review'),
+    ('SUPERVISOR', 'kgb.document.upload'),
+    ('SUPERVISOR', 'archive.view'),
+    ('SUPERVISOR', 'pension.view'),
+    ('SUPERVISOR', 'promotion.view'),
+
+    -- LEADER / Sekcam & Camat: paraf dan keputusan.
+    ('LEADER', 'auth.me'),
+    ('LEADER', 'user.view'),
+    ('LEADER', 'employee.view'),
+    ('LEADER', 'leave.view'),
+    ('LEADER', 'leave.create'),
+    ('LEADER', 'leave.submit'),
+    ('LEADER', 'leave.document.upload'),
+    ('LEADER', 'leave.paraf'),
+    ('LEADER', 'leave.approve'),
+    ('LEADER', 'leave.reject'),
+    ('LEADER', 'leave.forward'),
+    ('LEADER', 'attendance.view'),
+    ('LEADER', 'attendance.checkin'),
+    ('LEADER', 'attendance.summary'),
+    ('LEADER', 'attendance.forward'),
+    ('LEADER', 'letter.view'),
+    ('LEADER', 'letter.dispose'),
+    ('LEADER', 'letter.followup'),
+    ('LEADER', 'letter.paraf'),
+    ('LEADER', 'kgb.view'),
+    ('LEADER', 'kgb.paraf'),
+    ('LEADER', 'kgb.approve'),
+    ('LEADER', 'kgb.reject'),
+    ('LEADER', 'outgoing.view'),
+    ('LEADER', 'archive.view'),
+    ('LEADER', 'archive.sign'),
+    ('LEADER', 'archive.approve'),
+    ('LEADER', 'archive.reject'),
+    ('LEADER', 'pension.view'),
+    ('LEADER', 'pension.paraf'),
+    ('LEADER', 'pension.approve'),
+    ('LEADER', 'pension.revise'),
+    ('LEADER', 'pension.reject'),
+    ('LEADER', 'promotion.view'),
+    ('LEADER', 'promotion.paraf'),
+    ('LEADER', 'promotion.approve'),
+    ('LEADER', 'promotion.revise'),
+    ('LEADER', 'promotion.reject'),
+
+    -- EMPLOYEE / pegawai: akses dasar untuk pengajuan sendiri.
+    ('EMPLOYEE', 'auth.me'),
+    ('EMPLOYEE', 'leave.view'),
+    ('EMPLOYEE', 'leave.create'),
+    ('EMPLOYEE', 'leave.submit'),
+    ('EMPLOYEE', 'leave.document.upload'),
+    ('EMPLOYEE', 'attendance.view'),
+    ('EMPLOYEE', 'attendance.checkin'),
+    ('EMPLOYEE', 'letter.view'),
+    ('EMPLOYEE', 'letter.followup'),
+    ('EMPLOYEE', 'kgb.view'),
+    ('EMPLOYEE', 'kgb.create'),
+    ('EMPLOYEE', 'kgb.submit'),
+    ('EMPLOYEE', 'kgb.document.upload'),
+    ('EMPLOYEE', 'pension.view'),
+    ('EMPLOYEE', 'promotion.view')
+) AS v("role_code", "permission_code")
+JOIN "peran" AS r ON r."kode"::text = v."role_code"
+JOIN "izin" AS p ON p."kode" = v."permission_code"
+ON CONFLICT ("id_peran", "id_izin") DO NOTHING;

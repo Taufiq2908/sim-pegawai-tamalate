@@ -7,7 +7,6 @@ import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
 import { fileUrl } from "@/lib/file-url";
-import { FileButton } from "@/components/form";
 import { toast } from "@/components/toast";
 import type { PensionBatch, PensionItem } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge, ProcessTrail, TrailEntry } from "@/components/ui";
@@ -37,47 +36,110 @@ const ITEM_STATUS_LABEL: Record<string, string> = {
   REJECTED: "Ditolak",
 };
 
-const DOC_TYPES = [
-  "SK_CPNS",
-  "SK_PNS",
-  "SK_PANGKAT_TERAKHIR",
-  "SK_JABATAN_TERAKHIR",
-  "KTP",
-  "KK",
-  "NPWP",
-  "REKENING_GAJI",
-  "PAS_FOTO",
-  "SKP_2_TAHUN",
-  "SURAT_KETERANGAN_SEHAT",
-  "SURAT_PERNYATAAN",
-  "LAINNYA",
-];
+// Dokumen yang diminta untuk demo. Jenis lama tetap tersimpan di database,
+// tetapi tidak ditampilkan dan tidak perlu diunggah lagi.
+const REQUIRED_DOCS = [
+  { code: "DPCP", label: "DPCP", hint: "Data Perorangan Calon Penerima Pensiun" },
+  { code: "SK_PNS", label: "SK PNS", hint: "SK pengangkatan PNS" },
+  { code: "SK_PANGKAT_TERAKHIR", label: "SK Pangkat Terakhir", hint: "SK kenaikan pangkat terakhir" },
+  { code: "SK_JABATAN_TERAKHIR", label: "SK Jabatan Terakhir", hint: "SK jabatan terakhir" },
+] as const;
+
+type RequiredDocCode = (typeof REQUIRED_DOCS)[number]["code"];
+type UploadSelection = Partial<Record<RequiredDocCode, File>>;
+
+function inferDocCode(name: string): RequiredDocCode | null {
+  const n = name.toLowerCase();
+  if (n.includes("dpcp")) return "DPCP";
+  if (n.includes("jabatan")) return "SK_JABATAN_TERAKHIR";
+  if (n.includes("pangkat")) return "SK_PANGKAT_TERAKHIR";
+  // SK CPNS bukan lagi dokumen wajib; jangan sampai terdeteksi sebagai SK PNS.
+  if (n.includes("cpns")) return null;
+  if (/(^|[^a-z])pns([^a-z]|$)/.test(n) || n.includes("skpns")) return "SK_PNS";
+  return null;
+}
+
+function isLegacyDocName(name: string): boolean {
+  const n = name.toLowerCase();
+  return /\b(cpns|ktp|kk|npwp|rekening|pas\s*foto|skp|sehat|pernyataan)\b/.test(n);
+}
+
+function uploadedDoc(item: PensionItem, code: string) {
+  return item.documents.find((d) => d.docType === code) ?? null;
+}
+
+function selectedFileCount(selection?: UploadSelection): number {
+  return Object.values(selection ?? {}).filter(Boolean).length;
+}
 
 const ACTION_LABEL: Record<string, string> = {
-  verify: "Verifikasi",
-  revise: "Minta Revisi",
+  verify: "Verifikasi dokumen",
+  revise: "Kembalikan untuk revisi",
   reject: "Tolak",
-  paraf: "Paraf",
-  approve: "Setujui",
-  register: "Register",
-  expedite: "Ekspedisi",
-  send: "Kirim",
-  complete: "Selesai",
+  paraf: "Paraf & teruskan ke Camat",
+  approve: "Setujui & tandatangani",
+  register: "Register & catat ke Buku Agenda Surat Keluar",
+  expedite: "Catat Ekspedisi & Serahkan ke Caraka",
+  send: "Catat bukti terima BKPSDMD",
+  complete: "Selesaikan",
   archive: "Arsipkan",
 };
+
+const EXPEDITION_LABEL: Record<string, string> = {
+  BELUM_DICATAT: "Belum dicatat di buku ekspedisi",
+  BELUM_DIKIRIM: "Belum diserahkan ke caraka",
+  DIKIRIM: "Sudah diserahkan, menunggu bukti terima",
+  DITERIMA: "Sudah diterima BKPSDMD",
+};
+
+const EXPEDITION_CLASS: Record<string, string> = {
+  BELUM_DICATAT: "bg-paper text-muted ring-line",
+  BELUM_DIKIRIM: "bg-warn-100 text-warn-700 ring-warn-700/30",
+  DIKIRIM: "bg-info-100 text-info-700 ring-info-700/30",
+  DITERIMA: "bg-ok-100 text-ok-700 ring-ok-700/30",
+};
+
+const NOTE_REQUIRED = ["revise", "reject"];
+
+const WAITING_HINT: Record<string, string> = {
+  DRAFT: "Draf belum diajukan. Unggah dokumen lalu verifikasi.",
+  VERIFIED: "Menunggu Sekcam memeriksa dan memaraf draf usulan.",
+  PARAF: "Menunggu Camat memvalidasi dan menandatangani surat pengusulan.",
+  APPROVED: "Menunggu staf kepegawaian mencatat surat ke Buku Agenda Surat Keluar.",
+  REGISTERED: "Menunggu pencatatan serah terima ke caraka di Buku Ekspedisi Surat Keluar.",
+  EXPEDITED: "Menunggu pendistribusi/operator mencatat bukti terima dari BKPSDMD.",
+  SENT: "Bukti terima sudah dicatat. Tahap penutupan/arsip bersifat opsional.",
+  COMPLETED: "Usulan sudah selesai dan dapat diarsipkan.",
+  ARCHIVED: "Usulan sudah diarsipkan.",
+  REJECTED: "Usulan ditolak; tidak ada aksi lanjutan.",
+  REVISION: "Berkas dikembalikan untuk diperbaiki staf kepegawaian.",
+};
+
+function todayYmd(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export default function PensiunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { hasPermission } = useAuth();
   const canUpload = hasPermission("pension.document.upload");
+  const canViewOutgoing = hasPermission("outgoing.view");
 
   const [batch, setBatch] = useState<PensionBatch | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [acting, setActing] = useState<string | null>(null);
-  const [docFile, setDocFile] = useState<File | null>(null);
-  const [docType, setDocType] = useState("");
+  const [uploadSelections, setUploadSelections] = useState<Record<string, UploadSelection>>({});
+  const [uploadEpoch, setUploadEpoch] = useState(0);
+  const [uploading, setUploading] = useState<{ itemId: string; done: number; total: number } | null>(null);
+  const [note, setNote] = useState("");
+  const [letterDate, setLetterDate] = useState(todayYmd());
+  const [expeditionDate, setExpeditionDate] = useState(todayYmd());
+  const [courierName, setCourierName] = useState("");
+  const [receivedByName, setReceivedByName] = useState("BKPSDMD Kota Makassar");
+  const [receiptNumber, setReceiptNumber] = useState("");
+  const [receiptDate, setReceiptDate] = useState(todayYmd());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -134,29 +196,104 @@ export default function PensiunDetailPage() {
   }));
 
   const isDraftOrRevision = batch.status === "DRAFT" || batch.status === "REVISION";
+  const actions = batch.availableActions ?? [];
+  const outgoing = batch.outgoingLetter ?? null;
+  const expedition = outgoing?.outgoingExpedition ?? null;
+  const expeditionStatus = batch.expeditionStatus ?? expedition?.status ?? "BELUM_DICATAT";
+  const showExpeditionCard = Boolean(outgoing)
+    || ["APPROVED", "REGISTERED", "EXPEDITED", "SENT", "COMPLETED", "ARCHIVED"].includes(batch.status);
 
-  async function uploadDocument(itemId: string) {
-    if (!docFile) {
-      toast.error("Pilih file dulu (pdf/jpg/png, max 5MB).");
+  function setSelectedFile(itemId: string, code: RequiredDocCode, file: File | null) {
+    if (file && file.size > 5 * 1024 * 1024) {
+      toast.error(`${file.name} lebih dari 5MB.`);
+      setUploadEpoch((n) => n + 1);
       return;
     }
-    if (!docType) {
-      toast.error("Pilih jenis dokumen.");
+    setUploadSelections((prev) => {
+      const next = { ...(prev[itemId] ?? {}) };
+      if (file) next[code] = file;
+      else delete next[code];
+      return { ...prev, [itemId]: next };
+    });
+  }
+
+  function clearSelection(itemId: string, code: RequiredDocCode) {
+    setSelectedFile(itemId, code, null);
+    setUploadEpoch((n) => n + 1);
+  }
+
+  function handleBulkSelect(itemId: string, files: FileList | null) {
+    const list = Array.from(files ?? []);
+    if (list.length === 0) return;
+    const next = { ...(uploadSelections[itemId] ?? {}) };
+    const codes = REQUIRED_DOCS.map((d) => d.code);
+    let added = 0;
+    for (const file of list) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error(`${file.name} lebih dari 5MB dan dilewati.`);
+        continue;
+      }
+      if (isLegacyDocName(file.name)) {
+        toast.error(`${file.name}: dokumen ini tidak lagi diminta untuk demo.`);
+        continue;
+      }
+      const inferred = inferDocCode(file.name);
+      const code =
+        (inferred && !next[inferred] ? inferred : codes.find((c) => !next[c])) ?? null;
+      if (!code) {
+        toast.error("Maksimal 4 berkas untuk empat dokumen wajib.");
+        break;
+      }
+      next[code] = file;
+      added += 1;
+    }
+    if (added > 0) setUploadSelections((prev) => ({ ...prev, [itemId]: next }));
+    setUploadEpoch((n) => n + 1);
+  }
+
+  async function uploadDocuments(itemId: string) {
+    const selection = uploadSelections[itemId] ?? {};
+    const entries = Object.entries(selection).filter(([, file]) => Boolean(file)) as Array<
+      [RequiredDocCode, File]
+    >;
+    if (entries.length === 0) {
+      toast.error("Pilih minimal satu berkas terlebih dahulu.");
       return;
     }
-    setActing("upload");
-    try {
+
+    setUploading({ itemId, done: 0, total: entries.length });
+    const failed: UploadSelection = {};
+    let failedCount = 0;
+    let lastError = "";
+
+    for (const [code, file] of entries) {
       const fd = new FormData();
-      fd.append("file", docFile);
-      fd.append("docType", docType);
-      await apiUpload(`/pension-requests/${id}/items/${itemId}/documents`, fd);
-      setDocFile(null);
-      setDocType("");
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Unggah gagal");
-    } finally {
-      setActing(null);
+      fd.append("file", file);
+      fd.append("docType", code);
+      try {
+        await apiUpload(`/pension-requests/${id}/items/${itemId}/documents`, fd);
+      } catch (err) {
+        failed[code] = file;
+        failedCount += 1;
+        lastError = err instanceof Error ? err.message : "Unggah gagal";
+      } finally {
+        setUploading((prev) =>
+          prev && prev.itemId === itemId ? { ...prev, done: prev.done + 1 } : prev,
+        );
+      }
+    }
+
+    setUploading(null);
+    setUploadEpoch((n) => n + 1);
+    setUploadSelections((prev) => ({ ...prev, [itemId]: failed }));
+    await load();
+
+    if (failedCount > 0) {
+      toast.error(
+        `${entries.length - failedCount} berhasil, ${failedCount} gagal: ${lastError}`,
+      );
+    } else {
+      toast.success(`${entries.length} berkas berhasil diunggah sekaligus.`);
     }
   }
 
@@ -182,12 +319,72 @@ export default function PensiunDetailPage() {
         method: "POST",
         body: JSON.stringify(body),
       });
+      setNote("");
+      toast.success("Aksi berhasil diproses.");
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : `Aksi ${action} gagal`);
     } finally {
       setActing(null);
     }
+  }
+
+  async function act(action: string) {
+    const trimmedNote = note.trim();
+    if (NOTE_REQUIRED.includes(action) && trimmedNote.length < 5) {
+      toast.error("Catatan minimal 5 karakter untuk revisi/penolakan.");
+      return;
+    }
+    if (action === "register") {
+      if (!letterDate) {
+        toast.error("Tanggal surat keluar wajib diisi.");
+        return;
+      }
+      await runAction(action, {
+        createOutgoingLetter: true,
+        outgoingLetterDate: letterDate,
+        classificationCode: "800.1.6.6",
+        note: trimmedNote || "Dicatat di Buku Agenda Surat Keluar",
+      });
+      return;
+    }
+    if (action === "expedite") {
+      if (!courierName.trim()) {
+        toast.error("Nama pendistribusi/caraka wajib diisi.");
+        return;
+      }
+      if (!expeditionDate) {
+        toast.error("Tanggal ekspedisi wajib diisi.");
+        return;
+      }
+      await runAction(action, {
+        expeditionDate,
+        courierName: courierName.trim(),
+        note: trimmedNote || undefined,
+      });
+      return;
+    }
+    if (action === "send") {
+      if (!receiptNumber.trim()) {
+        toast.error("Nomor tanda terima wajib diisi.");
+        return;
+      }
+      if (!receiptDate) {
+        toast.error("Tanggal tanda terima wajib diisi.");
+        return;
+      }
+      await runAction(action, {
+        receiptNumber: receiptNumber.trim(),
+        receiptDate,
+        receivedByName: receivedByName.trim() || "BKPSDMD Kota Makassar",
+        note: trimmedNote || undefined,
+      });
+      return;
+    }
+    await runAction(action, {
+      ...(action === "verify" ? { documentsComplete: true } : {}),
+      note: trimmedNote || undefined,
+    });
   }
 
   return (
@@ -205,58 +402,14 @@ export default function PensiunDetailPage() {
               </p>
             </div>
             <div className="flex gap-2">
-              {batch.availableActions?.map((a) => (
-                <button
-                  key={a}
-                  onClick={() => {
-                    if (a === "verify") {
-                      if (!confirm("Konfirmasi dokumen lengkap?")) return;
-                      void runAction(a, { documentsComplete: true, note: "" });
-                    } else if (a === "revise" || a === "reject") {
-                      const note = prompt("Catatan revisi/penolakan (min 5 karakter):");
-                      if (!note) return;
-                      void runAction(a, { note });
-                    } else if (a === "register") {
-                      const date = prompt("Tanggal surat keluar (YYYY-MM-DD):");
-                      if (!date) return;
-                      void runAction(a, {
-                        createOutgoingLetter: true,
-                        outgoingLetterDate: date,
-                        classificationCode: "800.1.6.6",
-                        note: "Dicatat di buku agenda keluar",
-                      });
-                    } else if (a === "expedite") {
-                      const courier = prompt("Nama pendistribusi:");
-                      if (!courier) return;
-                      void runAction(a, {
-                        expeditionNumber: `EKSP-${batch.batchNumber}`,
-                        expeditionDate: new Date().toISOString().slice(0, 10),
-                        courierName: courier,
-                        note: "",
-                      });
-                    } else if (a === "send") {
-                      const receipt = prompt("Nomor tanda terima:");
-                      if (!receipt) return;
-                      const date = prompt("Tanggal tanda terima (YYYY-MM-DD):");
-                      if (!date) return;
-                      void runAction(a, { receiptNumber: receipt, receiptDate: date, note: "" });
-                    } else {
-                      void runAction(a, { note: "" });
-                    }
-                  }}
-                  className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-paper disabled:opacity-50"
-                  disabled={acting !== null}
-                >
-                  {ACTION_LABEL[a] ?? a}
-                </button>
-              ))}
+              <StatusBadge status={batch.status} label={batch.statusLabel} />
             </div>
           </div>
           <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
             <div><dt className="text-muted">Nomor Usulan</dt><dd className="font-medium">{batch.batchNumber}</dd></div>
             <div><dt className="text-muted">Periode</dt><dd className="font-medium">{periodLabel(batch.periodYear, batch.periodMonth)}</dd></div>
             <div><dt className="text-muted">Usia BUP</dt><dd className="font-medium">{batch.bupAge} tahun</dd></div>
-            <div><dt className="text-muted">Status</dt><dd className="font-medium"><StatusBadge status={batch.status} /></dd></div>
+            <div><dt className="text-muted">Status</dt><dd className="font-medium"><StatusBadge status={batch.status} label={batch.statusLabel} /></dd></div>
             <div className="sm:col-span-2"><dt className="text-muted">Catatan</dt><dd className="font-medium">{batch.note ?? "-"}</dd></div>
             {batch.outgoingLetterNumber && (
               <div><dt className="text-muted">Nomor Surat</dt><dd className="font-medium">{batch.outgoingLetterNumber}</dd></div>
@@ -265,7 +418,7 @@ export default function PensiunDetailPage() {
               <div><dt className="text-muted">Nomor Agenda</dt><dd className="font-medium">{batch.agendaNumber}</dd></div>
             )}
             {batch.expeditionNumber && (
-              <div><dt className="text-muted">Nomor Ekspedisi</dt><dd className="font-medium">{batch.expeditionNumber}</dd></div>
+              <div><dt className="text-muted">No. Registrasi Ekspedisi</dt><dd className="font-medium">{batch.expeditionNumber}</dd></div>
             )}
             {batch.receiptNumber && (
               <div><dt className="text-muted">Nomor Tanda Terima</dt><dd className="font-medium">{batch.receiptNumber}</dd></div>
@@ -292,9 +445,274 @@ export default function PensiunDetailPage() {
         </div>
 
         <div className="rounded-lg border border-line bg-surface p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-semibold">Aksi &amp; tahapan</h2>
+              <p className="mt-0.5 text-sm text-muted">
+                Tombol di bawah mengikuti status dan hak akses Anda. Register membuat surat keluar
+                resmi sekaligus menyiapkan baris Buku Ekspedisi Surat Keluar.
+              </p>
+            </div>
+          </div>
+
+          {actions.length === 0 ? (
+            <p className="mt-3 rounded-lg border border-line bg-paper px-3 py-2 text-sm text-muted">
+              {WAITING_HINT[batch.status] ?? "Tidak ada aksi tersedia untuk Anda."}
+            </p>
+          ) : (
+            <>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {actions.map((a) => (
+                  <button
+                    key={a}
+                    disabled={acting !== null}
+                    onClick={() => void act(a)}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+                      a === "reject" ? "bg-bad-700 hover:brightness-110" : "bg-brand-900 hover:bg-brand-800"
+                    }`}
+                  >
+                    {acting === a ? "Memproses…" : (ACTION_LABEL[a] ?? a)}
+                  </button>
+                ))}
+              </div>
+
+              {actions.includes("register") ? (
+                <div className="mt-3 rounded-lg border border-line bg-paper p-3">
+                  <label className="text-xs font-medium text-muted">
+                    Tanggal surat keluar
+                    <input
+                      type="date"
+                      value={letterDate}
+                      onChange={(e) => setLetterDate(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm font-normal text-ink outline-none focus:border-brand-700 sm:w-56"
+                    />
+                  </label>
+                  <p className="mt-1 text-xs text-muted">
+                    Nomor surat dibuat otomatis dengan klasifikasi 800.1.6.6. Surat langsung
+                    masuk Buku Agenda Surat Keluar dan baris ekspedisinya disiapkan untuk langkah
+                    berikutnya.
+                  </p>
+                </div>
+              ) : null}
+
+              {actions.includes("expedite") ? (
+                <div className="mt-3 grid gap-2 rounded-lg border border-line bg-paper p-3 sm:grid-cols-2">
+                  <label className="text-xs font-medium text-muted">
+                    Tanggal diserahkan ke caraka
+                    <input
+                      type="date"
+                      value={expeditionDate}
+                      onChange={(e) => setExpeditionDate(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm font-normal text-ink outline-none focus:border-brand-700"
+                    />
+                  </label>
+                  <label className="text-xs font-medium text-muted">
+                    Nama pendistribusi / caraka
+                    <input
+                      value={courierName}
+                      onChange={(e) => setCourierName(e.target.value)}
+                      placeholder="mis. Petugas Ekspedisi Kecamatan"
+                      className="mt-1 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm font-normal text-ink outline-none focus:border-brand-700"
+                    />
+                  </label>
+                  <p className="text-xs text-muted sm:col-span-2">
+                    Aksi ini mengisi Buku Ekspedisi Surat Keluar. Bukti terima BKPSDMD dicatat
+                    pada langkah berikutnya.
+                  </p>
+                </div>
+              ) : null}
+
+              {actions.includes("send") ? (
+                <div className="mt-3 grid gap-2 rounded-lg border border-line bg-paper p-3 sm:grid-cols-2">
+                  <label className="text-xs font-medium text-muted">
+                    Nomor tanda terima
+                    <input
+                      value={receiptNumber}
+                      onChange={(e) => setReceiptNumber(e.target.value)}
+                      placeholder="mis. 123/BKPSDMD/XI/2026"
+                      className="mt-1 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm font-normal text-ink outline-none focus:border-brand-700"
+                    />
+                  </label>
+                  <label className="text-xs font-medium text-muted">
+                    Tanggal tanda terima
+                    <input
+                      type="date"
+                      value={receiptDate}
+                      onChange={(e) => setReceiptDate(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm font-normal text-ink outline-none focus:border-brand-700"
+                    />
+                  </label>
+                  <label className="text-xs font-medium text-muted sm:col-span-2">
+                    Nama penerima bukti terima
+                    <input
+                      value={receivedByName}
+                      onChange={(e) => setReceivedByName(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm font-normal text-ink outline-none focus:border-brand-700"
+                    />
+                  </label>
+                  <p className="text-xs text-muted sm:col-span-2">
+                    Setelah disimpan, Buku Ekspedisi Surat Keluar menandai surat sudah diterima
+                    BKPSDMD.
+                  </p>
+                </div>
+              ) : null}
+
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder={
+                  NOTE_REQUIRED.some((a) => actions.includes(a))
+                    ? "Catatan (wajib untuk revisi/penolakan, minimal 5 karakter)"
+                    : "Catatan (opsional)"
+                }
+                rows={2}
+                className="mt-3 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700"
+              />
+
+              {actions.includes("verify") ? (
+                <p className="mt-1 text-xs text-muted">
+                  Verifikasi menandai dokumen lengkap dan meneruskan berkas ke Sekcam.
+                </p>
+              ) : null}
+            </>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-line bg-surface p-5">
           <h2 className="font-semibold mb-3">Proses Usulan</h2>
           <ProcessTrail items={trail} />
         </div>
+
+        {showExpeditionCard ? (
+          <div className="rounded-lg border border-line bg-surface p-5">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className="font-semibold">Surat pengantar &amp; Buku Ekspedisi Surat Keluar</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Kartu ini menjalankan langkah 6–8 SOP. Buku Agenda Surat Keluar mencatat
+                  nomor dan stempel surat; Buku Ekspedisi Surat Keluar mencatat serah terima
+                  kepada caraka, lalu bukti terima dari BKPSDMD.
+                </p>
+              </div>
+              <span
+                className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${
+                  EXPEDITION_CLASS[expeditionStatus] ?? EXPEDITION_CLASS.BELUM_DICATAT
+                }`}
+              >
+                {EXPEDITION_LABEL[expeditionStatus] ?? expeditionStatus}
+              </span>
+            </div>
+
+            <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">Nomor surat keluar</p>
+                {outgoing ? (
+                  <Link
+                    href={`/surat-keluar/${outgoing.id}`}
+                    className="mt-0.5 inline-block font-semibold text-brand-800 hover:underline"
+                  >
+                    {outgoing.letterNumber}
+                  </Link>
+                ) : (
+                  <p className="mt-0.5 text-muted">Belum dibuat — gunakan aksi Register.</p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">Nomor agenda</p>
+                <p className="mt-0.5 font-medium">{batch.agendaNumber ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">No. registrasi ekspedisi</p>
+                <p className="mt-0.5 font-medium">{expedition?.regNumber ?? batch.expeditionNumber ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">Tujuan</p>
+                <p className="mt-0.5 font-medium">
+                  {expedition?.recipientName ?? outgoing?.recipient ?? "BKPSDMD Kota Makassar"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">Diserahkan ke caraka</p>
+                <p className="mt-0.5 font-medium">
+                  {expedition?.sentDate ?? batch.expeditionDate ?? "—"}
+                  {expedition?.courierName ?? batch.courierName
+                    ? ` • ${expedition?.courierName ?? batch.courierName}`
+                    : ""}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">Diterima BKPSDMD</p>
+                <p className="mt-0.5 font-medium">
+                  {expedition?.receivedDate ?? batch.receiptDate ?? "—"}
+                  {expedition?.receivedByName ?? batch.receivedBy
+                    ? ` • ${expedition?.receivedByName ?? batch.receivedBy}`
+                    : ""}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">Nomor tanda terima</p>
+                <p className="mt-0.5 font-medium">
+                  {expedition?.receiptNumber ?? batch.receiptNumber ?? "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">Penandatangan</p>
+                <p className="mt-0.5 font-medium">{outgoing?.signerName ?? batch.signers.camat?.name ?? "—"}</p>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {outgoing && canViewOutgoing ? (
+                <Link
+                  href={`/surat-keluar/${outgoing.id}`}
+                  className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:bg-paper"
+                >
+                  Buka detail surat keluar
+                </Link>
+              ) : null}
+              <Link
+                href="/pensiun/register"
+                className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:bg-paper"
+              >
+                Buku Register Pensiun
+              </Link>
+              <Link
+                href="/pensiun/ekspedisi"
+                className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:bg-paper"
+              >
+                Buku Ekspedisi Pensiun
+              </Link>
+              {canViewOutgoing ? (
+                <>
+                  <Link
+                    href="/surat-keluar/agenda"
+                    className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:bg-paper"
+                  >
+                    Buku Agenda Surat Keluar
+                  </Link>
+                  <Link
+                    href="/surat-keluar/ekspedisi"
+                    className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:bg-paper"
+                  >
+                    Buku Ekspedisi Surat Keluar
+                  </Link>
+                </>
+              ) : null}
+            </div>
+
+            {expeditionStatus === "DITERIMA" ? (
+              <div className="mt-3 rounded-lg border border-ok-700/30 bg-ok-100 px-3 py-2 text-sm text-secondary">
+                Bukti terima BKPSDMD sudah dicatat. Buku Ekspedisi Surat Keluar menandai surat ini
+                sebagai <b>diterima tujuan</b>.
+              </div>
+            ) : expeditionStatus === "BELUM_DIKIRIM" ? (
+              <div className="mt-3 rounded-lg border border-warn-700/30 bg-warn-100 px-3 py-2 text-sm text-secondary">
+                Surat sudah tercatat di Buku Agenda Surat Keluar. Gunakan aksi{" "}
+                <b>Catat Ekspedisi &amp; Serahkan ke Caraka</b> saat surat diserahkan.
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="rounded-lg border border-line bg-surface p-5">
           <h2 className="font-semibold mb-3">Daftar PNS ({batch.items?.length ?? 0})</h2>
@@ -313,7 +731,6 @@ export default function PensiunDetailPage() {
                     <th className="px-3 py-2">Masa Kerja</th>
                     <th className="px-3 py-2">Status Item</th>
                     <th className="px-3 py-2">Dokumen</th>
-                    {canUpload && isDraftOrRevision ? <th className="px-3 py-2">Aksi</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -337,72 +754,170 @@ export default function PensiunDetailPage() {
                             <span className="ml-1 text-xs text-bad-700">({item.missingDocuments.length} kurang)</span>
                           ) : null}
                         </td>
-                        {canUpload && isDraftOrRevision ? (
-                          <td className="px-3 py-2">
-                            <div className="flex gap-1">
-                              <select
-                                value={docType}
-                                onChange={(e) => setDocType(e.target.value)}
-                                className="rounded-lg border border-line px-2.5 py-1 text-[11px] outline-none focus:border-brand-700"
-                              >
-                                <option value="">— pilih —</option>
-                                {DOC_TYPES.map((dt) => (
-                                  <option key={dt} value={dt}>{dt.replace(/_/g, " ")}</option>
-                                ))}
-                              </select>
-                              <FileButton hint="max 5MB" onSelect={setDocFile} />
-                              <button
-                                disabled={acting !== null || !docFile || !docType}
-                                onClick={() => void uploadDocument(item.id)}
-                                className="rounded-md bg-brand-900 px-2.5 py-1 text-[11px] text-white disabled:opacity-60 hover:bg-brand-800"
-                              >
-                                Unggah
-                              </button>
-                            </div>
-                          </td>
-                        ) : null}
                       </tr>
-                      {item.documentsChecklist.length > 0 && (
-                        <tr className="border-b last:border-0 bg-slate-50">
-                          <td colSpan={8} className="px-3 py-2">
-                            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                              {item.documentsChecklist.map((c) => (
-                                <span
-                                  key={c.code}
-                                  title={c.uploaded ? `Diunggah: ${c.originalName ?? "-"}` : "Belum diunggah"}
-                                  className={`rounded-full px-2 py-0.5 ring-1 ring-inset ${
-                                    c.uploaded
-                                      ? "bg-ok-100 text-ok-700 ring-ok-700/30"
-                                      : "bg-bad-50 text-bad-700 ring-bad-700/30"
-                                  }`}
-                                >
-                                  {c.uploaded ? "✓" : "○"} {c.label}
-                                </span>
-                              ))}
+                      <tr className="border-b last:border-0 bg-slate-50">
+                        <td colSpan={8} className="px-3 py-3">
+                          <div className="rounded-lg border border-line bg-surface p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                                  Dokumen persyaratan
+                                </p>
+                                <p className="text-xs text-muted">
+                                  Cukup 4 berkas inti. Pilih beberapa berkas sekaligus, lalu unggah
+                                  sekali.
+                                </p>
+                              </div>
+                              <span className="rounded-full bg-paper px-2.5 py-1 text-[11px] font-semibold text-muted ring-1 ring-inset ring-line">
+                                {REQUIRED_DOCS.filter((d) => uploadedDoc(item, d.code)).length} / 4
+                                terunggah
+                              </span>
                             </div>
-                            {item.missingDocuments.length > 0 ? (
-                              <p className="mt-1.5 text-[11px] font-medium text-bad-700">
-                                Dokumen kurang: {item.missingDocuments.join(", ")}
-                              </p>
+
+                            {canUpload && isDraftOrRevision ? (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-line bg-white px-3 py-1.5 text-xs font-semibold hover:border-brand-700">
+                                  <span className="rounded bg-brand-900 px-2 py-1 text-white">
+                                    Pilih beberapa berkas
+                                  </span>
+                                  <span className="text-muted">atau pilih per dokumen</span>
+                                  <input
+                                    key={`bulk-${item.id}-${uploadEpoch}`}
+                                    type="file"
+                                    multiple
+                                    className="sr-only"
+                                    onChange={(e) => handleBulkSelect(item.id, e.target.files)}
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    acting !== null ||
+                                    uploading !== null ||
+                                    selectedFileCount(uploadSelections[item.id]) === 0
+                                  }
+                                  onClick={() => void uploadDocuments(item.id)}
+                                  className="rounded-lg bg-brand-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                                >
+                                  {uploading && uploading.itemId === item.id
+                                    ? `Mengunggah ${uploading.done}/${uploading.total}…`
+                                    : `Unggah semua (${selectedFileCount(uploadSelections[item.id])})`}
+                                </button>
+                                {selectedFileCount(uploadSelections[item.id]) > 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setUploadSelections((prev) => ({ ...prev, [item.id]: {} }));
+                                      setUploadEpoch((n) => n + 1);
+                                    }}
+                                    className="text-xs font-semibold text-muted hover:text-bad-700"
+                                  >
+                                    Bersihkan pilihan
+                                  </button>
+                                ) : null}
+                              </div>
                             ) : null}
-                            <ul className="mt-1.5 flex flex-wrap gap-2 text-xs text-muted">
-                              {item.documents.map((d) => (
-                                <li key={d.id} className="flex items-center gap-1 rounded bg-white px-2 py-1">
-                                  <a href={fileUrl(d.downloadUrl)} className="text-brand-900 hover:underline">{d.originalName}</a>
-                                  {canUpload && isDraftOrRevision ? (
-                                    <button
-                                      onClick={() => void deleteDocument(item.id, d.id)}
-                                      className="ml-1 text-bad-700 hover:bg-bad-50 rounded p-1"
-                                    >
-                                      ×
-                                    </button>
-                                  ) : null}
-                                </li>
-                              ))}
-                            </ul>
-                          </td>
-                        </tr>
-                      )}
+
+                            <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                              {REQUIRED_DOCS.map((doc) => {
+                                const uploaded = uploadedDoc(item, doc.code);
+                                const selected = uploadSelections[item.id]?.[doc.code];
+                                return (
+                                  <div
+                                    key={doc.code}
+                                    className="rounded-lg border border-line bg-paper p-2.5"
+                                  >
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div>
+                                        <p className="text-xs font-semibold">{doc.label}</p>
+                                        <p className="text-[10px] text-muted">{doc.hint}</p>
+                                      </div>
+                                      <span
+                                        className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${
+                                          selected
+                                            ? "bg-info-100 text-info-700 ring-info-700/30"
+                                            : uploaded
+                                              ? "bg-ok-100 text-ok-700 ring-ok-700/30"
+                                              : "bg-bad-50 text-bad-700 ring-bad-700/30"
+                                        }`}
+                                      >
+                                        {selected ? "Siap diunggah" : uploaded ? "Terunggah" : "Belum"}
+                                      </span>
+                                    </div>
+
+                                    {uploaded ? (
+                                      <div className="mt-2 flex items-center gap-1 rounded bg-white px-2 py-1 text-[11px]">
+                                        <a
+                                          href={fileUrl(uploaded.downloadUrl)}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="min-w-0 flex-1 truncate text-brand-900 hover:underline"
+                                        >
+                                          {uploaded.originalName}
+                                        </a>
+                                        {canUpload && isDraftOrRevision ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => void deleteDocument(item.id, uploaded.id)}
+                                            className="shrink-0 rounded p-0.5 text-bad-700 hover:bg-bad-50"
+                                            title="Hapus dokumen"
+                                          >
+                                            ×
+                                          </button>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
+
+                                    {canUpload && isDraftOrRevision ? (
+                                      <div className="mt-2">
+                                        <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold hover:bg-paper">
+                                          {uploaded ? "Ganti berkas" : "Pilih berkas"}
+                                          <input
+                                            key={`${item.id}-${doc.code}-${uploadEpoch}`}
+                                            type="file"
+                                            className="sr-only"
+                                            onChange={(e) =>
+                                              setSelectedFile(
+                                                item.id,
+                                                doc.code,
+                                                e.target.files?.[0] ?? null,
+                                              )
+                                            }
+                                          />
+                                        </label>
+                                        {selected ? (
+                                          <p className="mt-1 flex items-center gap-1 text-[11px] text-brand-800">
+                                            <span className="min-w-0 flex-1 truncate">
+                                              {selected.name}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => clearSelection(item.id, doc.code)}
+                                              className="shrink-0 text-muted hover:text-bad-700"
+                                            >
+                                              Batal
+                                            </button>
+                                          </p>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {item.missingDocuments.length > 0 ? (
+                              <p className="mt-2 text-[11px] font-medium text-bad-700">
+                                Kurang: {item.missingDocuments.join(", ")}
+                              </p>
+                            ) : (
+                              <p className="mt-2 text-[11px] font-medium text-ok-700">
+                                Semua dokumen inti sudah lengkap.
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
                     </Fragment>
                   ))}
                 </tbody>
@@ -424,7 +939,7 @@ export default function PensiunDetailPage() {
                     {t.fromStatus} → {t.toStatus} • {t.actorName ?? t.actorRole}{t.actorPosition ? ` (${t.actorPosition})` : ""}
                   </p>
                   {t.note ? <p className="text-xs text-muted mt-1">“{t.note}”</p> : null}
-                  <p className="text-xs text-muted">{new Date(t.createdAt).toLocaleString("id-ID")}</p>
+                  <p className="text-xs text-muted">{new Date(t.createdAt).toLocaleString("id-ID", { hour12: false })}</p>
                 </li>
               ))}
             </ul>

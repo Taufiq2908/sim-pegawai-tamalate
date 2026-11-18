@@ -87,7 +87,7 @@ export default function LembarDisposisiPage() {
             <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Asal Surat</dt><dd className="font-semibold">: {sheet.asalSurat}</dd></div>
             <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Klasifikasi</dt><dd className="font-semibold">: {sheet.klasifikasi ?? "-"}</dd></div>
             <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Tgl. Penyelesaian</dt><dd className="font-semibold">: {sheet.tanggalPenyelesaian ?? "-"}</dd></div>
-            <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Tgl. Distribusi</dt><dd className="font-semibold">: {sheet.tanggalDistribusi ? new Date(sheet.tanggalDistribusi).toLocaleString("id-ID") : "-"}</dd></div>
+            <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Tgl. Distribusi</dt><dd className="font-semibold">: {sheet.tanggalDistribusi ? new Date(sheet.tanggalDistribusi).toLocaleString("id-ID", { hour12: false }) : "-"}</dd></div>
             <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Tgl. Kegiatan</dt><dd className="font-semibold">: {sheet.tanggalKegiatan ?? "-"}</dd></div>
             <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Waktu Mulai</dt><dd className="font-semibold">: {sheet.waktuMulai ?? "-"}</dd></div>
             <div className="flex gap-2"><dt className="w-36 shrink-0 text-muted">Waktu Selesai</dt><dd className="font-semibold">: {sheet.waktuSelesai ?? "-"}</dd></div>

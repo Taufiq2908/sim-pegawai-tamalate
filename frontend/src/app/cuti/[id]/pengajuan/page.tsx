@@ -159,12 +159,12 @@ export default function SuratPengantarCutiPage() {
     JABATAN_ID[supervisorDirect?.position ?? ""] ||
     supervisorDirect?.position ||
     "";
-  const atasanTime = atasanEntry ? new Date(atasanEntry.createdAt).toLocaleString("id-ID") : "";
+  const atasanTime = atasanEntry ? new Date(atasanEntry.createdAt).toLocaleString("id-ID", { hour12: false }) : "";
   const camatUsername = actorUsername(approveEntry);
   // Penandatangan hanya dari snapshot/backend; tanpa nama/NIP hardcode.
   const camatName = approveEntry?.actorName || detail.camat?.name || "";
   const camatNip = approveEntry?.actorNip || detail.camat?.nip || "";
-  const camatTime = approveEntry ? new Date(approveEntry.createdAt).toLocaleString("id-ID") : "";
+  const camatTime = approveEntry ? new Date(approveEntry.createdAt).toLocaleString("id-ID", { hour12: false }) : "";
   const atasanSig = loadSignature(atasanUsername);
   const camatSig =
     loadSignature(camatUsername) ??

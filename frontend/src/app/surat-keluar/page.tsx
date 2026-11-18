@@ -75,7 +75,10 @@ export default function SuratKeluarListPage() {
           </Link>
         ) : null}
         <Link href="/surat-keluar/agenda" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:bg-paper">
-          Register surat keluar
+          Buku Agenda Surat Keluar
+        </Link>
+        <Link href="/surat-keluar/ekspedisi" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:bg-paper">
+          Buku Ekspedisi Surat Keluar
         </Link>
       </div>
 

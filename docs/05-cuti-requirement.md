@@ -19,6 +19,11 @@ Pegawai mengajukan (DRAFT → SUBMITTED)
     diserahkan ke pegawai (COMPLETED) → arsip eksplisit (ARCHIVED)
 ```
 
+Saat `archive`, backend membuat `ArchiveRecord` sumber `LEAVE` sekaligus
+mengubah status menjadi `ARCHIVED`. Record muncul di dashboard Sekcam/Camat
+sebagai arsip yang belum masuk daftar; Sekcam/Camat menyusun dan menandatangani
+Daftar Arsip, lalu staf kepegawaian melengkapi kode arsip/kode berkas.
+
 (*) Tahap REVIEWED/perm `leave.review` belum ada di backend — lihat B4 di `06`.
 Kasubag = SUPERVISOR + GRANT verify; atasan = SUPERVISOR murni;
 operator = VERIFIER tanpa hak memutuskan; penentu = LEADER. (Detail: `06` B10.)

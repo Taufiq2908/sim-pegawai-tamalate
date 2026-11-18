@@ -9,6 +9,7 @@ import { deleteStoredFile, sendStoredFile, storeUploadedFile } from '../lib/stor
 import { authRequired, requirePermission } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
 import { usersForPermission } from '../lib/permissions';
+import { normalizePosition, userIdsForPosition, userHoldsPosition } from '../services/position.service';
 import {
   todayYMD,
   autoStatus,
@@ -471,18 +472,20 @@ async function notifyAttendance(userIds: string[], title: string, body: string, 
 }
 
 async function userIdsByPosition(pos: string): Promise<string[]> {
-  const users = await prisma.user.findMany({ where: { position: pos, isActive: true }, select: { id: true } });
-  return users.map((u) => u.id);
+  return userIdsForPosition(pos);
 }
 
 type WarningViewer = {
   role: string;
   permissions: string[];
   employeeId: string | null;
+  position?: string | null;
 };
 
 function canReadAllWarnings(user: WarningViewer): boolean {
   if (user.role === 'SUPER_ADMIN') return true;
+  // Kasi perlu melihat laporan yang diputuskan Camat untuk pembinaan Kasi.
+  if (normalizePosition(user.position) === 'KASI') return true;
   return user.permissions.includes('attendance.summary');
 }
 
@@ -496,16 +499,89 @@ type WarningProgress = {
   instructedAt: Date | null;
   coachedAt: Date | null;
   coachingFollowUp: string;
+  decision: string;
 };
 
 function warningProgress(w: WarningProgress): string {
   if (w.coachedAt) return w.coachingFollowUp === 'BKPSDM' ? 'DITERUSKAN_BKPSDM' : 'SELESAI';
-  if (w.instructedAt) return 'PEMBINAAN';
+  if (w.decision === 'NO_FOLLOW_UP') return 'PEMBINAAN_KASI';
+  if (w.decision === 'FOLLOW_UP') {
+    return w.summonScheduledAt ? 'PEMBINAAN' : 'SURAT_TEGURAN';
+  }
   if (w.forwardAt) return 'MENUNGGU_TINDAK_LANJUT';
-  if (w.summonScheduledAt) return 'DIPANGGIL';
   return 'DILAPORKAN';
 }
 
+async function nextWarningNumber(prefix: 'LAPORAN' | 'TEGURAN'): Promise<string> {
+  const year = new Date().getFullYear();
+  const base = `${prefix}-${year}-`;
+  const count = await prisma.warningLetter.count({ where: { letterNumber: { startsWith: base } } });
+  for (let i = count + 1; i <= count + 5000; i++) {
+    const candidate = `${base}${String(i).padStart(4, '0')}`;
+    const exists = await prisma.warningLetter.findUnique({ where: { letterNumber: candidate }, select: { id: true } });
+    if (!exists) return candidate;
+  }
+  return `${base}${Date.now()}`;
+}
+
+function warningContent(input: {
+  number: string;
+  mode: 'LAPORAN' | 'TEGURAN';
+  name: string;
+  nip: string | null;
+  position: string | null;
+  unit: string | null;
+  weekStart: string;
+  weekEnd: string;
+  absenceCount: number;
+  rincian: string;
+}) {
+  const lines = [
+    `${input.mode === 'TEGURAN' ? 'SURAT TEGURAN' : 'LAPORAN PEGAWAI BERMASALAH'} Nomor: ${input.number}`,
+    `Kepada Yth. Sdr/i ${input.name}`,
+    `NIP: ${input.nip ?? '-'}`,
+    `Jabatan: ${input.position ?? '-'} / Unit: ${input.unit ?? '-'}`,
+    `Berdasarkan rekapitulasi presensi apel periode ${input.weekStart} s.d. ${input.weekEnd}, ` +
+      `Saudara tercatat tidak hadir sebanyak ${input.absenceCount} sesi apel ` +
+      `tanpa keterangan resmi${input.rincian ? ` dengan rincian: ${input.rincian}` : ''}, ` +
+      `sehingga masuk kategori Pegawai Bermasalah.`,
+  ];
+  if (input.mode === 'TEGURAN') {
+    lines.push('Camat memutuskan laporan ini ditindaklanjuti dengan surat teguran. Diminta memperbaiki kedisiplinan kehadiran.');
+  } else {
+    lines.push('Laporan ini diteruskan kepada Sekcam untuk diteruskan kepada Camat. Surat teguran hanya diterbitkan bila Camat memutuskan tindak lanjut.');
+  }
+  lines.push('[Dokumen dummy untuk demo.]');
+  return lines.join('\n');
+}
+
+async function followUpLetterData(w: any, actorId: string, instruction: string | null) {
+  const letterNumber = w.letterNumber.startsWith('TEGURAN-')
+    ? w.letterNumber
+    : await nextWarningNumber('TEGURAN');
+  const content = String(w.content ?? '')
+    .replace(/^LAPORAN PEGAWAI BERMASALAH/, 'SURAT TEGURAN')
+    .replace(/Nomor:\s*[^\n]+/, `Nomor: ${letterNumber}`)
+    .replace(
+      /Laporan ini diteruskan kepada Sekcam[^\n]*/,
+      'Camat memutuskan laporan ini ditindaklanjuti dengan surat teguran. Diminta memperbaiki kedisiplinan kehadiran.',
+    );
+  return {
+    letterNumber,
+    content,
+    decision: 'FOLLOW_UP',
+    decisionNote: instruction,
+    decidedAt: new Date(),
+    decidedBy: actorId,
+    instructedBy: actorId,
+    instructedAt: new Date(),
+    instruction: instruction ?? 'Tindak lanjut sesuai laporan presensi.',
+  };
+}
+
+// ---------- POST /attendances/warning-letters/generate ----------
+// Tahap 1: Kasubag/staf membuat LAPORAN pegawai bermasalah dan mengirimkannya
+// ke Sekcam. Surat teguran belum diterbitkan pada tahap ini.
 router.post('/warning-letters/generate', requirePermission('attendance.manage'), async (req, res) => {
   const schema = z.object({ weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
   const parsed = schema.safeParse(req.body);
@@ -522,8 +598,7 @@ router.post('/warning-letters/generate', requirePermission('attendance.manage'),
       result.push({ ...existed, created: false, workflowStatus: warningProgress(existed) });
       continue;
     }
-    const count = await prisma.warningLetter.count();
-    const letterNumber = `TEGURAN-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+    const letterNumber = await nextWarningNumber('LAPORAN');
     const emp = await prisma.employee.findUnique({
       where: { id: it.employee.id },
       include: { orgUnit: true },
@@ -532,16 +607,18 @@ router.post('/warning-letters/generate', requirePermission('attendance.manage'),
       .filter((d: any) => d.pagi === 'ABSEN' || d.sore === 'ABSEN')
       .map((d: any) => `${d.date} (pagi ${d.pagi}, sore ${d.sore})`)
       .join('; ');
-    const content =
-      `SURAT TEGURAN Nomor: ${letterNumber}\n` +
-      `Kepada Yth. Sdr/i ${emp?.name ?? it.employee.name}\n` +
-      `NIP: ${emp?.nip ?? '-'}\n` +
-      `Jabatan: ${emp?.position ?? it.employee.position} / Unit: ${emp?.orgUnit?.name ?? '-'}\n` +
-      `Berdasarkan rekapitulasi presensi apel periode ${it.weekStart} s.d. ${it.weekEnd}, ` +
-      `Saudara tercatat tidak hadir sebanyak ${it.absenceCount} sesi apel ` +
-      `tanpa keterangan resmi${rincian ? ` dengan rincian: ${rincian}` : ''}, ` +
-      `sehingga masuk kategori Pegawai Bermasalah. ` +
-      `Diminta memperbaiki kedisiplinan kehadiran. [Dokumen dummy untuk demo.]`;
+    const content = warningContent({
+      number: letterNumber,
+      mode: 'LAPORAN',
+      name: emp?.name ?? it.employee.name,
+      nip: emp?.nip ?? null,
+      position: emp?.position ?? it.employee.position,
+      unit: emp?.orgUnit?.name ?? null,
+      weekStart: it.weekStart,
+      weekEnd: it.weekEnd,
+      absenceCount: it.absenceCount,
+      rincian,
+    });
     const created = await prisma.warningLetter.create({
       data: {
         letterNumber,
@@ -554,30 +631,17 @@ router.post('/warning-letters/generate', requirePermission('attendance.manage'),
       },
     });
     result.push({ ...created, created: true, workflowStatus: warningProgress(created) });
-    // Notifikasi pegawai yang menerima surat teguran (agar bisa membuka suratnya).
-    const employeeUser = await prisma.user.findFirst({
-      where: { employeeId: it.employee.id, isActive: true },
-      select: { id: true },
-    });
-    if (employeeUser && employeeUser.id !== req.user!.id) {
-      await notifyAttendance(
-        [employeeUser.id],
-        `Surat teguran diterbitkan: ${letterNumber}`,
-        `Anda tercatat ${it.absenceCount} sesi apel tanpa keterangan (${it.weekStart}–${it.weekEnd}). Silakan buka surat teguran untuk detail.`,
-        created.id,
-      );
-    }
-    // Alert otomatis ke Sekcam + Kasubag (Fase 3), tanpa duplikasi ke pegawai penerima.
-    const recipients = [...await userIdsByPosition('SEKCAM'), ...await usersForPermission('attendance.summary')]
-      .filter((id) => id !== req.user!.id && id !== employeeUser?.id);
+    // Notifikasi hanya ke Sekcam dan pelaksana presensi (Kasubag/staf), belum ke Camat.
+    const recipients = [...await userIdsByPosition('SEKCAM'), ...await usersForPermission('attendance.manage')]
+      .filter((id) => id !== req.user!.id);
     await notifyAttendance(
       recipients,
-      `Pegawai bermasalah: ${emp?.name ?? it.employee.name}`,
-      `${it.absenceCount} sesi apel tanpa keterangan (${it.weekStart}–${it.weekEnd}). Surat: ${letterNumber}.`,
+      `Laporan presensi: ${emp?.name ?? it.employee.name}`,
+      `${it.absenceCount} sesi apel tanpa keterangan (${it.weekStart}–${it.weekEnd}). Laporan ${letterNumber} menunggu diteruskan Sekcam ke Camat.`,
       created.id,
     );
   }
-  return ok(res, result, `${result.filter((r: any) => r.created).length} surat dibuat, ${result.length} pegawai bermasalah`);
+  return ok(res, result, `${result.filter((r: any) => r.created).length} laporan dibuat, ${result.length} pegawai bermasalah`);
 });
 
 // ---------- GET /attendances/warning-letters ----------
@@ -632,9 +696,19 @@ router.get('/warning-letters/:id/print', async (req, res) => {
     const u = officials.find((x) => (x.position ?? '').startsWith(pos));
     return u ? { name: u.employee?.name ?? u.username, nip: u.employee?.nip ?? null, position: u.position } : null;
   };
-  const statusPembinaan = !w.summonScheduledAt ? 'Menunggu' : !w.coachedAt ? 'Diproses' : 'Selesai';
+  const statusPembinaan = w.coachedAt
+    ? 'Selesai'
+    : w.decision === 'NO_FOLLOW_UP'
+      ? 'Pembinaan Kasi'
+      : w.decision === 'FOLLOW_UP' && w.summonScheduledAt
+        ? 'Diproses'
+        : 'Menunggu';
   return ok(res, {
     letterNumber: w.letterNumber,
+    documentType: w.decision === 'FOLLOW_UP' ? 'SURAT_TEGURAN' : 'LAPORAN',
+    decision: w.decision,
+    decisionNote: w.decisionNote,
+    decidedAt: w.decidedAt,
     weekStart: w.weekStart.toISOString().slice(0, 10),
     weekEnd: w.weekEnd.toISOString().slice(0, 10),
     absenceCount: w.absenceCount,
@@ -676,6 +750,9 @@ router.post('/warning-letters/:id/summon', requirePermission('attendance.manage'
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
   const w = await prisma.warningLetter.findUnique({ where: { id: req.params.id } });
   if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
+  if (w.decision !== 'FOLLOW_UP') {
+    return fail(res, 422, 'Panggilan pembinaan hanya dapat dibuat setelah Camat memutuskan tindak lanjut');
+  }
   const updated = await prisma.warningLetter.update({
     where: { id: w.id },
     data: { summonScheduledAt: new Date(parsed.data.scheduledAt), summonNote: parsed.data.note ?? null },
@@ -698,13 +775,15 @@ router.post('/warning-letters/:id/summon', requirePermission('attendance.manage'
 
 // ---------- POST /attendances/warning-letters/:id/forward (Sekcam teruskan ke Camat) ----------
 router.post('/warning-letters/:id/forward', requirePermission('attendance.forward'), async (req, res) => {
-  if (req.user!.role !== 'SUPER_ADMIN' && req.user!.position !== 'SEKCAM') {
+  if (req.user!.role !== 'SUPER_ADMIN' && !(await userHoldsPosition(req.user!.id, 'SEKCAM'))) {
     return fail(res, 403, 'Penerusan ke Camat hanya oleh Sekcam');
   }
   const schema = z.object({ note: z.string().max(500).optional() });
   const note = schema.safeParse(req.body ?? {}).data?.note ?? null;
   const w = await prisma.warningLetter.findUnique({ where: { id: req.params.id }, include: { employee: true } });
-  if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
+  if (!w) return fail(res, 404, 'Laporan presensi tidak ditemukan');
+  if (w.forwardAt) return fail(res, 409, 'Laporan sudah pernah diteruskan ke Camat');
+  if (w.decision !== 'PENDING') return fail(res, 409, 'Camat sudah memberikan keputusan');
   const updated = await prisma.warningLetter.update({
     where: { id: w.id },
     data: { forwardBy: req.user!.id, forwardAt: new Date(), forwardNote: note },
@@ -712,31 +791,108 @@ router.post('/warning-letters/:id/forward', requirePermission('attendance.forwar
   const camatIds = (await userIdsByPosition('CAMAT')).filter((id) => id !== req.user!.id);
   await notifyAttendance(
     camatIds,
-    `Eskalasi pegawai bermasalah: ${w.employee.name}`,
-    `Sekcam meneruskan laporan ${w.letterNumber} (${w.absenceCount} sesi TK)${note ? ` — ${note}` : ''}.`,
+    `Laporan presensi menunggu keputusan: ${w.employee.name}`,
+    `Sekcam meneruskan laporan ${w.letterNumber} (${w.absenceCount} sesi TK)${note ? ` — ${note}` : ''}. Silakan putuskan tindak lanjut.`,
     w.id,
   );
   return ok(res, { ...updated, workflowStatus: warningProgress(updated) }, 'Laporan diteruskan ke Camat');
 });
 
-// ---------- POST /attendances/warning-letters/:id/instruct (Camat: Tindak Lanjuti) ----------
+// ---------- POST /attendances/warning-letters/:id/decide (Camat) ----------
+// Camat memilih tindak lanjut (surat teguran) atau tidak (pembinaan Kasi).
+router.post('/warning-letters/:id/decide', requirePermission('attendance.forward'), async (req, res) => {
+  if (req.user!.role !== 'SUPER_ADMIN' && !(await userHoldsPosition(req.user!.id, 'CAMAT'))) {
+    return fail(res, 403, 'Keputusan tindak lanjut hanya oleh Camat');
+  }
+  const schema = z.object({
+    decision: z.enum(['FOLLOW_UP', 'NO_FOLLOW_UP']),
+    note: z.string().max(500).optional(),
+    instruction: z.string().max(1000).optional(),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+  const w = await prisma.warningLetter.findUnique({ where: { id: req.params.id }, include: { employee: true } });
+  if (!w) return fail(res, 404, 'Laporan presensi tidak ditemukan');
+  if (!w.forwardAt) return fail(res, 409, 'Laporan belum diteruskan Sekcam ke Camat');
+  if (w.decision !== 'PENDING') return fail(res, 409, 'Keputusan Camat sudah dicatat');
+
+  if (parsed.data.decision === 'NO_FOLLOW_UP') {
+    const updated = await prisma.warningLetter.update({
+      where: { id: w.id },
+      data: {
+        decision: 'NO_FOLLOW_UP',
+        decisionNote: parsed.data.note?.trim() || null,
+        decidedAt: new Date(),
+        decidedBy: req.user!.id,
+        instruction: parsed.data.instruction?.trim() || 'Tidak ditindaklanjuti dengan surat teguran; diselesaikan melalui pembinaan Kasi.',
+        instructedBy: req.user!.id,
+        instructedAt: new Date(),
+      },
+    });
+    const kasiIds = (await userIdsByPosition('KASI')).filter((id) => id !== req.user!.id);
+    const employeeUser = await prisma.user.findFirst({
+      where: { employeeId: w.employeeId, isActive: true },
+      select: { id: true },
+    });
+    await notifyAttendance(
+      kasiIds,
+      `Pembinaan Kasi: ${w.employee.name}`,
+      `Camat memutuskan laporan ${w.letterNumber} tidak ditindaklanjuti dengan surat teguran. Silakan lakukan pembinaan.`,
+      w.id,
+    );
+    if (employeeUser) {
+      await notifyAttendance(
+        [employeeUser.id],
+        `Laporan presensi diselesaikan melalui pembinaan`,
+        `Laporan periode ${w.weekStart.toISOString().slice(0, 10)}–${w.weekEnd.toISOString().slice(0, 10)} akan diselesaikan melalui pembinaan Kasi.`,
+        w.id,
+      );
+    }
+    return ok(res, { ...updated, workflowStatus: warningProgress(updated) }, 'Keputusan: tidak ada surat teguran, pembinaan Kasi');
+  }
+
+  const data = await followUpLetterData(w, req.user!.id, parsed.data.instruction?.trim() || null);
+  const updated = await prisma.warningLetter.update({ where: { id: w.id }, data });
+  const executors = (await usersForPermission('attendance.manage')).filter((id) => id !== req.user!.id);
+  const employeeUser = await prisma.user.findFirst({
+    where: { employeeId: w.employeeId, isActive: true },
+    select: { id: true },
+  });
+  await notifyAttendance(
+    executors,
+    `Surat teguran diterbitkan: ${updated.letterNumber}`,
+    `Camat memutuskan tindak lanjut untuk ${w.employee.name}. Silakan jadwalkan pembinaan.`,
+    w.id,
+  );
+  if (employeeUser) {
+    await notifyAttendance(
+      [employeeUser.id],
+      `Surat teguran diterbitkan: ${updated.letterNumber}`,
+      `Laporan presensi Anda ditindaklanjuti dengan surat teguran. Silakan buka detail untuk informasi pembinaan.`,
+      w.id,
+    );
+  }
+  return ok(res, { ...updated, workflowStatus: warningProgress(updated) }, 'Keputusan: tindak lanjut dengan surat teguran');
+});
+
+// ---------- POST /attendances/warning-letters/:id/instruct (kompatibilitas) ----------
+// Endpoint lama tetap dipertahankan sebagai jalan pintas keputusan FOLLOW_UP.
 router.post('/warning-letters/:id/instruct', requirePermission('attendance.forward'), async (req, res) => {
-  if (req.user!.role !== 'SUPER_ADMIN' && req.user!.position !== 'CAMAT') {
+  if (req.user!.role !== 'SUPER_ADMIN' && !(await userHoldsPosition(req.user!.id, 'CAMAT'))) {
     return fail(res, 403, 'Instruksi tindak lanjut hanya oleh Camat');
   }
   const schema = z.object({ instruction: z.string().min(5, 'Instruksi wajib diisi') });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
   const w = await prisma.warningLetter.findUnique({ where: { id: req.params.id }, include: { employee: true } });
-  if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
-  const updated = await prisma.warningLetter.update({
-    where: { id: w.id },
-    data: { instructedBy: req.user!.id, instructedAt: new Date(), instruction: parsed.data.instruction },
-  });
+  if (!w) return fail(res, 404, 'Laporan presensi tidak ditemukan');
+  if (w.decision !== 'PENDING') return fail(res, 409, 'Keputusan Camat sudah dicatat');
+  const data = await followUpLetterData(w, req.user!.id, parsed.data.instruction);
+  const updated = await prisma.warningLetter.update({ where: { id: w.id }, data });
   const executors = (await usersForPermission('attendance.manage')).filter((id) => id !== req.user!.id);
   await notifyAttendance(
     executors,
-    `Instruksi Camat: ${w.letterNumber}`,
+    `Instruksi Camat: ${updated.letterNumber}`,
     `${parsed.data.instruction} (pegawai: ${w.employee.name}).`,
     w.id,
   );
@@ -744,7 +900,9 @@ router.post('/warning-letters/:id/instruct', requirePermission('attendance.forwa
 });
 
 // ---------- PATCH /attendances/warning-letters/:id/coaching (hasil pembinaan) ----------
-router.patch('/warning-letters/:id/coaching', requirePermission('attendance.manage'), async (req, res) => {
+// Kasubag/staf dapat mencatat pembinaan; Kasi juga dapat menyelesaikan
+// pembinaan ketika Camat memutuskan NO_FOLLOW_UP.
+router.patch('/warning-letters/:id/coaching', async (req, res) => {
   const schema = z.object({
     result: z.string().min(5, 'Hasil pembinaan wajib diisi'),
     followUp: z.enum(['NONE', 'BKPSDM']),
@@ -753,15 +911,31 @@ router.patch('/warning-letters/:id/coaching', requirePermission('attendance.mana
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
   const w = await prisma.warningLetter.findUnique({ where: { id: req.params.id }, include: { employee: true } });
-  if (!w) return fail(res, 404, 'Surat teguran tidak ditemukan');
-  if (!w.summonScheduledAt) return fail(res, 422, 'Buat surat panggilan dulu (summon)');
+  if (!w) return fail(res, 404, 'Laporan presensi tidak ditemukan');
+
+  const canManage = req.user!.permissions.includes('attendance.manage') || req.user!.permissions.includes('*');
+  const isKasi = await userHoldsPosition(req.user!.id, 'KASI');
+  if (!canManage && !(isKasi && w.decision === 'NO_FOLLOW_UP')) {
+    return fail(res, 403, 'Pembinaan Kasi hanya dapat dicatat oleh Kasi pada laporan tanpa tindak lanjut');
+  }
+  if (w.decision === 'PENDING') {
+    return fail(res, 422, 'Menunggu keputusan Camat sebelum pembinaan dicatat');
+  }
+  if (w.decision === 'FOLLOW_UP' && !w.summonScheduledAt) {
+    return fail(res, 422, 'Buat surat panggilan dulu (summon)');
+  }
+  if (w.coachedAt) return fail(res, 409, 'Hasil pembinaan sudah dicatat');
+
+  // Pembinaan Kasi adalah jalur penyelesaian internal, bukan eskalasi BKPSDM.
+  const coachingFollowUp = !canManage && isKasi ? 'NONE' : parsed.data.followUp;
   const updated = await prisma.warningLetter.update({
     where: { id: w.id },
     data: {
       coachingResult: parsed.data.result,
-      coachingFollowUp: parsed.data.followUp,
+      coachingFollowUp,
       summonNote: parsed.data.note ?? w.summonNote,
       coachedAt: new Date(),
+      coachedBy: req.user!.id,
     },
   });
   // SOP langkah 5: laporkan hasil pembinaan ke Sekcam dan Camat.
@@ -773,7 +947,7 @@ router.patch('/warning-letters/:id/coaching', requirePermission('attendance.mana
     recipients,
     `Laporan pembinaan: ${w.letterNumber}`,
     `${w.employee.name} — hasil: ${parsed.data.result}. Tindak lanjut: ${
-      parsed.data.followUp === 'BKPSDM' ? 'diteruskan ke BKPSDM' : 'selesai internal'
+      coachingFollowUp === 'BKPSDM' ? 'diteruskan ke BKPSDM' : 'selesai internal'
     }.`,
     w.id,
   );

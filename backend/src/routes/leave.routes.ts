@@ -13,6 +13,7 @@ import { canAny, usersForPermission } from '../lib/permissions';
 import { resolveSupervisor, skipsReviewer } from '../services/supervisor.service';
 import { effectivePosition, hasPosition, normalizePosition, positionLabel, primaryUserForPosition, userIdsForPosition, userHoldsPosition } from '../services/position.service';
 import { hashDocument, leaveDocumentPayload, listParafHistory, publicParafHistory, recordParaf } from '../services/paraf.service';
+import { createArchiveRecordTx } from '../services/archive.service';
 
 const router = Router();
 router.use(authRequired);
@@ -168,6 +169,7 @@ const includeDetail = {
   leaveType: true,
   documents: true,
   approvals: { include: { actor: { omit: { passwordHash: true } } }, orderBy: { createdAt: 'asc' as const } },
+  archiveRecord: { include: { list: { select: { id: true, listNumber: true, status: true } } } },
 };
 
 // GET /leave-requests
@@ -777,6 +779,15 @@ router.post('/:id/:action', async (req, res) => {
         },
         action: parafAction as 'PARAF' | 'APPROVE' | 'RETURN' | 'REJECT',
         note: note ?? null,
+      });
+    }
+    // Tahap akhir cuti: arsipkan surat cuti ke Buku Arsip dalam transaksi yang
+    // sama, sehingga status ARCHIVED tidak pernah terpisah dari record arsip.
+    if (action === 'archive') {
+      await createArchiveRecordTx(tx, {
+        sourceType: 'LEAVE',
+        sourceId: r.id,
+        actorId: req.user!.id,
       });
     }
     return u;

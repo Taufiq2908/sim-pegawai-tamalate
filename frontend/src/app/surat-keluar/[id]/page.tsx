@@ -26,6 +26,7 @@ function fmtDateTime(value?: string | null) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
 }
 
@@ -50,6 +51,18 @@ export default function SuratKeluarDetailPage() {
     destinationNumber: "",
     personInCharge: "",
     remarks: "",
+  });
+  const [expeditionForm, setExpeditionForm] = useState({
+    sentDate: today(),
+    courierName: "",
+    recipientName: "",
+    note: "",
+  });
+  const [receiptForm, setReceiptForm] = useState({
+    receivedDate: today(),
+    receivedByName: "BKD Kota Makassar",
+    receiptNumber: "",
+    note: "",
   });
 
   const load = useCallback(async () => {
@@ -83,6 +96,12 @@ export default function SuratKeluarDetailPage() {
       personInCharge: detail.personInCharge ?? "",
       remarks: detail.remarks ?? "",
     });
+    setExpeditionForm((form) => ({
+      ...form,
+      recipientName: detail.outgoingExpedition?.recipientName ?? detail.recipient ?? "",
+      courierName: detail.outgoingExpedition?.courierName ?? form.courierName,
+      sentDate: detail.outgoingExpedition?.sentDate ?? form.sentDate,
+    }));
   }, [detail?.id]);
 
   const setIssue =
@@ -90,12 +109,24 @@ export default function SuratKeluarDetailPage() {
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setIssueForm((form) => ({ ...form, [key]: e.target.value }));
 
+  const setExpedition =
+    (key: keyof typeof expeditionForm) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setExpeditionForm((form) => ({ ...form, [key]: e.target.value }));
+
+  const setReceipt =
+    (key: keyof typeof receiptForm) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setReceiptForm((form) => ({ ...form, [key]: e.target.value }));
+
   // Sumber kebenaran tombol aksi: availableActions dari backend.
   const actions = detail?.availableActions ?? [];
   const canIssue = actions.includes("issue");
   const canCancel = actions.includes("cancel");
   const canUpload = actions.includes("upload");
   const canResubmit = actions.includes("resubmit_archive");
+  const canRecordExpedition = actions.includes("record_expedition") || actions.includes("mark_expedition_sent");
+  const canMarkReceived = actions.includes("mark_expedition_received");
 
   async function issue() {
     if (!issueForm.recipient.trim()) {
@@ -203,6 +234,56 @@ export default function SuratKeluarDetailPage() {
     }
   }
 
+  async function saveExpedition() {
+    if (!expeditionForm.recipientName.trim()) {
+      toast.error("Nama penerima/instansi tujuan wajib diisi.");
+      return;
+    }
+    setActing("expedition");
+    try {
+      const { data } = await apiFetch<OutgoingLetter>(`/outgoing-letters/${id}/expedition`, {
+        method: "POST",
+        body: JSON.stringify({
+          sentDate: expeditionForm.sentDate || undefined,
+          courierName: expeditionForm.courierName.trim() || undefined,
+          recipientName: expeditionForm.recipientName.trim(),
+          note: expeditionForm.note.trim() || undefined,
+        }),
+      });
+      setDetail(data);
+      toast.success("Penyerahan ke caraka dicatat di Buku Ekspedisi Surat Keluar.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal mencatat ekspedisi");
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function saveReceipt() {
+    if (!receiptForm.receivedByName.trim()) {
+      toast.error("Nama penerima bukti terima wajib diisi.");
+      return;
+    }
+    setActing("receipt");
+    try {
+      const { data } = await apiFetch<OutgoingLetter>(`/outgoing-letters/${id}/expedition/receipt`, {
+        method: "POST",
+        body: JSON.stringify({
+          receivedDate: receiptForm.receivedDate || undefined,
+          receivedByName: receiptForm.receivedByName.trim(),
+          receiptNumber: receiptForm.receiptNumber.trim() || undefined,
+          note: receiptForm.note.trim() || undefined,
+        }),
+      });
+      setDetail(data);
+      toast.success("Bukti terima dicatat. Surat sudah diterima instansi tujuan.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal mencatat bukti terima");
+    } finally {
+      setActing(null);
+    }
+  }
+
   return (
     <RequirePerm perm="outgoing.view" label="Surat Keluar">
       <div className="flex flex-wrap items-center gap-2">
@@ -210,7 +291,10 @@ export default function SuratKeluarDetailPage() {
           ← Kembali
         </button>
         <Link href="/surat-keluar/agenda" className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm hover:bg-paper">
-          Register surat keluar
+          Buku Agenda Surat Keluar
+        </Link>
+        <Link href="/surat-keluar/ekspedisi" className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm hover:bg-paper">
+          Buku Ekspedisi Surat Keluar
         </Link>
       </div>
 
@@ -361,6 +445,125 @@ export default function SuratKeluarDetailPage() {
                       </button>
                     </div>
                   </div>
+                ) : null}
+              </section>
+            ) : null}
+
+            {detail.status === "TERKIRIM" || detail.outgoingExpedition ? (
+              <section className="rounded-lg border border-line bg-surface p-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-semibold">Buku Ekspedisi Surat Keluar</h2>
+                  <span className="rounded-full bg-paper px-2 py-0.5 text-xs font-semibold text-muted">
+                    {detail.expeditionStatus === "DITERIMA"
+                      ? "Sudah diterima"
+                      : detail.expeditionStatus === "DIKIRIM"
+                        ? "Sudah diserahkan"
+                        : detail.expeditionStatus === "BELUM_DIKIRIM"
+                          ? "Belum diserahkan"
+                          : "Belum dicatat"}
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-muted">
+                  Buku ekspedisi mencatat serah terima surat ke caraka/pengekspedisi dan bukti
+                  penerimaan dari instansi tujuan. Buku ini terpisah dari Buku Agenda Surat Keluar.
+                </p>
+
+                {detail.outgoingExpedition ? (
+                  <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                    <Info label="No. registrasi" value={detail.outgoingExpedition.regNumber} />
+                    <Info label="Tujuan" value={detail.outgoingExpedition.recipientName} />
+                    <Info label="Caraka" value={detail.outgoingExpedition.courierName ?? "—"} />
+                    <Info label="Tanggal diserahkan" value={detail.outgoingExpedition.sentDate ?? "—"} />
+                    <Info label="Diterima" value={detail.outgoingExpedition.receivedDate ?? "—"} />
+                    <Info label="Penerima" value={detail.outgoingExpedition.receivedByName ?? "—"} />
+                    <Info label="No. tanda terima" value={detail.outgoingExpedition.receiptNumber ?? "—"} />
+                    <Info label="Catatan" value={detail.outgoingExpedition.note ?? "—"} />
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-md bg-paper px-3 py-2 text-sm text-muted">
+                    {detail.kgbRequest
+                      ? "Surat ini belum dicatat di buku ekspedisi. Catat dari detail KGB."
+                      : "Surat ini belum dicatat di buku ekspedisi. Catat penyerahan ke caraka di bawah."}
+                  </p>
+                )}
+
+                {detail.kgbRequest ? (
+                  <p className="mt-3 rounded-md border border-info-700/30 bg-info-100 px-3 py-2 text-sm text-info-700">
+                    Surat ini terkait KGB{" "}
+                    <Link href={`/kgb/${detail.kgbRequest.id}`} className="font-semibold underline">
+                      {detail.kgbRequest.requestNumber}
+                    </Link>
+                    . Catat ekspedisi dan bukti terima dari detail KGB agar status KGB ikut diperbarui.
+                  </p>
+                ) : null}
+
+                {canRecordExpedition && !detail.kgbRequest ? (
+                  <div className="mt-4 border-t border-line pt-3">
+                    <h3 className="text-sm font-semibold">Catat penyerahan ke caraka</h3>
+                    <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                      <Field label="Tanggal diserahkan">
+                        <input type="date" value={expeditionForm.sentDate} onChange={setExpedition("sentDate")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Nama caraka / pengekspedisi">
+                        <input value={expeditionForm.courierName} onChange={setExpedition("courierName")} placeholder="Nama petugas" className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Instansi tujuan">
+                        <input value={expeditionForm.recipientName} onChange={setExpedition("recipientName")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Catatan">
+                        <input value={expeditionForm.note} onChange={setExpedition("note")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={acting !== null}
+                      onClick={() => void saveExpedition()}
+                      className="mt-3 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                    >
+                      {acting === "expedition" ? "Menyimpan…" : "Catat serah terima ke caraka"}
+                    </button>
+                  </div>
+                ) : null}
+
+                {canMarkReceived && !detail.kgbRequest ? (
+                  <div className="mt-4 border-t border-line pt-3">
+                    <h3 className="text-sm font-semibold">Bukti terima dari instansi tujuan</h3>
+                    <p className="mt-0.5 text-xs text-muted">
+                      Isi setelah surat benar-benar diterima BKD. Data ini menjadi bukti penerimaan
+                      di buku ekspedisi.
+                    </p>
+                    <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                      <Field label="Tanggal diterima">
+                        <input type="date" value={receiptForm.receivedDate} onChange={setReceipt("receivedDate")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Nama penerima">
+                        <input value={receiptForm.receivedByName} onChange={setReceipt("receivedByName")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Nomor tanda terima (opsional)">
+                        <input value={receiptForm.receiptNumber} onChange={setReceipt("receiptNumber")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                      <Field label="Catatan">
+                        <input value={receiptForm.note} onChange={setReceipt("note")} className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      </Field>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={acting !== null}
+                      onClick={() => void saveReceipt()}
+                      className="mt-3 rounded-lg bg-ok-700 px-4 py-2.5 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-50"
+                    >
+                      {acting === "receipt" ? "Menyimpan…" : "Bukti terima sudah diterima"}
+                    </button>
+                  </div>
+                ) : null}
+
+                {detail.expeditionStatus === "DITERIMA" ? (
+                  <p className="mt-3 rounded-md bg-ok-100 px-3 py-2 text-sm font-medium text-ok-700">
+                    Surat sudah diterima {detail.outgoingExpedition?.recipientName ?? "instansi tujuan"}
+                    {detail.outgoingExpedition?.receivedDate
+                      ? ` pada ${detail.outgoingExpedition.receivedDate}`
+                      : ""}.
+                  </p>
                 ) : null}
               </section>
             ) : null}

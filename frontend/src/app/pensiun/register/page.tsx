@@ -7,6 +7,13 @@ import { apiFetch } from "@/lib/api";
 import type { PensionRegisterRow } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
+const EXPEDITION_LABEL: Record<string, string> = {
+  BELUM_DICATAT: "Belum dicatat",
+  BELUM_DIKIRIM: "Belum diserahkan",
+  DIKIRIM: "Sudah diserahkan",
+  DITERIMA: "Diterima tujuan",
+};
+
 export default function PensiunRegisterPage() {
   const { hasPermission } = useAuth();
   const [rows, setRows] = useState<PensionRegisterRow[]>([]);
@@ -131,10 +138,17 @@ export default function PensiunRegisterPage() {
                   <td className="px-3 py-2 font-medium">{r.batchNumber}</td>
                   <td className="px-3 py-2">{periodLabel(r.periodYear, r.periodMonth)}</td>
                   <td className="px-3 py-2 font-medium">{r.jumlahPegawai}</td>
-                  <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
+                  <td className="px-3 py-2"><StatusBadge status={r.status} label={r.statusLabel} /></td>
                   <td className="px-3 py-2">{r.nomorSurat ?? "-"}</td>
                   <td className="px-3 py-2">{r.nomorAgenda ?? "-"}</td>
-                  <td className="px-3 py-2">{r.nomorEkspedisi ?? "-"}</td>
+                  <td className="px-3 py-2">
+                    {r.nomorEkspedisi ?? "-"}
+                    {r.statusEkspedisi ? (
+                      <p className="text-[11px] text-muted">
+                        {EXPEDITION_LABEL[r.statusEkspedisi] ?? r.statusEkspedisi}
+                      </p>
+                    ) : null}
+                  </td>
                   <td className="px-3 py-2">{r.nomorTandaTerima ?? "-"}</td>
                   <td className="px-3 py-2">{r.createdAt ? r.createdAt.slice(0, 10) : "-"}</td>
                 </tr>

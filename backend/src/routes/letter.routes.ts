@@ -11,6 +11,7 @@ import { ok, fail } from '../utils/response';
 import { todayYMD, parseYMD } from '../services/attendance.service';
 import { ARCHIVE_CATEGORIES, ArchiveError, createArchiveRecord } from '../services/archive.service';
 import { notifyArchiveApprovers, notifyPositions, notifyUser } from '../services/notification.service';
+import { normalizePosition, userHoldsPosition } from '../services/position.service';
 import { can } from '../lib/permissions';
 
 const router = Router();
@@ -18,12 +19,14 @@ router.use(authRequired);
 
 const LETTER_STATUS = [
   'DRAFT_TU',
+  'REVISI_TU',
   'REVIEW_SEKCAM',
   'DISPOSISI_CAMAT',
   'DITERUSKAN',
   'PROSES',
   'MENUNGGU_ARSIP',
   'DIARSIPKAN',
+  'DIBATALKAN',
 ] as const;
 const PRIORITY = ['BIASA', 'SEGERA', 'SANGAT_SEGERA'] as const;
 const LETTER_TYPES = ['BIASA', 'UNDANGAN'] as const;
@@ -93,18 +96,21 @@ const includeDetail = {
 };
 
 function availableActions(status: string, perms: string[]): string[] {
-  const rules: Record<string, { on: string[]; perm: string }> = {
-    submit: { on: ['DRAFT_TU'], perm: 'letter.create' },
-    forward: { on: ['REVIEW_SEKCAM'], perm: 'letter.paraf' },
-    dispose: { on: ['DISPOSISI_CAMAT', 'DITERUSKAN'], perm: 'letter.dispose' },
-    accept: { on: ['DITERUSKAN', 'PROSES'], perm: 'letter.followup' },
-    complete: { on: ['DITERUSKAN', 'PROSES'], perm: 'letter.followup' },
-    // Arsip hanya lewat persetujuan Sekcam/Camat, bukan aksi staf.
-    archive: { on: ['MENUNGGU_ARSIP'], perm: 'archive.approve' },
-    upload: { on: ['DRAFT_TU'], perm: 'letter.document.upload' },
+  const rules: Record<string, { on: string[]; perms: string[] }> = {
+    submit: { on: ['DRAFT_TU', 'REVISI_TU'], perms: ['letter.create'] },
+    edit: { on: ['DRAFT_TU', 'REVISI_TU'], perms: ['letter.create'] },
+    cancel: { on: ['DRAFT_TU', 'REVISI_TU', 'REVIEW_SEKCAM'], perms: ['letter.create'] },
+    revise: { on: ['REVIEW_SEKCAM'], perms: ['letter.paraf'] },
+    forward: { on: ['REVIEW_SEKCAM'], perms: ['letter.paraf'] },
+    dispose: { on: ['DISPOSISI_CAMAT', 'DITERUSKAN'], perms: ['letter.dispose'] },
+    accept: { on: ['DITERUSKAN', 'PROSES'], perms: ['letter.followup'] },
+    complete: { on: ['DITERUSKAN', 'PROSES'], perms: ['letter.followup'] },
+    // Staf arsip boleh menyelesaikan arsip; Sekcam/Camat tetap bisa menyetujui.
+    archive: { on: ['MENUNGGU_ARSIP'], perms: ['letter.archive', 'archive.approve'] },
+    upload: { on: ['DRAFT_TU', 'REVISI_TU'], perms: ['letter.document.upload'] },
   };
   return Object.keys(rules).filter(
-    (a) => rules[a].on.includes(status) && can(perms, rules[a].perm),
+    (a) => rules[a].on.includes(status) && rules[a].perms.some((p) => can(perms, p)),
   );
 }
 
@@ -162,15 +168,16 @@ function toDetail(l: any, perms: string[], meId: string) {
 // Surat terlihat oleh yang terlibat, kecuali SUPER_ADMIN/VERIFIER (semua).
 function scopeWhere(meId: string, role: string, position?: string | null): any {
   if (role === 'SUPER_ADMIN' || role === 'VERIFIER') return {};
+  const pos = normalizePosition(position);
   const or: any[] = [
     { createdBy: meId },
     { dispositions: { some: { fromUserId: meId } } },
     { dispositions: { some: { toUserId: meId } } },
     { agendaAssignments: { some: { userId: meId } } },
   ];
-  if (position === 'SEKCAM') or.push({ status: 'REVIEW_SEKCAM' });
-  if (position === 'CAMAT') or.push({ status: 'DISPOSISI_CAMAT' });
-  if (position === 'SEKCAM' || position === 'CAMAT') or.push({ status: 'MENUNGGU_ARSIP' });
+  if (pos === 'SEKCAM') or.push({ status: { in: ['REVIEW_SEKCAM', 'REVISI_TU'] } });
+  if (pos === 'CAMAT') or.push({ status: 'DISPOSISI_CAMAT' });
+  if (pos === 'SEKCAM' || pos === 'CAMAT') or.push({ status: 'MENUNGGU_ARSIP' });
   return { OR: or };
 }
 
@@ -179,15 +186,20 @@ function canViewLetter(user: any, l: any): boolean {
   if (l.createdBy === user.id) return true;
   if ((l.dispositions ?? []).some((d: any) => d.fromUserId === user.id || d.toUserId === user.id)) return true;
   if ((l.agendaAssignments ?? []).some((a: any) => a.userId === user.id)) return true;
-  if (user.position === 'SEKCAM' && ['REVIEW_SEKCAM', 'MENUNGGU_ARSIP'].includes(l.status)) return true;
-  if (user.position === 'CAMAT' && ['DISPOSISI_CAMAT', 'MENUNGGU_ARSIP'].includes(l.status)) return true;
+  const pos = normalizePosition(user.position);
+  if (pos === 'SEKCAM' && ['REVIEW_SEKCAM', 'REVISI_TU', 'MENUNGGU_ARSIP'].includes(l.status)) return true;
+  if (pos === 'CAMAT' && ['DISPOSISI_CAMAT', 'MENUNGGU_ARSIP'].includes(l.status)) return true;
   return false;
 }
 
-// Approver arsip: Sekcam atau Camat. SUPER_ADMIN tetap boleh.
-function isArchiveApprover(req: any): boolean {
-  return req.user?.role === 'SUPER_ADMIN'
-    || ['SEKCAM', 'CAMAT'].includes(req.user?.position ?? '');
+// Approver arsip: Sekcam atau Camat (termasuk Plt aktif). SUPER_ADMIN tetap boleh.
+async function isArchiveApprover(req: any): Promise<boolean> {
+  if (req.user?.role === 'SUPER_ADMIN') return true;
+  const [sekcam, camat] = await Promise.all([
+    userHoldsPosition(req.user!.id, 'SEKCAM'),
+    userHoldsPosition(req.user!.id, 'CAMAT'),
+  ]);
+  return sekcam || camat;
 }
 
 const ARCHIVE_BATCH_MAX = 15;
@@ -217,12 +229,14 @@ function parseBool(value: unknown): boolean {
   return false;
 }
 
-function isSekcam(req: any): boolean {
-  return req.user?.role === 'SUPER_ADMIN' || req.user?.position === 'SEKCAM';
+async function isSekcam(req: any): Promise<boolean> {
+  if (req.user?.role === 'SUPER_ADMIN') return true;
+  return userHoldsPosition(req.user!.id, 'SEKCAM');
 }
 
-function isCamat(req: any): boolean {
-  return req.user?.role === 'SUPER_ADMIN' || req.user?.position === 'CAMAT';
+async function isCamat(req: any): Promise<boolean> {
+  if (req.user?.role === 'SUPER_ADMIN') return true;
+  return userHoldsPosition(req.user!.id, 'CAMAT');
 }
 
 function tomorrowYMD(): string {
@@ -561,8 +575,8 @@ router.post('/:id/submit', requirePermission('letter.create'), async (req, res) 
     include: { documents: { select: { id: true } }, agendaAssignments: { select: { id: true } } },
   });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
-  if (l.status !== 'DRAFT_TU') {
-    return fail(res, 409, `Kirim ke Sekcam hanya dari DRAFT_TU (saat ini ${l.status})`);
+  if (!['DRAFT_TU', 'REVISI_TU'].includes(l.status)) {
+    return fail(res, 409, `Kirim ke Sekcam hanya dari DRAFT_TU/REVISI_TU (saat ini ${l.status})`);
   }
   if (!l.summary?.trim()) return fail(res, 422, 'Ringkasan isi wajib diisi sebelum dikirim ke Sekcam');
   if (!l.classificationId) return fail(res, 422, 'Klasifikasi arsip wajib dipilih sebelum dikirim ke Sekcam');
@@ -589,6 +603,186 @@ router.post('/:id/submit', requirePermission('letter.create'), async (req, res) 
     referenceId: updated.id,
   }).catch(() => undefined);
   return ok(res, toDetail(updated, req.user!.permissions, req.user!.id), 'Surat dikirim ke Sekcam');
+});
+
+// ---------- PATCH /letters/:id (edit surat draft / hasil revisi Sekcam) ----------
+router.patch('/:id', requirePermission('letter.create'), async (req, res) => {
+  const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id } });
+  if (!l) return fail(res, 404, 'Surat tidak ditemukan');
+  if (!['DRAFT_TU', 'REVISI_TU'].includes(l.status)) {
+    return fail(res, 409, 'Surat hanya dapat diedit saat DRAFT_TU atau REVISI_TU');
+  }
+  if (!['VERIFIER', 'SUPER_ADMIN'].includes(req.user!.role) && l.createdBy !== req.user!.id) {
+    return fail(res, 403, 'Hanya pembuat surat atau staf TU yang dapat mengedit');
+  }
+
+  const schema = z.object({
+    letterNumber: z.string().min(1).max(150).optional(),
+    sender: z.string().min(1).max(200).optional(),
+    subject: z.string().min(5).max(500).optional(),
+    letterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    priority: z.enum(PRIORITY).optional(),
+    secrecy: z.enum(['SR', 'R', 'B']).optional(),
+    letterType: z.enum(LETTER_TYPES).optional(),
+    summary: z.string().max(2000).nullable().optional(),
+    addressedTo: z.string().max(200).nullable().optional(),
+    pic: z.string().max(150).nullable().optional(),
+    remarks: z.string().max(500).nullable().optional(),
+    classificationCode: z.string().max(30).nullable().optional(),
+    activityDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    activityStartTime: z.string().regex(TIME_RE).nullable().optional(),
+    activityEndTime: z.string().regex(TIME_RE).nullable().optional(),
+    activityLocation: z.string().max(200).nullable().optional(),
+    assignedUserIds: z.array(z.string().uuid()).max(50).optional(),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+  const b = parsed.data;
+
+  const letterDate = b.letterDate ? parseYMD(b.letterDate) : l.letterDate;
+  if (!letterDate) return fail(res, 422, 'letterDate tidak valid');
+  const activityDate = b.activityDate === undefined
+    ? l.activityDate
+    : b.activityDate === null ? null : parseYMD(b.activityDate);
+  if (b.activityDate && !activityDate) return fail(res, 422, 'activityDate tidak valid');
+  const start = b.activityStartTime === undefined ? l.activityStartTime : b.activityStartTime;
+  const end = b.activityEndTime === undefined ? l.activityEndTime : b.activityEndTime;
+  if (start && end && end < start) {
+    return fail(res, 422, 'Waktu selesai tidak boleh sebelum waktu mulai');
+  }
+  const letterType = b.letterType ?? l.letterType;
+  const location = b.activityLocation === undefined ? l.activityLocation : (b.activityLocation?.trim() || null);
+  if (letterType === 'UNDANGAN') {
+    if (!activityDate || !start || !end || !location) {
+      return fail(res, 422, 'Surat undangan/kegiatan wajib mengisi tanggal, waktu mulai, waktu selesai, dan tempat kegiatan');
+    }
+  }
+
+  let classificationId: string | null | undefined = undefined;
+  if (b.classificationCode !== undefined) {
+    if (b.classificationCode === null || b.classificationCode === '') {
+      classificationId = null;
+    } else {
+      const cls = await prisma.archiveClassification.findUnique({ where: { code: b.classificationCode } });
+      if (!cls || !cls.isActive) return fail(res, 422, 'Kode klasifikasi tidak dikenal');
+      classificationId = cls.id;
+    }
+  }
+
+  let assignedIds: string[] | undefined;
+  if (b.assignedUserIds !== undefined) {
+    assignedIds = await validateAgendaUsers(b.assignedUserIds).catch(() => null) ?? undefined;
+    if (assignedIds === undefined) return fail(res, 422, 'Ada petugas agenda yang tidak ditemukan/aktif');
+    if (letterType === 'UNDANGAN' && assignedIds.length === 0) {
+      return fail(res, 422, 'Surat undangan/kegiatan wajib memiliki minimal satu petugas agenda');
+    }
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const data: any = {
+      ...(b.letterNumber !== undefined ? { letterNumber: b.letterNumber.trim() } : {}),
+      ...(b.sender !== undefined ? { sender: b.sender.trim() } : {}),
+      ...(b.subject !== undefined ? { subject: b.subject.trim() } : {}),
+      ...(b.letterDate !== undefined ? { letterDate } : {}),
+      ...(b.priority !== undefined ? { priority: b.priority } : {}),
+      ...(b.secrecy !== undefined ? { secrecy: b.secrecy } : {}),
+      ...(b.letterType !== undefined ? { letterType: b.letterType } : {}),
+      ...(b.summary !== undefined ? { summary: b.summary?.trim() || null } : {}),
+      ...(b.addressedTo !== undefined ? { addressedTo: b.addressedTo?.trim() || null } : {}),
+      ...(b.pic !== undefined ? { pic: b.pic?.trim() || null } : {}),
+      ...(b.remarks !== undefined ? { remarks: b.remarks?.trim() || null } : {}),
+      ...(classificationId !== undefined ? { classificationId } : {}),
+      ...(b.activityDate !== undefined ? { activityDate } : {}),
+      ...(b.activityStartTime !== undefined ? { activityStartTime: b.activityStartTime } : {}),
+      ...(b.activityEndTime !== undefined ? { activityEndTime: b.activityEndTime } : {}),
+      ...(b.activityLocation !== undefined ? { activityLocation: location } : {}),
+    };
+    if (assignedIds !== undefined) {
+      await tx.agendaAssignment.deleteMany({ where: { letterId: l.id } });
+      if (assignedIds.length) {
+        await tx.agendaAssignment.createMany({
+          data: assignedIds.map((userId) => ({ letterId: l.id, userId })),
+        });
+      }
+    }
+    return tx.incomingLetter.update({
+      where: { id: l.id },
+      data,
+      include: includeDetail,
+    });
+  });
+  return ok(res, toDetail(updated, req.user!.permissions, req.user!.id), 'Surat berhasil diperbarui');
+});
+
+// ---------- POST /letters/:id/revision (Sekcam mengembalikan ke TU) ----------
+router.post('/:id/revision', requirePermission('letter.paraf'), async (req, res) => {
+  if (!(await isSekcam(req))) return fail(res, 403, 'Revisi surat hanya dapat diminta oleh Sekcam');
+  const body = z.object({
+    note: z.string().min(5, 'Catatan revisi minimal 5 karakter').max(500),
+  }).safeParse(req.body ?? {});
+  if (!body.success) return fail(res, 422, 'Validasi gagal', body.error.flatten());
+
+  const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id } });
+  if (!l) return fail(res, 404, 'Surat tidak ditemukan');
+  if (l.status !== 'REVIEW_SEKCAM') {
+    return fail(res, 409, `Revisi hanya dapat diminta saat REVIEW_SEKCAM (saat ini ${l.status})`);
+  }
+  const updated = await prisma.incomingLetter.update({
+    where: { id: l.id },
+    data: {
+      status: 'REVISI_TU',
+      revisionNote: body.data.note.trim(),
+      revisionRequestedAt: new Date(),
+      revisionRequestedBy: req.user!.id,
+    },
+    include: includeDetail,
+  });
+  await notifyUser(l.createdBy, {
+    type: 'LETTER_REVISION',
+    title: `Revisi surat: ${updated.subject}`.slice(0, 255),
+    body: `Sekcam meminta revisi surat ${updated.agendaNumber}. Catatan: ${body.data.note.trim()}`,
+    referenceType: 'incoming_letter',
+    referenceId: updated.id,
+  }).catch(() => undefined);
+  return ok(res, toDetail(updated, req.user!.permissions, req.user!.id), 'Surat dikembalikan ke TU untuk direvisi');
+});
+
+// ---------- POST /letters/:id/cancel (batalkan surat sebelum disposisi) ----------
+router.post('/:id/cancel', requirePermission('letter.create'), async (req, res) => {
+  const body = z.object({
+    reason: z.string().min(3, 'Alasan pembatalan minimal 3 karakter').max(500),
+  }).safeParse(req.body ?? {});
+  if (!body.success) return fail(res, 422, 'Validasi gagal', body.error.flatten());
+
+  const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id } });
+  if (!l) return fail(res, 404, 'Surat tidak ditemukan');
+  if (!['DRAFT_TU', 'REVISI_TU', 'REVIEW_SEKCAM'].includes(l.status)) {
+    return fail(res, 409, 'Surat hanya dapat dibatalkan sebelum didisposisi Camat');
+  }
+  if (!['VERIFIER', 'SUPER_ADMIN'].includes(req.user!.role) && l.createdBy !== req.user!.id) {
+    return fail(res, 403, 'Hanya staf TU atau pembuat surat yang dapat membatalkan');
+  }
+  const wasReview = l.status === 'REVIEW_SEKCAM';
+  const updated = await prisma.incomingLetter.update({
+    where: { id: l.id },
+    data: {
+      status: 'DIBATALKAN',
+      cancelReason: body.data.reason.trim(),
+      cancelledAt: new Date(),
+      cancelledBy: req.user!.id,
+    },
+    include: includeDetail,
+  });
+  if (wasReview) {
+    await notifyPositions(['SEKCAM'], {
+      type: 'LETTER_CANCELLED',
+      title: `Surat dibatalkan: ${updated.subject}`.slice(0, 255),
+      body: `${req.user!.username} membatalkan surat ${updated.agendaNumber}. Alasan: ${body.data.reason.trim()}`,
+      referenceType: 'incoming_letter',
+      referenceId: updated.id,
+    }).catch(() => undefined);
+  }
+  return ok(res, toDetail(updated, req.user!.permissions, req.user!.id), 'Surat berhasil dibatalkan');
 });
 
 // ---------- GET /letters ----------
@@ -762,9 +956,11 @@ router.get('/register-book', requirePermission('letter.view'), async (req, res) 
 });
 
 // ---------- GET /letters/archive-queue (antrean arsip surat masuk) ----------
-router.get('/archive-queue', requirePermission('archive.approve'), async (req, res) => {
-  if (!isArchiveApprover(req)) {
-    return fail(res, 403, 'Antrean arsip hanya untuk Sekcam/Camat');
+router.get('/archive-queue', requirePermission('letter.view'), async (req, res) => {
+  const canApprove = (await isArchiveApprover(req)) && can(req.user!.permissions, 'archive.approve');
+  const canStaffArchive = can(req.user!.permissions, 'letter.archive');
+  if (!canApprove && !canStaffArchive) {
+    return fail(res, 403, 'Antrean arsip hanya untuk staf arsip, Sekcam, atau Camat');
   }
   const { q, page = '1', limit = '15' } = req.query as any;
   const where: any = { status: 'MENUNGGU_ARSIP', archiveRecord: { is: null } };
@@ -825,11 +1021,12 @@ router.get('/archive-queue', requirePermission('archive.approve'), async (req, r
 
 // ---------- POST /letters/archive-approvals/batch (approve arsip surat masuk) ----------
 router.post('/archive-approvals/batch', requirePermission('archive.approve'), async (req, res) => {
-  if (!isArchiveApprover(req)) {
+  if (!(await isArchiveApprover(req))) {
     return fail(res, 403, 'Persetujuan arsip hanya untuk Sekcam/Camat');
   }
   const schema = z.object({
     ids: z.array(z.string().uuid()).min(1, 'Pilih minimal 1 surat').max(ARCHIVE_BATCH_MAX, `Maksimal ${ARCHIVE_BATCH_MAX} surat per batch`),
+    physicalLocation: z.string().max(200).nullable().optional(),
   });
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
@@ -865,6 +1062,7 @@ router.post('/archive-approvals/batch', requirePermission('archive.approve'), as
         sourceType: 'INCOMING',
         sourceId: id,
         actorId: req.user!.id,
+        physicalLocation: parsed.data.physicalLocation ?? undefined,
       });
       approved.push({ id, archiveNumber: record.archiveNumber });
     } catch (err) {
@@ -883,7 +1081,7 @@ router.post('/archive-approvals/batch', requirePermission('archive.approve'), as
 
 // ---------- POST /letters/archive-approvals/reject (revisi arsip surat masuk) ----------
 router.post('/archive-approvals/reject', requirePermission('archive.reject'), async (req, res) => {
-  if (!isArchiveApprover(req)) {
+  if (!(await isArchiveApprover(req))) {
     return fail(res, 403, 'Penolakan arsip hanya untuk Sekcam/Camat');
   }
   const schema = z.object({
@@ -1224,7 +1422,7 @@ router.patch('/:id/agenda', requirePermission('letter.register'), async (req, re
 
 // ---------- POST /letters/:id/paraf (Sekcam memeriksa) ----------
 router.post(['/:id/forward', '/:id/paraf'], requirePermission('letter.paraf'), async (req, res) => {
-  if (!isSekcam(req)) return fail(res, 403, 'Teruskan ke Camat hanya untuk Sekcam');
+  if (!(await isSekcam(req))) return fail(res, 403, 'Teruskan ke Camat hanya untuk Sekcam');
   const schema = z.object({ note: z.string().max(500).optional() });
   const note = schema.safeParse(req.body ?? {}).data?.note ?? null;
   const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id } });
@@ -1282,9 +1480,9 @@ router.post('/:id/documents', requirePermission('letter.document.upload'), (req,
       cleanupTemp();
       return fail(res, 404, 'Surat tidak ditemukan');
     }
-    if (l.status !== 'DRAFT_TU') {
+    if (!['DRAFT_TU', 'REVISI_TU'].includes(l.status)) {
       cleanupTemp();
-      return fail(res, 409, `Upload hanya saat DRAFT_TU (saat ini ${l.status})`);
+      return fail(res, 409, `Upload hanya saat DRAFT_TU/REVISI_TU (saat ini ${l.status})`);
     }
     const storedPath = await storeUploadedFile(f, `letters/incoming/${l.id}`);
     try {
@@ -1319,7 +1517,7 @@ router.get('/:id/documents/:docId/download', requirePermission('letter.view'), a
 
 // ---------- POST /letters/:id/dispose ----------
 router.post('/:id/dispose', requirePermission('letter.dispose'), async (req, res) => {
-  if (!isCamat(req)) return fail(res, 403, 'Disposisi surat hanya untuk Camat');
+  if (!(await isCamat(req))) return fail(res, 403, 'Disposisi surat hanya untuk Camat');
   const schema = z.object({
     toUserId: z.string().uuid(),
     instruction: z.string().min(5, 'Isi disposisi minimal 5 karakter'),
@@ -1385,7 +1583,7 @@ router.post('/:id/dispose', requirePermission('letter.dispose'), async (req, res
 
 // ---------- POST /letters/:id/dispositions (disposisi massal / centang 9 tujuan) ----------
 router.post('/:id/dispositions', requirePermission('letter.dispose'), async (req, res) => {
-  if (!isCamat(req)) return fail(res, 403, 'Disposisi surat hanya untuk Camat');
+  if (!(await isCamat(req))) return fail(res, 403, 'Disposisi surat hanya untuk Camat');
   const ymd = /^\d{4}-\d{2}-\d{2}$/;
   const schema = z.object({
     instruction: z.string().min(5, 'Isi disposisi minimal 5 karakter'),
@@ -1680,10 +1878,13 @@ router.post('/:id/complete', requirePermission('letter.followup'), async (req, r
 });
 
 // ---------- POST /letters/:id/archive ----------
-// Jalur lama satu surat. Hanya Sekcam/Camat; alur utama tetap batch queue.
-router.post('/:id/archive', requirePermission('archive.approve'), async (req, res) => {
-  if (!isArchiveApprover(req)) {
-    return fail(res, 403, 'Persetujuan arsip hanya untuk Sekcam/Camat');
+// Staf arsip dapat langsung mengarsipkan setelah semua disposisi selesai;
+// Sekcam/Camat tetap dapat memakai jalur persetujuan yang sama.
+router.post('/:id/archive', requirePermission('letter.view'), async (req, res) => {
+  const canApprove = (await isArchiveApprover(req)) && can(req.user!.permissions, 'archive.approve');
+  const canStaffArchive = can(req.user!.permissions, 'letter.archive');
+  if (!canApprove && !canStaffArchive) {
+    return fail(res, 403, 'Arsip hanya untuk staf arsip, Sekcam, atau Camat');
   }
   const l = await prisma.incomingLetter.findUnique({ where: { id: req.params.id }, include: { archiveRecord: true } });
   if (!l) return fail(res, 404, 'Surat tidak ditemukan');
@@ -1697,6 +1898,7 @@ router.post('/:id/archive', requirePermission('archive.approve'), async (req, re
     category: z.enum(ARCHIVE_CATEGORIES).optional(),
     archiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     retentionUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    physicalLocation: z.string().max(200).nullable().optional(),
     notes: z.string().max(1000).optional(),
   }).safeParse(req.body ?? {});
   if (!body.success) return fail(res, 422, 'Validasi gagal', body.error.flatten());
@@ -1707,6 +1909,7 @@ router.post('/:id/archive', requirePermission('archive.approve'), async (req, re
       sourceId: l.id,
       actorId: req.user!.id,
       ...body.data,
+      physicalLocation: body.data.physicalLocation ?? undefined,
     });
   } catch (err) {
     if (err instanceof ArchiveError) return fail(res, err.status, err.message);

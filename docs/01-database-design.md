@@ -126,6 +126,7 @@ Index: `org_unit_id`, `employment_status`, `position`.
 |---|---|---|
 | id | uuid PK | |
 | username | varchar(50) UNIQUE NOT NULL | lowercase, ex: `ahmad.camat` |
+| email | varchar(150) NULL | kontak akun; disiapkan untuk notifikasi email (belum aktif) |
 | password_hash | varchar(255) NOT NULL | bcrypt/argon2, tidak pernah ke frontend |
 | employee_id | uuid UNIQUE NULL | FK → employees.id ON DELETE RESTRICT |
 | role | varchar(20) NOT NULL | FK logis → roles.code (`SUPER_ADMIN\|VERIFIER\|LEADER\|EMPLOYEE`) |
@@ -135,7 +136,7 @@ Index: `org_unit_id`, `employment_status`, `position`.
 | last_login_at | timestamptz NULL | |
 | created_at / updated_at | timestamptz | |
 
-Index: `role`, `org_unit_id`, `employee_id`.
+Index: `role`, `org_unit_id`, `employee_id`, `email`.
 
 ### 2.7 user_permission_overrides
 
@@ -264,21 +265,33 @@ Pegawai bermasalah: ≥5 hari kerja dalam sepekan tanpa HADIR/TERLAMBAT (IZIN/SA
 
 **`outgoing_letters`**: id, letter_number UNIQUE (format SE: `klasifikasi / seq / KT / romawi / tahun`), sequence_number + year (UNIQUE gabungan; nomor tidak dipakai ulang), classification_id FK, subject, recipient, letter_date (tanggal surat, boleh < tanggal catat), priority, secrecy, signer_name, status (`RESERVED|TERKIRIM|DIARSIPKAN|CANCELLED`), reservation_reason, cancel_reason, reserved_by/at, issued_at, archived_at, archive_rejected_at, archive_rejection_note, cancelled_at, created_by (created_at = tanggal pencatatan).
 
-**`outgoing_documents`**, **`numbering_sequences`** (year → last_number), **`expedition_receipts`** (reg_number UNIQUE, letter_id FK, receipt_date, receiver_name, signature_name/paraf, note), **`notifications`** (user_id FK, type, title, body, reference, is_read).
+**`outgoing_documents`**, **`numbering_sequences`** (year → last_number), **`expedition_receipts`** (reg_number UNIQUE, letter_id FK, receipt_date, receiver_name, signature_name/paraf, note), **`ekspedisi_surat_keluar`** (reg_number `EXK-YYYY-NNNN` UNIQUE, letter_id FK UNIQUE, sent_at, courier_name, recipient_name, receipt_number, received_date, received_by_name, received_by, note, created_by), **`notifications`** (user_id FK, type, title, body, reference, is_read). `expedition_receipts` khusus surat masuk; `ekspedisi_surat_keluar` adalah buku ekspedisi surat keluar yang terpisah dari buku agenda.
 
 Alur: `DRAFT_TU → REVIEW_SEKCAM → DISPOSISI_CAMAT → DITERUSKAN → PROSES → MENUNGGU_ARSIP → DIARSIPKAN`. Disposisi boleh banyak target; status `PROSES` saat target pertama menerima, dan `MENUNGGU_ARSIP` setelah semua target DONE. Visibilitas: SUPER_ADMIN/VERIFIER semua; Sekcam melihat tahap `REVIEW_SEKCAM`; Camat melihat tahap `DISPOSISI_CAMAT`; penerima melihat surat yang melibatkan dirinya.
 
-**Pembaruan workflow - 5 November 2026:** status baru diterapkan. Surat masuk memakai `MENUNGGU_ARSIP` sebagai antrean dan `DIARSIPKAN` setelah disetujui. Surat keluar memakai `TERKIRIM` sebagai antrean dan `DIARSIPKAN` setelah disetujui. Reject surat keluar memakai `ditolak_arsip_pada` + `catatan_penolakan_arsip`. Batch surat masuk dan keluar dipisah, maksimal 15 per request, partial success. Tidak ada arsip manual; `PATCH /archives/:id` hanya untuk `SUPER_ADMIN`; `lokasi_fisik` opsional. Detail lengkap di `docs/14-surat-workflow-revision.md`.
+**Pembaruan workflow - 5 November 2026:** status baru diterapkan. Surat masuk memakai `MENUNGGU_ARSIP` sebagai antrean dan `DIARSIPKAN` setelah disetujui. Surat keluar memakai `TERKIRIM` sebagai antrean dan `DIARSIPKAN` setelah disetujui. Reject surat keluar memakai `ditolak_arsip_pada` + `catatan_penolakan_arsip`. Batch surat masuk dan keluar dipisah, maksimal 15 per request, partial success. Tidak ada endpoint arsip manual; record arsip dibuat otomatis dari persetujuan surat dan pengarsipan cuti (`sourceType=LEAVE`). `PATCH /archives/:id` dapat dipakai staf untuk melengkapi kode arsip/kode berkas; koreksi metadata lain oleh `SUPER_ADMIN`, dan setelah Daftar Arsip ditandatangani admin juga hanya dapat mengubah kode. `lokasi_fisik` opsional. Detail lengkap di `docs/14-surat-workflow-revision.md`.
 
 ### 3.7 KGB (mirip pola cuti)
 
-**`kgb_requests`**: id, request_number UNIQUE (`KGB-2026-0001`), employee_id FK, old_rank, new_rank, old_salary INT (rupiah), new_salary INT (wajib > old_salary), effective_date (TMT), note, status (`DRAFT|SUBMITTED|REVISION|VERIFIED|PARAF|APPROVED|COMPLETED|REJECTED`), submitted_at, current_holder_role, rejection_reason, revision_note, created_by FK.
+**`pegawai.gaji_pokok`**: gaji pokok terakhir pegawai (INT rupiah). Diisi dari master golongan + MKG.
+
+**`skala_gaji_pns`**: master gaji pokok PNS PP Nomor 5 Tahun 2024 — `golongan` (I/a–IV/e), `masa_kerja_golongan` (MKG tahun), `gaji_pokok`, `dasar_hukum`. UNIQUE `(golongan, masa_kerja_golongan)`. Total 527 baris. Dipakai untuk prefill form KGB dan perhitungan gaji berikutnya (MKG + 2 tahun).
+
+**`kgb_requests`**: id, request_number UNIQUE (`KGB-2026-0001`), employee_id FK, old_rank, new_rank, old_salary INT (rupiah), new_salary INT (wajib > old_salary), effective_date (TMT), note, status (`DRAFT|SUBMITTED|REVISION|VERIFIED|PARAF|APPROVED|REGISTERED|SUBMITTED_BKPSDMD|COMPLETED|ARCHIVED|REJECTED`), submitted_at, current_holder_role, rejection_reason, revision_note, outgoing_letter_id FK UNIQUE (surat keluar hasil register), created_by FK. Untuk pengajuan baru, `old_rank`/`new_rank`/`old_salary`/`new_salary` dihitung backend dari `pegawai` + `skala_gaji_pns`; frontend tidak perlu mengisi manual.
 
 **`kgb_documents`**: doc_type (`SK_TERAKHIR|SKP|KP4|LAINNYA`), dst. mirip leave_documents (5MB).
 
 **`kgb_approvals`**: audit trail append-only seperti leave_approvals.
 
-Alur: `DRAFT → SUBMITTED → VERIFIED → PARAF → APPROVED → COMPLETED` (+REVISION/REJECTED). Tanpa tahap SIGNED — selesai langsung setelah approve.
+Alur: `DRAFT → SUBMITTED → VERIFIED → PARAF → APPROVED → REGISTERED → SUBMITTED_BKPSDMD → COMPLETED → ARCHIVED` (+REVISION/REJECTED). `register` otomatis membuat surat keluar dan baris `ekspedisi_surat_keluar`; `tobkpsdm` mencatat serah terima caraka; `complete` mencatat bukti terima BKD.
+
+### 3.8 Pensiun PNS
+
+**`usulan_pensiun`** (`PensionBatch`): id, nomor_usulan UNIQUE (`PENSIUN-2026-0001`), tahun_usulan, bulan_usulan, usia_bup, status, peran_pemegang_saat_ini, catatan, catatan_verifikasi, catatan_paraf, catatan_persetujuan, catatan_revisi, alasan_penolakan, outgoing_letter_id FK UNIQUE (surat keluar hasil register, `onDelete: SetNull`), nomor_surat_keluar, tanggal_surat_keluar, nomor_agenda, dicap_pada, nomor_ekspedisi, tanggal_ekspedisi, nama_caraka, catatan_ekspedisi, nomor_tanda_terima, tanggal_tanda_terima, diterima_oleh, catatan_kirim, timestamp tiap tahap, created_by FK.
+
+**`item_usulan_pensiun`** (`PensionItem`): snapshot pegawai (nama, NIP, nomor pegawai, golongan, jabatan, unit kerja, tanggal lahir), tanggal_pensiun, usia_bup, masa_kerja, jenis_pensiun, status item, verified_at. **`dokumen_usulan_pensiun`**: doc_type termasuk `DPCP|SK_CPNS|SK_PNS|SK_PANGKAT_TERAKHIR|...|LAINNYA`, file metadata + stored_path. **`aksi_usulan_pensiun`**: audit trail append-only per transisi.
+
+Alur: `DRAFT → VERIFIED → PARAF → APPROVED → REGISTERED → EXPEDITED → SENT → COMPLETED → ARCHIVED` (+REVISION/REJECTED). `register` membuat/memilih surat keluar, mencatat Buku Agenda Surat Keluar, dan memanggil `ensureOutgoingExpedition` (baris `BELUM_DIKIRIM`). `expedite` memanggil `markOutgoingExpeditionSent` (`DIKIRIM`), `send` memanggil `markOutgoingExpeditionReceived` (`DITERIMA`). Kolom ekspedisi lama di `usulan_pensiun` hanya fallback data historis; sumber kebenaran adalah `ekspedisi_surat_keluar`. Halaman `/pensiun/ekspedisi` adalah tampilan terfilter dari tabel bersama tersebut.
 
 ## 4. Workflow & State Machine
 

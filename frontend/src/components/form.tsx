@@ -117,7 +117,10 @@ export function FileButton({
 }) {
   const [info, setInfo] = useState<string | null>(null);
   return (
-    <div>
+    // `relative` mengurung input `sr-only` (position: absolute) di dalam tombol.
+    // Tanpa ini input bisa memperpanjang area gulir shell dan membuat seluruh
+    // halaman "melompat" saat input menerima fokus setelah memilih berkas.
+    <div className="relative">
       <label className="flex min-h-10 cursor-pointer items-center gap-2.5 rounded-lg border border-dashed border-line bg-paper px-3 py-2 transition hover:border-brand-700">
         <span className="shrink-0 rounded-md bg-brand-900 px-3 py-1.5 text-xs font-semibold text-white">
           Pilih file

@@ -22,11 +22,11 @@ export interface PensionTransition {
 
 export const TRANSITIONS: Record<string, PensionTransition> = {
   verify:   { from: ['DRAFT', 'REVISION'], to: 'VERIFIED', permission: 'pension.verify', holderAfter: 'LEADER' },
-  revise:   { from: ['VERIFIED', 'PARAF'], to: 'REVISION', permission: 'pension.revise', holderAfter: 'KASUBAG' },
+  revise:   { from: ['VERIFIED', 'PARAF'], to: 'REVISION', permission: 'pension.revise', holderAfter: 'VERIFIER' },
   paraf:    { from: ['VERIFIED'], to: 'PARAF', permission: 'pension.paraf', holderAfter: 'LEADER' },
-  approve:  { from: ['PARAF'], to: 'APPROVED', permission: 'pension.approve', holderAfter: 'KASUBAG' },
+  approve:  { from: ['PARAF'], to: 'APPROVED', permission: 'pension.approve', holderAfter: 'VERIFIER' },
   reject:   { from: ['VERIFIED', 'PARAF'], to: 'REJECTED', permission: 'pension.reject', holderAfter: 'DONE' },
-  register: { from: ['APPROVED'], to: 'REGISTERED', permission: 'pension.register', holderAfter: 'KASUBAG' },
+  register: { from: ['APPROVED'], to: 'REGISTERED', permission: 'pension.register', holderAfter: 'VERIFIER' },
   expedite: { from: ['REGISTERED'], to: 'EXPEDITED', permission: 'pension.expedite', holderAfter: 'VERIFIER' },
   send:     { from: ['EXPEDITED'], to: 'SENT', permission: 'pension.send', holderAfter: 'DONE' },
   complete: { from: ['SENT'], to: 'COMPLETED', permission: 'pension.send', holderAfter: 'DONE' },
@@ -73,9 +73,9 @@ export const PENSION_STATUS_LABELS: Record<string, string> = {
   VERIFIED: 'Berkas terverifikasi',
   PARAF: 'Sudah diparaf Sekcam',
   APPROVED: 'Disetujui/ditandatangani Camat',
-  REGISTERED: 'Tercatat di buku agenda',
-  EXPEDITED: 'Tercatat di buku ekspedisi',
-  SENT: 'Dikirim ke BKPSDMD',
+  REGISTERED: 'Tercatat di Buku Agenda Surat Keluar',
+  EXPEDITED: 'Tercatat di Buku Ekspedisi Surat Keluar',
+  SENT: 'Bukti terima BKPSDMD sudah diterima',
   COMPLETED: 'Selesai',
   ARCHIVED: 'Diarsipkan',
   REVISION: 'Perlu revisi berkas',
@@ -88,29 +88,24 @@ export const PENSION_ACTION_LABELS: Record<string, string> = {
   paraf: 'diparaf',
   approve: 'disetujui/ditandatangani',
   reject: 'ditolak',
-  register: 'dicatat di buku agenda',
-  expedite: 'dicatat di buku ekspedisi',
-  send: 'dikirim ke BKPSDMD',
+  register: 'dicatat di Buku Agenda Surat Keluar',
+  expedite: 'dicatat di Buku Ekspedisi Surat Keluar',
+  send: 'bukti terima BKPSDMD diterima',
   complete: 'diselesaikan',
   archive: 'diarsipkan',
 };
 
 // Daftar dokumen yang ditampilkan sebagai checklist pada langkah 3.
+// Untuk demo, cukup empat berkas inti. Dokumen lama (SK CPNS, KTP, KK, NPWP,
+// rekening, pas foto, SKP, surat sehat, surat pernyataan) tetap disimpan di
+// database bila sudah ada, tetapi tidak lagi diminta atau ditampilkan.
 // Verifikasi tetap merupakan keputusan petugas (human-in-the-loop) melalui
 // checkbox "dokumen lengkap"; sistem tidak memaksa semua jenis dokumen ada.
 export const PENSION_REQUIRED_DOCS = [
-  { code: 'SK_CPNS', label: 'SK CPNS' },
+  { code: 'DPCP', label: 'Data Perorangan Calon Penerima Pensiun (DPCP)' },
   { code: 'SK_PNS', label: 'SK PNS' },
   { code: 'SK_PANGKAT_TERAKHIR', label: 'SK Pangkat Terakhir' },
   { code: 'SK_JABATAN_TERAKHIR', label: 'SK Jabatan Terakhir' },
-  { code: 'KTP', label: 'KTP' },
-  { code: 'KK', label: 'Kartu Keluarga' },
-  { code: 'NPWP', label: 'NPWP' },
-  { code: 'REKENING_GAJI', label: 'Rekening Gaji' },
-  { code: 'PAS_FOTO', label: 'Pas Foto' },
-  { code: 'SKP_2_TAHUN', label: 'SKP 2 Tahun Terakhir' },
-  { code: 'SURAT_KETERANGAN_SEHAT', label: 'Surat Keterangan Sehat' },
-  { code: 'SURAT_PERNYATAAN', label: 'Surat Pernyataan Tidak Bermasalah' },
 ] as const;
 
 export const PENSION_REQUIRED_DOC_CODES = PENSION_REQUIRED_DOCS.map((d) => d.code);

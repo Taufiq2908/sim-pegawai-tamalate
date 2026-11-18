@@ -23,13 +23,20 @@ const ACTION_LABEL: Record<string, string> = {
   return: "Kembalikan dengan catatan",
   approve: "Setujui",
   reject: "Tolak",
-  register: "Register",
-  tobkpsdm: "Teruskan ke BKPSDM",
-  complete: "Selesai",
-  archive: "Arsip",
+  register: "Register & catat ke Buku Agenda Surat Keluar",
+  tobkpsdm: "Catat Ekspedisi & Serahkan ke Caraka",
+  complete: "Bukti terima BKD sudah diterima",
+  archive: "Arsipkan",
 };
 
-const NOTE_REQUIRED = ["revise", "return", "reject", "register"];
+const NOTE_REQUIRED = ["revise", "return", "reject"];
+
+const EXPEDITION_LABEL: Record<string, string> = {
+  BELUM_DICATAT: "Belum dicatat",
+  BELUM_DIKIRIM: "Belum diserahkan ke caraka",
+  DIKIRIM: "Sudah diserahkan, menunggu bukti terima",
+  DITERIMA: "Sudah diterima BKD",
+};
 
 const KGB_REQUIRED_DOCS = ["SK_CPNS_TERAKHIR", "SK_PANGKAT_TERAKHIR", "SKP_2_TAHUN"];
 
@@ -57,6 +64,8 @@ export default function KgbDetailPage() {
   const [note, setNote] = useState("");
   const [docType, setDocType] = useState("SK_CPNS_TERAKHIR");
   const [file, setFile] = useState<File | null>(null);
+  const [receiptNumber, setReceiptNumber] = useState("");
+  const [receivedByName, setReceivedByName] = useState("BKD Kota Makassar");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,21 +98,26 @@ export default function KgbDetailPage() {
       }
     }
     if (NOTE_REQUIRED.includes(action) && !note.trim()) {
-      toast.error(
-        action === "register"
-          ? "Nomor surat keluar wajib diisi untuk Register."
-          : "Catatan wajib diisi untuk aksi ini.",
-      );
+      toast.error("Catatan wajib diisi untuk aksi ini.");
       return;
     }
     setActing(action);
     try {
       const { data } = await apiFetch<KgbDetail>(`/kgb-requests/${id}/${action}`, {
         method: "POST",
-        body: JSON.stringify({ note: note.trim() || undefined }),
+        body: JSON.stringify({
+          note: note.trim() || undefined,
+          ...(action === "complete"
+            ? {
+                receivedByName: receivedByName.trim() || "BKD Kota Makassar",
+                receiptNumber: receiptNumber.trim() || undefined,
+              }
+            : {}),
+        }),
       });
       setDetail(data);
       setNote("");
+      setReceiptNumber("");
     } catch (err) {
       toast.error(actionErrorMessage(err, "Aksi gagal"));
     } finally {
@@ -245,12 +259,6 @@ export default function KgbDetailPage() {
                   <dt className="text-muted">Versi dokumen</dt>
                   <dd className="font-medium tabular-nums">{detail.documentVersion ?? 1}</dd>
                 </div>
-                <div className="sm:col-span-2">
-                  <dt className="text-muted">Hash dokumen saat ini (SHA-256)</dt>
-                  <dd className="break-all font-mono text-xs text-secondary">
-                    {detail.currentDocumentHash ?? "—"}
-                  </dd>
-                </div>
               </dl>
             </div>
 
@@ -259,7 +267,7 @@ export default function KgbDetailPage() {
                 <p className="text-sm font-semibold text-ok-700">Disetujui Camat</p>
                 <p className="mt-0.5 text-sm text-secondary">
                   {detail.approvedAt
-                    ? new Date(detail.approvedAt).toLocaleString("id-ID")
+                    ? new Date(detail.approvedAt).toLocaleString("id-ID", { hour12: false })
                     : "Waktu persetujuan tidak tercatat"}
                   {approvedByName ? ` • ${approvedByName}` : ""}
                   {approvedByPosition ? ` (${approvedByPosition})` : ""}
@@ -318,19 +326,52 @@ export default function KgbDetailPage() {
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     placeholder={
-                      visibleActions.includes("register")
-                        ? "Nomor surat keluar (wajib untuk Register), mis. 800/001/KT/XI/2026"
-                        : NOTE_REQUIRED.some((a) => visibleActions.includes(a))
-                          ? "Catatan (wajib untuk revisi/kembalikan/tolak)"
-                          : "Catatan (opsional)"
+                      NOTE_REQUIRED.some((a) => visibleActions.includes(a))
+                        ? "Catatan (wajib untuk revisi/kembalikan/tolak)"
+                        : visibleActions.includes("register")
+                          ? "Catatan register (opsional). Nomor surat keluar dibuat otomatis."
+                          : visibleActions.includes("tobkpsdm")
+                            ? "Catatan ekspedisi (opsional), mis. nama caraka."
+                            : visibleActions.includes("complete")
+                              ? "Catatan bukti terima (opsional)."
+                              : "Catatan (opsional)"
                     }
                     rows={2}
                     className="mt-3 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700"
                   />
                   {visibleActions.includes("register") ? (
                     <p className="mt-1 text-xs text-muted">
-                      Register mencatat nomor surat keluar. Buat nomornya di modul Surat Keluar lebih dulu bila belum ada.
+                      Register membuat nomor surat keluar otomatis, mencatatnya di Buku Agenda
+                      Surat Keluar, dan menyiapkan baris Buku Ekspedisi Surat Keluar.
                     </p>
+                  ) : null}
+                  {visibleActions.includes("tobkpsdm") ? (
+                    <p className="mt-1 text-xs text-muted">
+                      Aksi ini mencatat penyerahan surat ke caraka/pengekspedisi. Setelah surat
+                      diserahkan ke BKD, gunakan aksi bukti terima.
+                    </p>
+                  ) : null}
+                  {visibleActions.includes("complete") ? (
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      <label className="text-xs font-medium text-muted">
+                        Nama penerima bukti
+                        <input
+                          value={receivedByName}
+                          onChange={(e) => setReceivedByName(e.target.value)}
+                          placeholder="BKD Kota Makassar"
+                          className="mt-1 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm font-normal text-ink outline-none focus:border-brand-700"
+                        />
+                      </label>
+                      <label className="text-xs font-medium text-muted">
+                        Nomor tanda terima (opsional)
+                        <input
+                          value={receiptNumber}
+                          onChange={(e) => setReceiptNumber(e.target.value)}
+                          placeholder="mis. 123/BKD/XI/2026"
+                          className="mt-1 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm font-normal text-ink outline-none focus:border-brand-700"
+                        />
+                      </label>
+                    </div>
                   ) : null}
                 </>
               ) : (
@@ -340,12 +381,93 @@ export default function KgbDetailPage() {
 
             {["APPROVED", "REGISTERED", "SUBMITTED_BKPSDMD", "COMPLETED", "ARCHIVED"].includes(detail.status) ? (
               <div className="rounded-lg border border-line bg-surface p-5">
-                <h2 className="font-semibold">Surat pengantar ke BKPSDM</h2>
+                <h2 className="font-semibold">Surat pengantar &amp; ekspedisi</h2>
                 <p className="mt-1 text-sm text-muted">
-                  Cetak surat pengantar usulan KGB, lalu catat nomor surat keluar dan ekspedisinya
-                  lewat modul Surat Keluar. Status KGB diperbarui terpisah dengan aksi di atas.
+                  Register membuat surat keluar resmi di Buku Agenda Surat Keluar. Setelah surat
+                  diserahkan ke caraka, catat ekspedisinya; setelah bukti terima BKD diterima,
+                  tandai bukti terima pada aksi di atas.
                 </p>
-                <div className="mt-2 flex flex-wrap gap-2">
+                <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted">Nomor surat keluar</p>
+                    {detail.outgoingLetter ? (
+                      <Link
+                        href={`/surat-keluar/${detail.outgoingLetter.id}`}
+                        className="mt-0.5 inline-block font-semibold text-brand-800 hover:underline"
+                      >
+                        {detail.outgoingLetter.letterNumber}
+                      </Link>
+                    ) : (
+                      <p className="mt-0.5 text-muted">Belum dibuat — gunakan aksi Register.</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted">Status ekspedisi</p>
+                    <p className="mt-0.5 font-medium">
+                      {EXPEDITION_LABEL[detail.expeditionStatus ?? "BELUM_DICATAT"] ?? detail.expeditionStatus}
+                    </p>
+                  </div>
+                  {detail.outgoingLetter?.outgoingExpedition?.regNumber ? (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted">No. registrasi ekspedisi</p>
+                      <p className="mt-0.5 font-medium">{detail.outgoingLetter.outgoingExpedition.regNumber}</p>
+                    </div>
+                  ) : null}
+                  {detail.outgoingLetter?.outgoingExpedition?.sentDate ? (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted">Tanggal diserahkan</p>
+                      <p className="mt-0.5 font-medium">{detail.outgoingLetter.outgoingExpedition.sentDate}</p>
+                    </div>
+                  ) : null}
+                  {detail.outgoingLetter?.outgoingExpedition?.receivedDate ? (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted">Diterima BKD</p>
+                      <p className="mt-0.5 font-medium">
+                        {detail.outgoingLetter.outgoingExpedition.receivedDate}
+                        {detail.outgoingLetter.outgoingExpedition.receivedByName
+                          ? ` • ${detail.outgoingLetter.outgoingExpedition.receivedByName}`
+                          : ""}
+                      </p>
+                    </div>
+                  ) : null}
+                  {detail.outgoingLetter?.outgoingExpedition?.receiptNumber ? (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted">Nomor tanda terima</p>
+                      <p className="mt-0.5 font-medium">{detail.outgoingLetter.outgoingExpedition.receiptNumber}</p>
+                    </div>
+                  ) : null}
+                  {detail.outgoingLetter?.archiveRecord ? (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted">Nomor arsip</p>
+                      <Link
+                        href={`/arsip/${detail.outgoingLetter.archiveRecord.id}`}
+                        className="mt-0.5 inline-block font-semibold text-brand-800 hover:underline"
+                      >
+                        {detail.outgoingLetter.archiveRecord.archiveNumber}
+                      </Link>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {detail.outgoingLetter.archiveRecord.listId
+                          ? "Sudah masuk Daftar Arsip"
+                          : "Belum masuk Daftar Arsip"}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+                {detail.outgoingLetter && !detail.outgoingLetter.archiveRecord && ["COMPLETED", "ARCHIVED"].includes(detail.status) ? (
+                  <p className="mt-3 rounded-lg border border-warn-700/25 bg-warn-100 px-3 py-2 text-xs text-ink">
+                    Surat pengantar menunggu persetujuan arsip Sekcam/Camat.
+                    {hasPermission("archive.view") ? (
+                      <>
+                        {" "}
+                        <Link href="/arsip?tab=antrean" className="font-semibold text-brand-800 hover:underline">
+                          Buka antrean arsip
+                        </Link>
+                        .
+                      </>
+                    ) : null}
+                  </p>
+                ) : null}
+                <div className="mt-3 flex flex-wrap gap-2">
                   <a
                     href={`/kgb/${detail.id}/surat`}
                     target="_blank"
@@ -354,21 +476,29 @@ export default function KgbDetailPage() {
                   >
                     Buka surat pengantar (cetak)
                   </a>
-                  {hasPermission("outgoing.create") ? (
-                    <a
-                      href={`/surat-keluar/baru?${new URLSearchParams({
-                        subject: `Usulan Kenaikan Gaji Berkala a.n. ${detail.employee?.name ?? ""}`,
-                        recipient: "Kepala Badan Kepegawaian dan Pengembangan SDM Daerah Kota Makassar",
-                        signerName: detail.camat?.name ?? "",
-                      }).toString()}`}
-                      className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-800"
+                  <Link
+                    href="/surat-keluar/agenda"
+                    className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:bg-paper"
+                  >
+                    Buku Agenda Surat Keluar
+                  </Link>
+                  <Link
+                    href="/surat-keluar/ekspedisi"
+                    className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:bg-paper"
+                  >
+                    Buku Ekspedisi Surat Keluar
+                  </Link>
+                  {detail.outgoingLetter?.archiveRecord ? (
+                    <Link
+                      href="/arsip"
+                      className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:bg-paper"
                     >
-                      Catat surat keluar
-                    </a>
+                      Buku Arsip
+                    </Link>
                   ) : null}
                 </div>
                 <p className="mt-2 text-xs text-muted">
-                  Penandatangan: {detail.camat?.name ?? "................"}
+                  Penandatangan: {detail.outgoingLetter?.signerName ?? detail.camat?.name ?? "................"}
                   {detail.camat?.nip ? ` • NIP ${detail.camat.nip}` : ""}
                 </p>
               </div>
@@ -381,14 +511,6 @@ export default function KgbDetailPage() {
                   <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-paper px-3 py-2">
                     <span className="font-semibold">{d.originalName}</span>
                     <span className="text-xs text-muted">({DOC_LABEL[d.docType] ?? d.docType})</span>
-                    {d.contentHash ? (
-                      <span
-                        className="basis-full break-all font-mono text-[11px] text-muted"
-                        title={d.contentHash}
-                      >
-                        SHA-256: {d.contentHash}
-                      </span>
-                    ) : null}
                     <a
                       href={fileUrl(d.downloadUrl)}
                       target="_blank"
@@ -446,7 +568,7 @@ export default function KgbDetailPage() {
                   title: `${t.action} — ${t.fromStatus} → ${t.toStatus}`,
                   subtitle: [t.actorName ?? t.actor, t.actorNip ? `NIP ${t.actorNip}` : null, t.actorPosition ?? null].filter(Boolean).join(" • "),
                   note: t.note,
-                  time: new Date(t.createdAt).toLocaleString("id-ID"),
+                  time: new Date(t.createdAt).toLocaleString("id-ID", { hour12: false }),
                   state:
                     i < arr.length - 1 || ["COMPLETED", "REJECTED", "ARCHIVED"].includes(detail.status)
                       ? "done"

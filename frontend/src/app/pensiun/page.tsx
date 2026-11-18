@@ -8,6 +8,13 @@ import { apiFetch } from "@/lib/api";
 import type { PensionBatch, PensionStatus } from "@/lib/types";
 import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
+const EXPEDITION_LABEL: Record<string, string> = {
+  BELUM_DICATAT: "Belum dicatat",
+  BELUM_DIKIRIM: "Belum diserahkan",
+  DIKIRIM: "Sudah diserahkan",
+  DITERIMA: "Diterima tujuan",
+};
+
 export default function PensiunPage() {
   const { hasPermission } = useAuth();
   const [items, setItems] = useState<PensionBatch[]>([]);
@@ -156,10 +163,17 @@ const pageCount = Math.max(1, Math.ceil((meta?.total ?? 0) / (meta?.limit ?? 10)
                     <td className="px-3 py-2 font-medium">{b.batchNumber}</td>
                     <td className="px-3 py-2">{periodLabel(b.periodYear, b.periodMonth)}</td>
                     <td className="px-3 py-2 font-medium">{b.items?.length ?? 0}</td>
-                    <td className="px-3 py-2"><StatusBadge status={b.status} /></td>
+                    <td className="px-3 py-2"><StatusBadge status={b.status} label={b.statusLabel} /></td>
                     <td className="px-3 py-2">{b.outgoingLetterNumber ?? "-"}</td>
                     <td className="px-3 py-2">{b.agendaNumber ?? "-"}</td>
-                    <td className="px-3 py-2">{b.expeditionNumber ?? "-"}</td>
+                    <td className="px-3 py-2">
+                      {b.expeditionNumber ?? "-"}
+                      {b.expeditionStatus ? (
+                        <p className="text-[11px] text-muted">
+                          {EXPEDITION_LABEL[b.expeditionStatus] ?? b.expeditionStatus}
+                        </p>
+                      ) : null}
+                    </td>
                     <td className="px-3 py-2">{b.receiptNumber ?? "-"}</td>
                     <td className="px-3 py-2">
                       <Link

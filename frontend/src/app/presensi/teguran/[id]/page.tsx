@@ -18,6 +18,7 @@ export default function TeguranDetailPage() {
   const isEmployee = user?.role === "EMPLOYEE";
   const isSekcam = user?.role === "SUPER_ADMIN" || user?.position === "SEKCAM";
   const isCamat = user?.role === "SUPER_ADMIN" || user?.position === "CAMAT";
+  const isKasi = user?.role === "SUPER_ADMIN" || user?.position === "KASI";
   const [item, setItem] = useState<WarningLetterDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -28,6 +29,7 @@ export default function TeguranDetailPage() {
   const [followUp, setFollowUp] = useState<"NONE" | "BKPSDM">("NONE");
   const [forwardNote, setForwardNote] = useState("");
   const [instruction, setInstruction] = useState("");
+  const [decisionNote, setDecisionNote] = useState("");
   const [acting, setActing] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -83,21 +85,31 @@ export default function TeguranDetailPage() {
     }
   }
 
-  async function instruct() {
-    if (instruction.trim().length < 5) {
-      toast.error("Instruksi wajib diisi (min 5 karakter).");
+  async function decide(kind: "FOLLOW_UP" | "NO_FOLLOW_UP") {
+    if (kind === "FOLLOW_UP" && instruction.trim().length > 0 && instruction.trim().length < 5) {
+      toast.error("Instruksi tindak lanjut minimal 5 karakter atau kosongkan.");
       return;
     }
-    setActing("instruct");
+    setActing(kind);
     try {
-      await apiFetch<WarningLetterDetail>(`/attendances/warning-letters/${id}/instruct`, {
+      await apiFetch<WarningLetterDetail>(`/attendances/warning-letters/${id}/decide`, {
         method: "POST",
-        body: JSON.stringify({ instruction: instruction.trim() }),
+        body: JSON.stringify({
+          decision: kind,
+          note: decisionNote.trim() || undefined,
+          instruction: instruction.trim() || undefined,
+        }),
       });
-      toast.success("Instruksi Camat dicatat.");
+      toast.success(
+        kind === "FOLLOW_UP"
+          ? "Keputusan dicatat: surat teguran diterbitkan."
+          : "Keputusan dicatat: diselesaikan melalui pembinaan Kasi.",
+      );
+      setInstruction("");
+      setDecisionNote("");
       await load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal mencatat");
+      toast.error(err instanceof Error ? err.message : "Gagal mencatat keputusan");
     } finally {
       setActing(null);
     }
@@ -157,20 +169,27 @@ export default function TeguranDetailPage() {
 
             {!isEmployee ? (
             <div className="rounded-lg border border-line bg-surface p-5">
-              <h2 className="font-semibold">Eskalasi</h2>
+              <h2 className="font-semibold">Alur laporan & keputusan</h2>
+              <p className="mt-1 text-sm text-muted">
+                Dibuat {new Date(item.createdAt).toLocaleString("id-ID", { hour12: false })}
+              </p>
               {item.forwardAt ? (
                 <p className="mt-1 text-sm text-muted">
-                  Diteruskan ke Camat{item.forwardNote ? `: ${item.forwardNote}` : ""}
-                  {item.forwardAt ? ` • ${new Date(item.forwardAt).toLocaleString("id-ID")}` : ""}
+                  Diteruskan Sekcam ke Camat{item.forwardNote ? `: ${item.forwardNote}` : ""} •{" "}
+                  {new Date(item.forwardAt).toLocaleString("id-ID", { hour12: false })}
                 </p>
               ) : (
                 <p className="mt-1 text-sm text-muted">Belum diteruskan ke Camat.</p>
               )}
-              {item.instruction ? (
-                <p className="mt-1 text-sm">
-                  <b>Instruksi Camat:</b> {item.instruction}
-                  {item.instructedAt ? <span className="text-muted"> • {new Date(item.instructedAt).toLocaleString("id-ID")}</span> : null}
-                </p>
+              {item.decision !== "PENDING" ? (
+                <div className={`mt-3 rounded-lg border p-3 text-sm ${item.decision === "FOLLOW_UP" ? "border-warn-300 bg-warn-50 text-warn-800" : "border-info-200 bg-info-50 text-info-700"}`}>
+                  <p className="font-semibold">
+                    Keputusan Camat: {item.decision === "FOLLOW_UP" ? "Tindak lanjut dengan surat teguran" : "Tidak ada surat teguran — pembinaan Kasi"}
+                  </p>
+                  {item.decisionNote ? <p className="mt-1 whitespace-pre-wrap">{item.decisionNote}</p> : null}
+                  {item.instruction ? <p className="mt-1"><b>Instruksi:</b> {item.instruction}</p> : null}
+                  {item.decidedAt ? <p className="mt-1 text-xs opacity-80">{new Date(item.decidedAt).toLocaleString("id-ID", { hour12: false })}</p> : null}
+                </div>
               ) : null}
               {canForward ? (
                 <div className="mt-3 space-y-2 border-t border-line pt-3">
@@ -181,19 +200,29 @@ export default function TeguranDetailPage() {
                         {acting === "forward" ? "…" : "Teruskan ke Camat"}
                       </button>
                     </div>
-                  ) : item.forwardAt && !item.instruction && isCamat ? (
-                    <div className="flex flex-wrap gap-2">
-                      <input value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Instruksi tindak lanjut (min 5 karakter)*" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                      <button disabled={acting !== null} onClick={() => void instruct()} className="rounded-lg bg-ok-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
-                        {acting === "instruct" ? "…" : "Tindak lanjuti"}
-                      </button>
+                  ) : item.forwardAt && item.decision === "PENDING" && isCamat ? (
+                    <div className="space-y-3 rounded-lg border border-line bg-paper p-3">
+                      <div>
+                        <p className="text-sm font-semibold">Keputusan Camat</p>
+                        <p className="text-xs text-muted">Pilih apakah laporan ditindaklanjuti dengan surat teguran atau diselesaikan melalui pembinaan Kasi.</p>
+                      </div>
+                      <input value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Instruksi tindak lanjut (opsional, min 5 karakter)" className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      <input value={decisionNote} onChange={(e) => setDecisionNote(e.target.value)} placeholder="Catatan keputusan (opsional)" className="w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700" />
+                      <div className="flex flex-wrap gap-2">
+                        <button disabled={acting !== null} onClick={() => void decide("FOLLOW_UP")} className="rounded-lg bg-warn-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                          {acting === "FOLLOW_UP" ? "…" : "Tindak lanjut — terbitkan surat teguran"}
+                        </button>
+                        <button disabled={acting !== null} onClick={() => void decide("NO_FOLLOW_UP")} className="rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                          {acting === "NO_FOLLOW_UP" ? "…" : "Tidak tindak lanjut — pembinaan Kasi"}
+                        </button>
+                      </div>
                     </div>
                   ) : !item.forwardAt && isCamat ? (
                     <p className="text-sm text-muted">Menunggu laporan diteruskan oleh Sekcam.</p>
-                  ) : item.forwardAt && !item.instruction ? (
-                    <p className="text-sm text-muted">Sudah diteruskan ke Camat; menunggu instruksi tindak lanjut.</p>
+                  ) : item.forwardAt && item.decision === "PENDING" ? (
+                    <p className="text-sm text-muted">Sudah diteruskan ke Camat; menunggu keputusan tindak lanjut.</p>
                   ) : (
-                    <p className="text-sm text-muted">Instruksi sudah dicatat.</p>
+                    <p className="text-sm text-muted">Keputusan Camat sudah dicatat.</p>
                   )}
                 </div>
               ) : null}
@@ -202,9 +231,13 @@ export default function TeguranDetailPage() {
 
             <div className="rounded-lg border border-line bg-surface p-5">
               <h2 className="font-semibold">Pembinaan</h2>
-              {item.summonScheduledAt ? (
+              {item.decision === "NO_FOLLOW_UP" ? (
+                <p className="mt-1 rounded-lg border border-info-200 bg-info-50 px-3 py-2 text-sm text-info-700">
+                  Camat memutuskan tidak menerbitkan surat teguran. Laporan diselesaikan melalui pembinaan Kasi.
+                </p>
+              ) : item.summonScheduledAt ? (
                 <p className="mt-1 text-sm text-muted">
-                  Dipanggil: <b>{new Date(item.summonScheduledAt).toLocaleString("id-ID")}</b>
+                  Dipanggil: <b>{new Date(item.summonScheduledAt).toLocaleString("id-ID", { hour12: false })}</b>
                   {item.summonNote ? ` — ${item.summonNote}` : ""}
                 </p>
               ) : (
@@ -214,19 +247,19 @@ export default function TeguranDetailPage() {
                 <p className="mt-1 text-sm text-muted">
                   Hasil: <b>{item.coachingResult}</b>{" "}
                   ({item.coachingFollowUp === "BKPSDM" ? "diteruskan ke BKPSDM" : "selesai internal"}
-                  {item.coachedAt ? ` • ${new Date(item.coachedAt).toLocaleString("id-ID")}` : ""})
+                  {item.coachedAt ? ` • ${new Date(item.coachedAt).toLocaleString("id-ID", { hour12: false })}` : ""})
                 </p>
               ) : null}
 
-              {canManage && !isEmployee ? (
+              {(canManage || isKasi) && !isEmployee ? (
                 <div className="mt-3 space-y-3 border-t pt-3">
-                  {!item.forwardAt || !item.instruction ? (
+                  {item.decision === "PENDING" ? (
                     <p className="rounded-lg border border-warn-700/30 bg-warn-100 px-3 py-2 text-sm text-secondary">
                       {!item.forwardAt
-                        ? "Laporan pegawai bermasalah sudah masuk ke notifikasi Sekcam. Pembinaan baru dapat dijadwalkan setelah Sekcam meneruskan laporan ke Camat."
-                        : "Menunggu instruksi Camat. Pembinaan baru dapat dijadwalkan setelah Camat memberi arahan tindak lanjut."}
+                        ? "Laporan sudah masuk ke Sekcam. Pembinaan baru dapat dijadwalkan setelah Sekcam meneruskan laporan ke Camat dan Camat memutuskan tindak lanjut."
+                        : "Menunggu keputusan Camat. Pembinaan baru dapat dijadwalkan setelah keputusan dicatat."}
                     </p>
-                  ) : !item.summonScheduledAt ? (
+                  ) : item.decision === "FOLLOW_UP" && !item.summonScheduledAt ? (
                     <div className="flex flex-wrap gap-2">
                       <input type="datetime-local" value={schedAt} onChange={(e) => setSchedAt(e.target.value)} className="rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
                       <input value={summonNote} onChange={(e) => setSummonNote(e.target.value)} placeholder="Catatan panggilan (opsional)" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
@@ -237,12 +270,16 @@ export default function TeguranDetailPage() {
                   ) : !item.coachingResult ? (
                     <div className="flex flex-wrap gap-2">
                       <input value={result} onChange={(e) => setResult(e.target.value)} placeholder="Hasil pembinaan (min 5 karakter)*" className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
-                      <select value={followUp} onChange={(e) => setFollowUp(e.target.value as "NONE" | "BKPSDM")} className="rounded-lg border border-line px-3 py-2 text-sm">
-                        <option value="NONE">Selesai internal</option>
-                        <option value="BKPSDM">Teruskan ke BKPSDM</option>
-                      </select>
+                      {canManage ? (
+                        <select value={followUp} onChange={(e) => setFollowUp(e.target.value as "NONE" | "BKPSDM")} className="rounded-lg border border-line px-3 py-2 text-sm">
+                          <option value="NONE">Selesai internal</option>
+                          <option value="BKPSDM">Teruskan ke BKPSDM</option>
+                        </select>
+                      ) : (
+                        <span className="self-center rounded-lg bg-paper px-3 py-2 text-sm text-muted">Selesai melalui pembinaan Kasi</span>
+                      )}
                       <button disabled={acting !== null} onClick={() => void coaching()} className="rounded-lg bg-ok-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
-                        {acting === "coaching" ? "…" : "Catat hasil"}
+                        {acting === "coaching" ? "…" : "Catat hasil pembinaan"}
                       </button>
                     </div>
                   ) : (

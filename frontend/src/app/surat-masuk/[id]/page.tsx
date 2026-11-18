@@ -22,6 +22,7 @@ import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 
 const STATUS_RANK: Record<string, number> = {
   DRAFT_TU: 1,
+  REVISI_TU: 2,
   REVIEW_SEKCAM: 2,
   DISPOSISI_CAMAT: 3,
   DITERUSKAN: 4,
@@ -40,6 +41,7 @@ function fmtDateTime(value?: string | null) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
 }
 
@@ -86,6 +88,9 @@ export default function SuratMasukDetailPage() {
   const [file, setFile] = useState<File | null>(null);
   const [forwardNote, setForwardNote] = useState("");
   const [archiveNote, setArchiveNote] = useState("");
+  const [physicalLocation, setPhysicalLocation] = useState("");
+  const [revisionNote, setRevisionNote] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
   const [followNotes, setFollowNotes] = useState<Record<string, string>>({});
 
   const [targets, setTargets] = useState<DispositionTarget[]>([]);
@@ -130,7 +135,11 @@ export default function SuratMasukDetailPage() {
   const canSubmit = available.includes("submit");
   const canForward = available.includes("forward") && isSekcamUser;
   const canUpload = available.includes("upload");
-  const canArchive = available.includes("archive") && archiveApprover;
+  const canEdit = available.includes("edit");
+  const canCancel = available.includes("cancel");
+  const canRevise = available.includes("revise") && isSekcamUser;
+  const canArchive = available.includes("archive")
+    && (archiveApprover || hasPermission("letter.archive"));
 
   useEffect(() => {
     if (!canDispose) return;
@@ -179,7 +188,7 @@ export default function SuratMasukDetailPage() {
         { stage: 4, label: "Disposisi Camat", description: "Camat menentukan target dan instruksi disposisi.", at: detail.distributedAt },
         { stage: 5, label: "Diterima penerima", description: "Penerima disposisi menekan Terima & Baca.", at: earliestAccepted },
         { stage: 6, label: "Tindak lanjut selesai", description: "Semua target menyelesaikan disposisi.", at: detail.completedAt },
-        { stage: 7, label: "Diarsipkan", description: "Sekcam/Camat menyetujui arsip.", at: detail.archiveRecord?.archiveDate },
+        { stage: 7, label: "Diarsipkan", description: "Staf arsip atau Sekcam/Camat menyelesaikan arsip.", at: detail.archiveRecord?.archiveDate },
       ]
     : [];
 
@@ -314,11 +323,48 @@ export default function SuratMasukDetailPage() {
     void run("archive", async () => {
       const { data } = await apiFetch<IncomingLetter>(`/letters/${id}/archive`, {
         method: "POST",
-        body: JSON.stringify({ notes: archiveNote.trim() || undefined }),
+        body: JSON.stringify({
+          notes: archiveNote.trim() || undefined,
+          physicalLocation: physicalLocation.trim() || undefined,
+        }),
       });
       setDetail(data);
       setArchiveNote("");
+      setPhysicalLocation("");
       toast.success("Surat diarsipkan.");
+    });
+  }
+
+  function requestRevision() {
+    if (revisionNote.trim().length < 5) {
+      toast.error("Catatan revisi minimal 5 karakter.");
+      return;
+    }
+    void run("revision", async () => {
+      const { data } = await apiFetch<IncomingLetter>(`/letters/${id}/revision`, {
+        method: "POST",
+        body: JSON.stringify({ note: revisionNote.trim() }),
+      });
+      setDetail(data);
+      setRevisionNote("");
+      toast.success("Surat dikembalikan ke TU untuk direvisi.");
+    });
+  }
+
+  function cancelLetter() {
+    if (cancelReason.trim().length < 3) {
+      toast.error("Alasan pembatalan minimal 3 karakter.");
+      return;
+    }
+    if (!window.confirm("Batalkan surat ini? Tindakan ini tidak dapat diurungkan.")) return;
+    void run("cancel", async () => {
+      const { data } = await apiFetch<IncomingLetter>(`/letters/${id}/cancel`, {
+        method: "POST",
+        body: JSON.stringify({ reason: cancelReason.trim() }),
+      });
+      setDetail(data);
+      setCancelReason("");
+      toast.success("Surat dibatalkan.");
     });
   }
 
@@ -341,7 +387,15 @@ export default function SuratMasukDetailPage() {
         >
           ← Kembali
         </button>
-        {canRegister && detail && detail.status !== "DIARSIPKAN" ? (
+        {canEdit && detail ? (
+          <Link
+            href={`/surat-masuk/${detail.id}/edit`}
+            className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-paper"
+          >
+            Edit surat
+          </Link>
+        ) : null}
+        {canRegister && detail && !["DIARSIPKAN", "DIBATALKAN"].includes(detail.status) ? (
           <Link
             href={`/surat-masuk/${detail.id}/agenda`}
             className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm hover:bg-paper"
@@ -400,6 +454,20 @@ export default function SuratMasukDetailPage() {
                 <div className="mt-4 rounded-lg bg-paper p-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted">Ringkasan isi</p>
                   <p className="mt-1 whitespace-pre-wrap text-sm">{detail.summary}</p>
+                </div>
+              ) : null}
+              {detail.status === "DIBATALKAN" ? (
+                <div className="mt-4 rounded-lg border border-bad-200 bg-bad-50 p-3 text-sm text-bad-700">
+                  <p className="font-semibold">Surat dibatalkan</p>
+                  <p className="mt-1 whitespace-pre-wrap">{detail.cancelReason ?? "Tanpa alasan tercatat."}</p>
+                  {detail.cancelledAt ? <p className="mt-1 text-xs opacity-80">{fmtDateTime(detail.cancelledAt)}</p> : null}
+                </div>
+              ) : null}
+              {detail.status === "REVISI_TU" || (detail.revisionNote && detail.status !== "DIBATALKAN") ? (
+                <div className="mt-4 rounded-lg border border-warn-200 bg-warn-50 p-3 text-sm text-warn-700">
+                  <p className="font-semibold">Catatan revisi Sekcam</p>
+                  <p className="mt-1 whitespace-pre-wrap">{detail.revisionNote ?? "—"}</p>
+                  {detail.revisionRequestedAt ? <p className="mt-1 text-xs opacity-80">{fmtDateTime(detail.revisionRequestedAt)}</p> : null}
                 </div>
               ) : null}
             </section>
@@ -549,10 +617,34 @@ export default function SuratMasukDetailPage() {
                   </div>
                 ) : null}
 
+                {canRevise ? (
+                  <div className="mt-3 rounded-lg border border-warn-200 bg-warn-50 p-3">
+                    <p className="text-sm font-medium text-warn-700">Kembalikan untuk revisi</p>
+                    <p className="mt-0.5 text-xs text-warn-700/80">
+                      Staf TU akan menerima catatan ini dan dapat memperbaiki surat sebelum dikirim ulang.
+                    </p>
+                    <textarea
+                      value={revisionNote}
+                      onChange={(e) => setRevisionNote(e.target.value)}
+                      rows={2}
+                      placeholder="Catatan revisi (wajib, minimal 5 karakter)"
+                      className="mt-2 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
+                    />
+                    <button
+                      type="button"
+                      disabled={acting !== null}
+                      onClick={requestRevision}
+                      className="mt-2 rounded-lg border border-warn-300 bg-surface px-3.5 py-2 text-sm font-semibold text-warn-700 hover:bg-warn-100 disabled:opacity-50"
+                    >
+                      {acting === "revision" ? "Mengembalikan…" : "Kembalikan ke TU"}
+                    </button>
+                  </div>
+                ) : null}
+
                 {canUpload ? (
                   <div className="mt-3 rounded-lg border border-line p-3">
                     <p className="text-sm font-medium">Unggah dokumen</p>
-                    <p className="mt-0.5 text-xs text-muted">Hanya saat status Draft TU.</p>
+                    <p className="mt-0.5 text-xs text-muted">Hanya saat status Draft TU / Perlu Revisi TU.</p>
                     <div className="mt-2">
                       <FileButton hint="PDF/JPG/PNG, maksimal 10 MB." onSelect={setFile} />
                     </div>
@@ -584,6 +676,30 @@ export default function SuratMasukDetailPage() {
                       className="mt-2 rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
                     >
                       {acting === "forward" ? "Meneruskan…" : "Teruskan ke Camat"}
+                    </button>
+                  </div>
+                ) : null}
+
+                {canCancel ? (
+                  <div className="mt-3 rounded-lg border border-bad-200 bg-bad-50 p-3">
+                    <p className="text-sm font-medium text-bad-700">Batalkan surat</p>
+                    <p className="mt-0.5 text-xs text-bad-700/80">
+                      Untuk surat ganda atau batal diproses. Hanya sebelum disposisi Camat.
+                    </p>
+                    <textarea
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      rows={2}
+                      placeholder="Alasan pembatalan (wajib, minimal 3 karakter)"
+                      className="mt-2 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
+                    />
+                    <button
+                      type="button"
+                      disabled={acting !== null}
+                      onClick={cancelLetter}
+                      className="mt-2 rounded-lg border border-bad-300 bg-surface px-3.5 py-2 text-sm font-semibold text-bad-700 hover:bg-bad-100 disabled:opacity-50"
+                    >
+                      {acting === "cancel" ? "Membatalkan…" : "Batalkan surat"}
                     </button>
                   </div>
                 ) : null}
@@ -676,10 +792,18 @@ export default function SuratMasukDetailPage() {
 
                 {canArchive ? (
                   <div className="mt-3 rounded-lg border border-line p-3">
-                    <p className="text-sm font-medium">Persetujuan arsip</p>
-                    <p className="mt-0.5 text-xs text-muted">
-                      Surat sudah antre arsip. Setujui di sini atau buka antrean untuk menolak dengan catatan.
+                    <p className="text-sm font-medium">
+                      {archiveApprover ? "Persetujuan arsip" : "Arsipkan surat"}
                     </p>
+                    <p className="mt-0.5 text-xs text-muted">
+                      Surat sudah antre arsip. Isi lokasi fisik bila berkasnya tersedia; boleh dikosongkan untuk arsip digital saja.
+                    </p>
+                    <input
+                      value={physicalLocation}
+                      onChange={(e) => setPhysicalLocation(e.target.value)}
+                      placeholder="Lokasi fisik, cth: Lemari A, rak 2 (opsional)"
+                      className="mt-2 w-full rounded-lg border border-line bg-field px-3 py-2 text-sm outline-none focus:border-brand-700"
+                    />
                     <textarea
                       value={archiveNote}
                       onChange={(e) => setArchiveNote(e.target.value)}
@@ -694,7 +818,7 @@ export default function SuratMasukDetailPage() {
                         onClick={archiveLetter}
                         className="rounded-lg bg-brand-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
                       >
-                        {acting === "archive" ? "Memproses…" : "Setujui & Arsipkan"}
+                        {acting === "archive" ? "Memproses…" : archiveApprover ? "Setujui & Arsipkan" : "Arsipkan surat"}
                       </button>
                       <Link
                         href="/arsip?tab=antrean"
@@ -707,6 +831,7 @@ export default function SuratMasukDetailPage() {
                 ) : null}
 
                 {!canSubmit && !canUpload && !canForward && !canDispose && !canArchive &&
+                !canEdit && !canRevise && !canCancel &&
                 !dispositionGroups.targets.some((d) => d.canAccept || d.canComplete) ? (
                   <p className="mt-3 text-sm text-muted">Tidak ada tindakan yang tersedia untuk akun ini.</p>
                 ) : null}

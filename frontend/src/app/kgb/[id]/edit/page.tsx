@@ -6,21 +6,19 @@ import { useCallback, useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import type { KgbDetail } from "@/lib/types";
+import type { KgbDetail, KgbPrefill } from "@/lib/types";
 import { Field, SubmitButton } from "@/components/form";
 import { EmptyState, ErrorBox, Skeleton } from "@/components/ui";
 import { toast } from "@/components/toast";
+import { formatRupiah } from "@/lib/format";
 
 export default function KgbEditPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { user, loading: authLoading, hasPermission } = useAuth();
   const [detail, setDetail] = useState<KgbDetail | null>(null);
+  const [prefill, setPrefill] = useState<KgbPrefill | null>(null);
   const [form, setForm] = useState({
-    oldRank: "",
-    newRank: "",
-    oldSalary: "",
-    newSalary: "",
     effectiveDate: "",
     note: "",
   });
@@ -31,17 +29,19 @@ export default function KgbEditPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    setPrefill(null);
     try {
       const { data } = await apiFetch<KgbDetail>(`/kgb-requests/${id}`);
       setDetail(data);
       setForm({
-        oldRank: data.oldRank ?? "",
-        newRank: data.newRank ?? "",
-        oldSalary: String(data.oldSalary ?? ""),
-        newSalary: String(data.newSalary ?? ""),
         effectiveDate: String(data.effectiveDate).slice(0, 10),
         note: data.note ?? "",
       });
+      if (data.employee?.id) {
+        apiFetch<KgbPrefill>(`/kgb-requests/prefill?employeeId=${encodeURIComponent(data.employee.id)}`)
+          .then(({ data: p }) => setPrefill(p))
+          .catch(() => setPrefill(null));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat data KGB");
     } finally {
@@ -62,21 +62,19 @@ export default function KgbEditPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    const oldS = Number(form.oldSalary);
-    const newS = Number(form.newSalary);
-    if (!(newS > oldS)) {
-      setError("Gaji baru harus lebih besar dari gaji lama.");
+    if (prefill?.atMax) {
+      setError(
+        `MKG ${prefill.mkg} sudah mencapai batas golongan ${prefill.oldRank}. Gaji pokok tidak dapat naik lagi.`,
+      );
       return;
     }
     setSaving(true);
     try {
+      // Golongan/gaji tidak dikirim: backend menghitung ulang dari master
+      // kepegawaian + skala gaji PP 5/2024 saat PATCH.
       await apiFetch(`/kgb-requests/${id}`, {
         method: "PATCH",
         body: JSON.stringify({
-          oldRank: form.oldRank,
-          newRank: form.newRank,
-          oldSalary: oldS,
-          newSalary: newS,
           effectiveDate: form.effectiveDate,
           note: form.note || undefined,
         }),
@@ -129,21 +127,45 @@ export default function KgbEditPage() {
             <p className="mt-1 text-sm"><span className="text-muted">Nomor:</span> {detail.requestNumber}</p>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Golongan lama">
-              <input required value={form.oldRank} onChange={set("oldRank")} placeholder="cth: III/a" className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand-700" />
-            </Field>
-            <Field label="Golongan baru">
-              <input required value={form.newRank} onChange={set("newRank")} placeholder="cth: III/b" className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand-700" />
-            </Field>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Gaji lama (rupiah)">
-              <input required inputMode="numeric" value={form.oldSalary} onChange={set("oldSalary")} className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand-700" />
-            </Field>
-            <Field label="Gaji baru (rupiah)">
-              <input required inputMode="numeric" value={form.newSalary} onChange={set("newSalary")} className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand-700" />
-            </Field>
+          <div className="rounded-lg border border-line bg-paper p-4">
+            <p className="text-sm font-semibold">Data otomatis</p>
+            <div className="mt-2 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <p className="text-xs text-muted">Golongan</p>
+                <p className="font-semibold">{prefill?.oldRank ?? detail.oldRank}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">Masa kerja total</p>
+                <p className="font-semibold">{prefill ? `${prefill.totalYears} tahun` : "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">MKG</p>
+                <p className="font-semibold">
+                  {prefill ? `${prefill.mkg} → ${prefill.newMkg} tahun` : "-"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">Gaji pokok saat ini</p>
+                <p className="font-semibold tabular-nums">
+                  {formatRupiah(prefill?.oldSalary ?? detail.oldSalary)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">Gaji pokok setelah KGB</p>
+                <p className="font-semibold tabular-nums text-brand-900">
+                  {formatRupiah(prefill?.newSalary ?? detail.newSalary)}
+                </p>
+              </div>
+            </div>
+            {prefill?.atMax ? (
+              <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                MKG sudah di batas maksimum golongan ini. Gaji pokok tidak dapat naik lagi.
+              </p>
+            ) : (
+              <p className="mt-3 text-xs text-muted">
+                Golongan dan gaji dihitung dari master kepegawaian. Jika tidak sesuai, hubungi staf kepegawaian.
+              </p>
+            )}
           </div>
           <Field label="TMT">
             <input type="date" required value={form.effectiveDate} onChange={set("effectiveDate")} className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand-700" />

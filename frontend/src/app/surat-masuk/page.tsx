@@ -11,12 +11,14 @@ import { EmptyState, ErrorBox, Skeleton, StatusBadge } from "@/components/ui";
 const FILTERS: Array<{ value: "" | LetterStatus; label: string }> = [
   { value: "", label: "Semua" },
   { value: "DRAFT_TU", label: "Draft TU" },
+  { value: "REVISI_TU", label: "Perlu Revisi TU" },
   { value: "REVIEW_SEKCAM", label: "Menunggu Sekcam" },
   { value: "DISPOSISI_CAMAT", label: "Menunggu Disposisi Camat" },
   { value: "DITERUSKAN", label: "Diteruskan" },
   { value: "PROSES", label: "Diproses" },
   { value: "MENUNGGU_ARSIP", label: "Menunggu Arsip" },
   { value: "DIARSIPKAN", label: "Diarsipkan" },
+  { value: "DIBATALKAN", label: "Dibatalkan" },
 ];
 
 const STATUS_VALUES = new Set<string>(FILTERS.map((f) => f.value).filter(Boolean));

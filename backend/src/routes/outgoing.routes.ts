@@ -11,6 +11,7 @@ import { can } from '../lib/permissions';
 import { ok, fail } from '../utils/response';
 import { todayYMD, parseYMD } from '../services/attendance.service';
 import { formatLetterNumber, letterUnitCode } from '../services/numbering.service';
+import { userHoldsPosition } from '../services/position.service';
 import {
   NumberingError,
   allocateOutgoingSequence,
@@ -19,6 +20,13 @@ import {
 } from '../services/outgoing-numbering.service';
 import { ArchiveError, createArchiveRecord } from '../services/archive.service';
 import { notifyArchiveApprovers, notifyUser } from '../services/notification.service';
+import {
+  OutgoingExpeditionError,
+  markOutgoingExpeditionReceived,
+  markOutgoingExpeditionSent,
+  outgoingExpeditionStatus,
+  publicOutgoingExpedition,
+} from '../services/outgoing-expedition.service';
 
 const router = Router();
 router.use(authRequired);
@@ -26,10 +34,14 @@ router.use(authRequired);
 const OUT_STATUS = ['RESERVED', 'TERKIRIM', 'DIARSIPKAN', 'CANCELLED'] as const;
 const ARCHIVE_BATCH_MAX = 15;
 
-// Approver arsip: Sekcam atau Camat. SUPER_ADMIN tetap boleh.
-function isArchiveApprover(req: any): boolean {
-  return req.user?.role === 'SUPER_ADMIN'
-    || ['SEKCAM', 'CAMAT'].includes(req.user?.position ?? '');
+// Approver arsip: Sekcam atau Camat (termasuk Plt aktif). SUPER_ADMIN tetap boleh.
+async function isArchiveApprover(req: any): Promise<boolean> {
+  if (req.user?.role === 'SUPER_ADMIN') return true;
+  const [sekcam, camat] = await Promise.all([
+    userHoldsPosition(req.user!.id, 'SEKCAM'),
+    userHoldsPosition(req.user!.id, 'CAMAT'),
+  ]);
+  return sekcam || camat;
 }
 
 function notifyOutgoingArchiveQueue(letter: { id: string; letterNumber: string; subject: string; recipient: string | null }) {
@@ -71,6 +83,8 @@ const includeDetail = {
   archiveRecord: {
     include: { list: { select: { id: true, listNumber: true, status: true } } },
   },
+  outgoingExpedition: true,
+  kgbRequest: { select: { id: true, requestNumber: true, status: true } },
 };
 
 function publicDocument(d: any, letterId: string) {
@@ -104,12 +118,19 @@ function outgoingAvailableActions(letter: any, perms: string[]): string[] {
   if (letter.status === 'TERKIRIM' && letter.archiveRejectedAt && can(perms, 'outgoing.issue')) {
     actions.push('resubmit_archive');
   }
+  if (letter.status === 'TERKIRIM' && can(perms, 'outgoing.issue')) {
+    const expedition = letter.outgoingExpedition;
+    if (!expedition) actions.push('record_expedition');
+    else if (!expedition.receivedDate) actions.push(expedition.sentAt ? 'mark_expedition_received' : 'mark_expedition_sent');
+  }
   return actions;
 }
 
 function withOutgoingView(letter: any, user: any) {
   return {
     ...withDocumentUrls(letter),
+    outgoingExpedition: publicOutgoingExpedition(letter.outgoingExpedition),
+    expeditionStatus: outgoingExpeditionStatus(letter.outgoingExpedition),
     availableActions: outgoingAvailableActions(letter, user.permissions ?? []),
   };
 }
@@ -489,7 +510,7 @@ router.get('/register-book', requirePermission('outgoing.view'), async (req, res
 
   const items = await prisma.outgoingLetter.findMany({
     where,
-    include: { classification: true, creator: { omit: { passwordHash: true } } },
+    include: { classification: true, creator: { omit: { passwordHash: true } }, outgoingExpedition: true },
     orderBy: [{ sequenceNumber: 'asc' }, { createdAt: 'asc' }],
     take: 2000,
   });
@@ -510,8 +531,97 @@ router.get('/register-book', requirePermission('outgoing.view'), async (req, res
     ket: l.remarks ?? l.status,
     keterangan: l.remarks ?? l.status,
     status: l.status,
+    ekspedisi: outgoingExpeditionStatus(l.outgoingExpedition),
+    ekspedisiReg: l.outgoingExpedition?.regNumber ?? null,
+    ekspedisiDiterima: l.outgoingExpedition?.receivedDate
+      ? l.outgoingExpedition.receivedDate.toISOString().slice(0, 10)
+      : null,
   }));
   return ok(res, rows, 'ok', { year: y, total: rows.length });
+});
+
+// ---------- GET /outgoing-letters/expedition-book (buku ekspedisi keluar) ----------
+// Buku tersendiri, bukan buku agenda surat keluar. Baris berasal dari surat
+// keluar TERKIRIM; status menunjukkan belum dicatat, belum dikirim, dikirim,
+// atau sudah diterima instansi tujuan.
+router.get('/expedition-book', requirePermission('outgoing.view'), async (req, res) => {
+  const { year, from, to, q, status } = req.query as any;
+  const y = year ? Number(year) : new Date().getFullYear();
+  if (!Number.isInteger(y) || y < 2000 || y > 2100) return fail(res, 422, 'year tidak valid');
+  // Buku ekspedisi secara default hanya menampilkan surat yang sudah punya
+  // baris ekspedisi. Surat yang belum dicatat tetap bisa dimunculkan untuk
+  // monitoring dengan includeUnrecorded=1 (atau filter status BELUM_DICATAT).
+  const includeUnrecorded = String(req.query.includeUnrecorded ?? '') === '1' || status === 'BELUM_DICATAT';
+
+  const where: any = { status: 'TERKIRIM', year: y };
+  if (!includeUnrecorded) where.outgoingExpedition = { isNot: null };
+  if (from || to) {
+    where.letterDate = {};
+    if (from) {
+      const d = parseYMD(String(from));
+      if (!d) return fail(res, 422, 'from tidak valid');
+      where.letterDate.gte = d;
+    }
+    if (to) {
+      const d = parseYMD(String(to));
+      if (!d) return fail(res, 422, 'to tidak valid');
+      where.letterDate.lte = d;
+    }
+  }
+  if (q) {
+    where.OR = [
+      { subject: { contains: String(q), mode: 'insensitive' } },
+      { letterNumber: { contains: String(q), mode: 'insensitive' } },
+      { recipient: { contains: String(q), mode: 'insensitive' } },
+      { outgoingExpedition: { is: { regNumber: { contains: String(q), mode: 'insensitive' } } } },
+      { outgoingExpedition: { is: { receiptNumber: { contains: String(q), mode: 'insensitive' } } } },
+    ];
+  }
+  if (status === 'BELUM_DICATAT') where.outgoingExpedition = { is: null };
+  else if (status === 'BELUM_DIKIRIM') where.outgoingExpedition = { is: { sentAt: null } };
+  else if (status === 'DIKIRIM') where.outgoingExpedition = { is: { sentAt: { not: null }, receivedDate: null } };
+  else if (status === 'DITERIMA') where.outgoingExpedition = { is: { receivedDate: { not: null } } };
+  else if (status) return fail(res, 422, 'status ekspedisi tidak valid');
+
+  const items = await prisma.outgoingLetter.findMany({
+    where,
+    include: {
+      classification: { select: { code: true, name: true } },
+      outgoingExpedition: true,
+    },
+    orderBy: [{ letterDate: 'asc' }, { sequenceNumber: 'asc' }],
+    take: 2000,
+  });
+
+  const rows = items.map((l) => {
+    const exp = l.outgoingExpedition;
+    return {
+      // Kontrak kanonik.
+      id: exp?.id ?? null,
+      letterId: l.id,
+      regNumber: exp?.regNumber ?? null,
+      sentDate: exp?.sentAt ? exp.sentAt.toISOString().slice(0, 10) : null,
+      courierName: exp?.courierName ?? null,
+      recipientName: exp?.recipientName ?? l.recipient ?? null,
+      receiptNumber: exp?.receiptNumber ?? null,
+      receivedDate: exp?.receivedDate ? exp.receivedDate.toISOString().slice(0, 10) : null,
+      receivedByName: exp?.receivedByName ?? null,
+      note: exp?.note ?? null,
+      status: outgoingExpeditionStatus(exp),
+      // Alias bahasa Indonesia untuk tabel cetak.
+      nomorRegis: exp?.regNumber ?? '—',
+      nomorSurat: l.letterNumber,
+      tanggalSurat: l.letterDate.toISOString().slice(0, 10),
+      perihal: l.subject,
+      asalSurat: 'Kecamatan Tamalate',
+      instansiTujuan: l.recipient ?? '—',
+      penerimaSurat: exp?.receivedByName ?? exp?.recipientName ?? l.recipient ?? '—',
+      catatan: exp?.note ?? null,
+      klasifikasi: l.classification?.code ?? null,
+    };
+  });
+
+  return ok(res, rows, 'ok', { year: y, total: rows.length, includeUnrecorded });
 });
 
 // ---------- GET /outgoing-letters/numbering (status nomor & buffer backdate) ----------
@@ -563,7 +673,7 @@ router.get('/', requirePermission('outgoing.view'), async (req, res) => {
 
 // ---------- GET /outgoing-letters/archive-queue (antrean arsip surat keluar) ----------
 router.get('/archive-queue', requirePermission('archive.approve'), async (req, res) => {
-  if (!isArchiveApprover(req)) {
+  if (!(await isArchiveApprover(req))) {
     return fail(res, 403, 'Antrean arsip hanya untuk Sekcam/Camat');
   }
   const { q, page = '1', limit = '15' } = req.query as any;
@@ -624,7 +734,7 @@ router.get('/archive-queue', requirePermission('archive.approve'), async (req, r
 
 // ---------- POST /outgoing-letters/archive-approvals/batch (approve arsip surat keluar) ----------
 router.post('/archive-approvals/batch', requirePermission('archive.approve'), async (req, res) => {
-  if (!isArchiveApprover(req)) {
+  if (!(await isArchiveApprover(req))) {
     return fail(res, 403, 'Persetujuan arsip hanya untuk Sekcam/Camat');
   }
   const schema = z.object({
@@ -682,7 +792,7 @@ router.post('/archive-approvals/batch', requirePermission('archive.approve'), as
 
 // ---------- POST /outgoing-letters/archive-approvals/reject (revisi arsip surat keluar) ----------
 router.post('/archive-approvals/reject', requirePermission('archive.reject'), async (req, res) => {
-  if (!isArchiveApprover(req)) {
+  if (!(await isArchiveApprover(req))) {
     return fail(res, 403, 'Penolakan arsip hanya untuk Sekcam/Camat');
   }
   const schema = z.object({
@@ -763,6 +873,97 @@ router.post('/:id/resubmit-archive', requirePermission('outgoing.issue'), async 
   });
   await notifyOutgoingArchiveQueue(updated);
   return ok(res, withOutgoingView(updated, req.user!), 'Surat diajukan ulang ke antrean arsip');
+});
+
+// ---------- POST /outgoing-letters/:id/expedition (langkah 8: serah ke caraka) ----------
+router.post('/:id/expedition', requirePermission('outgoing.issue'), async (req, res) => {
+  const schema = z.object({
+    sentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    courierName: z.string().max(150).optional(),
+    recipientName: z.string().max(200).optional(),
+    note: z.string().max(500).optional(),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+
+  const letter = await prisma.outgoingLetter.findUnique({
+    where: { id: req.params.id },
+    include: { outgoingExpedition: true },
+  });
+  if (!letter) return fail(res, 404, 'Surat keluar tidak ditemukan');
+  if (letter.status !== 'TERKIRIM') {
+    return fail(res, 409, `Hanya surat TERKIRIM yang masuk buku ekspedisi (saat ini ${letter.status})`);
+  }
+  if (letter.outgoingExpedition?.receivedDate) {
+    return fail(res, 409, 'Surat sudah tercatat diterima; data kirim tidak bisa diubah');
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await markOutgoingExpeditionSent(tx, {
+        letterId: letter.id,
+        recipientName: parsed.data.recipientName?.trim() || letter.recipient || 'BKD Kota Makassar',
+        sentDate: parsed.data.sentDate,
+        courierName: parsed.data.courierName?.trim() || req.user!.username,
+        note: parsed.data.note,
+        createdBy: req.user!.id,
+      });
+    });
+  } catch (e) {
+    if (e instanceof OutgoingExpeditionError) return fail(res, e.status, e.message);
+    throw e;
+  }
+
+  const updated = await prisma.outgoingLetter.findUniqueOrThrow({ where: { id: letter.id }, include: includeDetail });
+  return ok(res, withOutgoingView(updated, req.user!), 'Surat dicatat di buku ekspedisi dan diserahkan ke caraka');
+});
+
+// ---------- POST /outgoing-letters/:id/expedition/receipt (langkah 9: bukti terima) ----------
+router.post('/:id/expedition/receipt', requirePermission('outgoing.issue'), async (req, res) => {
+  const schema = z.object({
+    receivedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    receivedByName: z.string().min(1, 'Nama penerima bukti terima wajib').max(150),
+    receiptNumber: z.string().max(100).optional(),
+    note: z.string().max(500).optional(),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());
+
+  const letter = await prisma.outgoingLetter.findUnique({
+    where: { id: req.params.id },
+    include: { outgoingExpedition: true },
+  });
+  if (!letter) return fail(res, 404, 'Surat keluar tidak ditemukan');
+  if (letter.status !== 'TERKIRIM') {
+    return fail(res, 409, `Hanya surat TERKIRIM yang punya bukti terima (saat ini ${letter.status})`);
+  }
+  if (!letter.outgoingExpedition?.sentAt) {
+    return fail(res, 409, 'Catat penyerahan ke caraka di buku ekspedisi terlebih dahulu');
+  }
+  if (letter.outgoingExpedition?.receivedDate) {
+    return fail(res, 409, 'Bukti terima sudah dicatat dan tidak bisa ditimpa');
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await markOutgoingExpeditionReceived(tx, {
+        letterId: letter.id,
+        recipientName: letter.outgoingExpedition?.recipientName || letter.recipient || 'BKD Kota Makassar',
+        receivedDate: parsed.data.receivedDate,
+        receivedByName: parsed.data.receivedByName,
+        receiptNumber: parsed.data.receiptNumber,
+        note: parsed.data.note,
+        receivedBy: req.user!.id,
+        createdBy: req.user!.id,
+      });
+    });
+  } catch (e) {
+    if (e instanceof OutgoingExpeditionError) return fail(res, e.status, e.message);
+    throw e;
+  }
+
+  const updated = await prisma.outgoingLetter.findUniqueOrThrow({ where: { id: letter.id }, include: includeDetail });
+  return ok(res, withOutgoingView(updated, req.user!), 'Bukti terima dicatat; surat sudah diterima instansi tujuan');
 });
 
 // ---------- GET /outgoing-letters/:id ----------

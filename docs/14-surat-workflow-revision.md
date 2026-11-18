@@ -1,8 +1,9 @@
 # 14 — Revisi Alur Surat Masuk, Surat Keluar, dan Arsip
 
 Tanggal: 5 November 2026
-Status: **backend selesai; migration/seed sudah diterapkan ke Supabase.
-Frontend belum diimplementasikan; checklist pada §7 dipakai sebagai handoff.**
+Status: **backend + frontend selesai; migration/seed sudah diterapkan ke Supabase.**
+Revisi 18 November 2026 menambahkan alur revisi Sekcam, pembatalan surat oleh
+TU, dan penyelesaian arsip oleh staf arsip (Verifikator).
 
 Dokumen ini menggantikan keputusan “tanpa status baru” pada `docs/13`.
 Spesifikasi terbaru memakai status workflow eksplisit.
@@ -14,15 +15,22 @@ Spesifikasi terbaru memakai status workflow eksplisit.
 `DRAFT_TU → REVIEW_SEKCAM → DISPOSISI_CAMAT → DITERUSKAN → PROSES →
 MENUNGGU_ARSIP → DIARSIPKAN`
 
+Cabang: `REVIEW_SEKCAM → REVISI_TU → REVIEW_SEKCAM` dan
+`DRAFT_TU/REVISI_TU/REVIEW_SEKCAM → DIBATALKAN`.
+
 | Status | Aktor | Aksi | Efek |
 | --- | --- | --- | --- |
 | `DRAFT_TU` | Pelaksana/TU (`VERIFIER`) | Simpan draft / unggah file | Surat belum dikirim |
 | `DRAFT_TU` | Pelaksana/TU | Kirim ke Sekcam | `REVIEW_SEKCAM`, notifikasi Sekcam |
 | `REVIEW_SEKCAM` | Sekcam | Teruskan ke Camat | `DISPOSISI_CAMAT`, notifikasi Camat |
+| `REVIEW_SEKCAM` | Sekcam | Kembalikan untuk revisi + catatan | `REVISI_TU`, notifikasi pembuat |
+| `REVISI_TU` | Pelaksana/TU | Edit, unggah file, kirim ulang | `REVIEW_SEKCAM` |
+| `DRAFT_TU`/`REVISI_TU`/`REVIEW_SEKCAM` | Staf TU (`VERIFIER`) | Batalkan surat + alasan | `DIBATALKAN`, tidak masuk disposisi |
 | `DISPOSISI_CAMAT` | Camat | Isi instruksi + pilih target | `DITERUSKAN`, notifikasi target |
 | `DITERUSKAN` | Penerima disposisi | Terima & Baca | `PROSES`, timestamp ekspedisi dibuat |
 | `PROSES` | Penerima disposisi | Selesai & Ajukan Arsip | `MENUNGGU_ARSIP` jika **semua** target selesai |
-| `MENUNGGU_ARSIP` | Sekcam/Camat | Setujui & Arsipkan | `DIARSIPKAN` + `ArchiveRecord` |
+| `MENUNGGU_ARSIP` | Staf arsip (`letter.archive`) | Arsipkan + lokasi fisik opsional | `DIARSIPKAN` + `ArchiveRecord` |
+| `MENUNGGU_ARSIP` | Sekcam/Camat (`archive.approve`) | Setujui & Arsipkan | `DIARSIPKAN` + `ArchiveRecord` |
 | `MENUNGGU_ARSIP` | Sekcam/Camat | Tolak/revisi | `PROSES`, disposisi target `DONE` dibuka kembali ke `ACCEPTED` (catatan Sekcam tidak diubah) |
 
 Catatan multi-target: status `PROSES` muncul saat target pertama menerima.
@@ -69,8 +77,11 @@ Draft `DRAFT_TU` boleh disimpan belum lengkap, lalu dilengkapi dan dikirim.
 | Method | Path | Permission | Keterangan |
 | --- | --- | --- | --- |
 | POST | `/letters` | `letter.create` | Membuat `DRAFT_TU`; `submit=true` langsung ke `REVIEW_SEKCAM` |
-| POST | `/letters/:id/submit` | `letter.create` | Kirim draft ke Sekcam; validasi file/ringkasan/klasifikasi |
-| POST | `/letters/:id/documents` | `letter.document.upload` | Hanya saat `DRAFT_TU` |
+| PATCH | `/letters/:id` | `letter.create` | Edit surat saat `DRAFT_TU`/`REVISI_TU` (staf TU/pembuat) |
+| POST | `/letters/:id/submit` | `letter.create` | Kirim/ulang draft ke Sekcam; validasi file/ringkasan/klasifikasi |
+| POST | `/letters/:id/revision` | `letter.paraf` + posisi `SEKCAM` | `REVIEW_SEKCAM → REVISI_TU` + catatan revisi |
+| POST | `/letters/:id/cancel` | `letter.create` | Batalkan sebelum disposisi + alasan |
+| POST | `/letters/:id/documents` | `letter.document.upload` | Hanya saat `DRAFT_TU`/`REVISI_TU` |
 | POST | `/letters/:id/forward` | `letter.paraf` + posisi `SEKCAM` | `REVIEW_SEKCAM → DISPOSISI_CAMAT` |
 | POST | `/letters/:id/paraf` | `letter.paraf` + posisi `SEKCAM` | Alias lama untuk `forward` |
 | POST | `/letters/:id/dispose` | `letter.dispose` + posisi `CAMAT` | Disposisi satu target |
@@ -78,7 +89,8 @@ Draft `DRAFT_TU` boleh disimpan belum lengkap, lalu dilengkapi dan dikirim.
 | POST | `/letters/dispositions/:dispId/accept` | `letter.followup` | Terima & Baca; membuat tanda terima ekspedisi |
 | POST | `/letters/dispositions/:dispId/followup` | `letter.followup` | Selesai per disposisi |
 | POST | `/letters/:id/complete` | `letter.followup` | Selesai untuk disposisi milik user; mendukung `dispositionId` |
-| GET | `/letters/archive-queue` | `archive.approve` | Antrean `MENUNGGU_ARSIP` |
+| GET | `/letters/archive-queue` | `letter.view` + staf arsip/approver | Antrean `MENUNGGU_ARSIP` |
+| POST | `/letters/:id/archive` | `letter.archive` atau `archive.approve` | Selesaikan arsip + `physicalLocation` opsional |
 | POST | `/letters/archive-approvals/batch` | `archive.approve` | Maksimal 15, partial success |
 | POST | `/letters/archive-approvals/reject` | `archive.reject` | Kembali ke `PROSES` |
 
@@ -97,9 +109,11 @@ Draft `DRAFT_TU` boleh disimpan belum lengkap, lalu dilengkapi dan dikirim.
 ### Arsip
 
 - `POST /archives` dan `GET /archives/candidates` tetap dihapus.
-- `PATCH /archives/:id` hanya untuk `SUPER_ADMIN`; staf tidak boleh mengubah
-  metadata arsip yang sudah `DIARSIPKAN`.
-- `physicalLocation` (`lokasi_fisik`) opsional untuk hardcopy.
+- Staf arsip dapat mengubah `code`, `bundleCode`, dan `physicalLocation` lewat
+  `PATCH /archives/:id`; metadata lain tetap hanya `SUPER_ADMIN`.
+- `physicalLocation` (`lokasi_fisik`) opsional untuk hardcopy. Surat yang hanya
+  tersedia digital boleh diarsipkan tanpa lokasi fisik.
+- Input lokasi fisik tersedia saat staf/Sekcam/Camat mengarsipkan surat masuk.
 - Filter daftar arsip: tahun, `classificationCode`, `q` (nomor/uraian/kode/
   pengirim/tujuan/kata kunci).
 - Batch approval surat masuk dan surat keluar dipisah, maksimal 15 per request,
@@ -110,8 +124,10 @@ Draft `DRAFT_TU` boleh disimpan belum lengkap, lalu dilengkapi dan dikirim.
 Tidak ada role baru; tetap 5 role: `EMPLOYEE`, `VERIFIER`, `SUPERVISOR`,
 `LEADER`, `SUPER_ADMIN`.
 
-- `letter.create`: `VERIFIER` (termasuk submit draft).
-- `letter.paraf`: `LEADER`; route `forward` dibatasi posisi `SEKCAM`.
+- `letter.create`: `VERIFIER` (termasuk edit, submit draft, dan pembatalan).
+- `letter.archive`: `VERIFIER` (staf arsip); route `archive` juga menerima
+  `archive.approve` untuk Sekcam/Camat.
+- `letter.paraf`: `LEADER`; route `forward`/`revision` dibatasi posisi `SEKCAM`.
 - `letter.dispose`: `LEADER`; route disposisi dibatasi posisi `CAMAT`.
 - `letter.followup`: `EMPLOYEE`, `SUPERVISOR`, `LEADER`; route tetap
   memeriksa apakah user adalah penerima disposisi.
@@ -135,12 +151,22 @@ refresh (bukan WebSocket).
 | `LETTER_DISPOSITION` | user posisi `CAMAT` | Sekcam meneruskan ke Camat |
 | `DISPOSITION` | target disposisi | Camat mengirim disposisi |
 | `ARCHIVE_APPROVAL` | user posisi `SEKCAM`/`CAMAT` | surat masuk `MENUNGGU_ARSIP`, surat keluar `TERKIRIM`, resubmit |
+| `LETTER_REVISION` | pembuat surat | Sekcam meminta revisi |
+| `LETTER_CANCELLED` | user posisi `SEKCAM` | staf TU membatalkan surat saat `REVIEW_SEKCAM` |
 | `LETTER_REVISION` | penerima disposisi | arsip surat masuk ditolak |
+| `ARCHIVE_APPROVAL` | staf arsip (`STAF_KEPEGAWAIAN`/`ARSIP`) | surat masuk `MENUNGGU_ARSIP` |
 | `ARCHIVE_REJECTED` | pembuat surat keluar | arsip surat keluar ditolak |
 
 ## 6. Migration dan data lama (sudah diterapkan)
 
 Migration baru: `20261105010000_surat_workflow_revision`.
+
+Revisi 18 November 2026:
+
+- `20261118010000_surat_revisi_batal_presensi_keputusan` — field revisi/
+  pembatalan surat masuk dan keputusan Camat/pembinaan Kasi pada surat teguran.
+- `20261118020000_verifier_letter_archive` — grant `letter.archive` ke
+  `VERIFIER`.
 
 - Tambah `surat_masuk.jenis_surat`, `surat_masuk.diajukan_pada`.
 - Tambah `disposisi_surat.diterima_pada`.

@@ -15,7 +15,7 @@ function toLocalInput(date: Date): string {
 
 function formatDate(value: string | null): string {
   if (!value) return "—";
-  return new Date(value).toLocaleString("id-ID");
+  return new Date(value).toLocaleString("id-ID", { hour12: false });
 }
 
 export default function PenugasanPltPage() {

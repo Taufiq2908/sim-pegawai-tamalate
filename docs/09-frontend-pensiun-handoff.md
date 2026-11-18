@@ -207,20 +207,25 @@ Hanya saat `DRAFT/REVISION`. Minimal satu PNS harus tersisa.
 
 ```ts
 const form = new FormData();
-form.append("file", file);          // pdf/jpg/png, max 5MB
-form.append("docType", "SK_CPNS");  // lihat checklist
+form.append("file", file);               // file apa pun, max 5MB
+form.append("docType", "SK_PANGKAT_TERAKHIR");
 await apiUpload(`/v1/pension-requests/${id}/items/${itemId}/documents`, form);
 ```
 
 Download: `file.downloadUrl` sudah berupa path `/api/v1/pension-requests/.../download`.
 Gunakan link tersebut; jangan menyusun URL dari `storedPath` (tidak dikirim).
 
-`docType` yang tersedia: `SK_CPNS`, `SK_PNS`, `SK_PANGKAT_TERAKHIR`,
-`SK_JABATAN_TERAKHIR`, `KTP`, `KK`, `NPWP`, `REKENING_GAJI`, `PAS_FOTO`,
-`SKP_2_TAHUN`, `SURAT_KETERANGAN_SEHAT`, `SURAT_PERNYATAAN`, `LAINNYA`.
-Bisa juga mengambil checklist dari `GET /v1/pension-requests/required-docs`.
+`docType` yang diminta untuk demo: `DPCP`, `SK_PNS`, `SK_PANGKAT_TERAKHIR`,
+`SK_JABATAN_TERAKHIR`. Checklist bisa diambil dari
+`GET /v1/pension-requests/required-docs`; UI juga dapat menampilkan `LAINNYA`
+bila suatu saat dibutuhkan. Jenis lama tetap ada di database untuk data historis,
+tetapi tidak ditampilkan dan tidak perlu diunggah.
 
-Upload ulang dengan `docType` yang sama akan mengganti dokumen lama.
+UI detail usulan menyediakan pemilih beberapa berkas sekaligus (multi-select)
+dan satu tombol **Unggah semua**. Frontend memetakan berkas ke empat slot
+dokumen berdasarkan nama berkas, lalu mengirim satu request per berkas. Tidak
+ada dropdown jenis dokumen. Upload ulang dengan `docType` yang sama akan
+mengganti dokumen lama.
 
 ### Aksi alur
 
@@ -258,7 +263,6 @@ POST /v1/pension-requests/:id/register
 
 POST /v1/pension-requests/:id/expedite
 {
-  "expeditionNumber": "EKSP-PENSIUN-2026-0001", // opsional; default dari nomor usulan
   "expeditionDate": "2026-11-01",
   "courierName": "Petugas Ekspedisi",
   "note": "Diserahkan ke pendistribusi"
@@ -268,7 +272,7 @@ POST /v1/pension-requests/:id/send
 {
   "receiptNumber": "TT-PENSIUN-001",
   "receiptDate": "2026-11-01",
-  "receivedBy": "BKPSDMD Kota Makassar",
+  "receivedByName": "Petugas BKPSDMD",
   "note": "Diterima"
 }
 
@@ -285,10 +289,15 @@ Catatan:
 - `revise`/`reject` wajib catatan minimal 5 karakter.
 - `paraf` hanya berhasil untuk user `position = SEKCAM`.
 - `approve` hanya berhasil untuk user `position = CAMAT`.
-- `register`/`expedite` hanya untuk user `orgUnit.code = KEC-TAMALATE`.
+- `register`/`expedite`/`send` adalah porsi Staf Kepegawaian (`VERIFIER`,
+  jabatan `STAF_KEPEGAWAIAN`). Kasubag hanya memverifikasi kelengkapan.
 - `register` tanpa `outgoingLetterId`/`outgoingLetterNumber` dan tanpa
   `createOutgoingLetter: false` akan membuat surat keluar otomatis dengan nomor
-  dari service penomoran (buffer backdate 3 nomor sudah ditangani backend).
+  dari service penomoran (buffer backdate 3 nomor sudah ditangani backend), lalu
+  menyiapkan baris `ekspedisi_surat_keluar` berstatus `BELUM_DIKIRIM`.
+- `expedite` mengisi `ekspedisi_surat_keluar` menjadi `DIKIRIM`; `send` mencatat
+  bukti terima dan menjadikannya `DITERIMA`. Detail batch memuat
+  `outgoingLetter.outgoingExpedition` dan `expeditionStatus`.
 - Jangan menambahkan tombol “reservasi 3 nomor” untuk pensiun.
 
 ### Daftar, detail, dan buku
@@ -350,12 +359,14 @@ GET /v1/pension-requests/required-docs
   Kirim `documentsComplete: true` hanya jika checkbox dicentang.
 - **Revisi/Penolakan**: textarea wajib (min. 5 karakter).
 - **Paraf/Setujui**: catatan opsional.
-- **Register**: pilihan (A) buat surat keluar otomatis, (B) pilih surat keluar
-  existing, (C) nomor manual. Untuk A tampilkan klasifikasi `800.1.6.6` dan
-  tanggal surat (default hari ini, tidak boleh masa depan).
-- **Ekspedisi**: nomor ekspedisi (prefill `EKSP-<batchNumber>`), tanggal,
-  nama pendistribusi (wajib), catatan.
-- **Kirim**: nomor tanda terima, tanggal, penerima, catatan.
+- **Register** (panel inline): tanggal surat keluar (default hari ini). Backend
+  otomatis membuat surat keluar, mencatat Buku Agenda Surat Keluar, dan
+  menyiapkan baris Buku Ekspedisi Surat Keluar. UI tidak meminta nomor manual.
+- **Ekspedisi** (panel inline): tanggal diserahkan ke caraka dan nama
+  pendistribusi/caraka (wajib), catatan opsional. Nomor registrasi ekspedisi
+  dibuat backend (`EXK-YYYY-NNNN`), bukan input manual.
+- **Kirim** (panel inline): nomor tanda terima (wajib), tanggal tanda terima
+  (wajib), nama penerima, catatan. Aksi ini menandai ekspedisi `DITERIMA`.
 
 ### Halaman buku
 
@@ -419,22 +430,31 @@ Ambil `signers.camat` dan `signers.sekcam`. Tampilkan:
 
 ## 8. Akun demo
 
-- `kasubag1 / Kasubag123!` — buat draf, verifikasi, register, ekspedisi.
+- `verifier1 / Verifier123!` — buat draf, unggah dokumen, register/agenda,
+  ekspedisi, dan tanda terima BKPSDMD.
+- `kasubag1 / Kasubag123!` — verifikasi kelengkapan, revisi, penolakan.
 - `sekcam1 / Sekcam123!` — paraf.
 - `camat1 / Camat123!` — approve/tanda tangan.
-- `verifier1 / Verifier123!` — kirim/tanda terima.
 - `pensiun1 / Pensiun123!` — contoh PNS BUP 2026 (Siti Pensiun); hanya melihat
   usulan miliknya.
 
 ## 9. Checklist pengujian frontend
 
-1. Login Kasubag → halaman BUP 2026 menampilkan Siti Pensiun.
+1. Login Verifier → halaman BUP 2026 menampilkan Siti Pensiun.
 2. Pilih PNS → buat draf → detail menampilkan stepper langkah 1–2 aktif.
-3. Upload beberapa dokumen → checklist berubah.
-4. Verifikasi dengan checkbox → status `VERIFIED`, tombol berubah untuk Sekcam.
-5. Login Sekcam → paraf; login Camat → approve.
-6. Login Kasubag → register otomatis; cek nomor surat/agenda muncul.
-7. Ekspedisi → isi nomor/tanggal/pendistribusi; cek buku ekspedisi.
-8. Login Verifier → kirim + nomor tanda terima; cek status `SENT`.
+3. Unggah empat dokumen inti. Setelah dokumen terakhir, login Kasubag dan buka
+   `/notifikasi`; harus ada **Permintaan verifikasi berkas pensiun** dengan tombol
+   **Buka pengajuan pensiun**.
+4. Kasubag verifikasi dengan checkbox → status `VERIFIED`; Sekcam menerima
+   notifikasi dengan tombol **Buka pengajuan pensiun**.
+5. Login Sekcam → paraf; login Camat → approve. Keduanya menerima notifikasi
+   yang langsung membuka detail usulan.
+6. Login Verifier → setelah Camat approve, notifikasi **disetujui/ditandatangani**
+   masuk. Register otomatis; cek nomor surat/agenda dan baris `Belum diserahkan`
+   di Buku Ekspedisi Surat Keluar.
+7. Catat ekspedisi → isi tanggal + nama caraka; cek baris berubah menjadi
+   `Sudah diserahkan` di Buku Ekspedisi Pensiun dan Buku Ekspedisi Surat Keluar.
+8. Catat bukti terima + nomor tanda terima; cek status `SENT` dan baris ekspedisi
+   menjadi `Diterima tujuan`.
 9. Login Pensiun1 → hanya melihat usulan sendiri, tanpa tombol aksi.
 10. Pastikan `frontend/` tidak berisi perubahan dari sesi backend ini.

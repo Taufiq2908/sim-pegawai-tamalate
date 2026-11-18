@@ -19,7 +19,17 @@ interface RegisterRow {
   klasifikasi: string;
   ket: string;
   status: string;
+  ekspedisi?: string;
+  ekspedisiReg?: string | null;
+  ekspedisiDiterima?: string | null;
 }
+
+const EXPEDITION_LABEL: Record<string, string> = {
+  BELUM_DICATAT: "Belum dicatat",
+  BELUM_DIKIRIM: "Belum diserahkan",
+  DIKIRIM: "Sudah diserahkan",
+  DITERIMA: "Diterima tujuan",
+};
 
 export default function RegisterSuratKeluarPage() {
   const [rows, setRows] = useState<RegisterRow[]>([]);
@@ -45,11 +55,14 @@ export default function RegisterSuratKeluarPage() {
   }, [load]);
 
   return (
-    <RequirePerm perm="outgoing.view" label="Surat Keluar">
+    <RequirePerm perm="outgoing.view" label="Buku Agenda Surat Keluar">
       <div className="flex flex-wrap items-center gap-2">
         <div>
           <h1 className="text-xl font-bold">Buku Agenda Surat Keluar</h1>
-          <p className="mt-0.5 text-sm text-muted">Per nomor urut. Nomor yang dibatalkan tidak dipakai ulang.</p>
+          <p className="mt-0.5 text-sm text-muted">
+            Inventaris nomor surat keluar per nomor urut. Nomor yang dibatalkan tidak dipakai ulang.
+            Serah terima ke caraka dicatat di Buku Ekspedisi Surat Keluar.
+          </p>
         </div>
         <input
           value={year}
@@ -84,6 +97,7 @@ export default function RegisterSuratKeluarPage() {
                   <th className="px-3 py-2">Kode Surat</th>
                   <th className="px-3 py-2">Keterangan</th>
                   <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Ekspedisi</th>
                 </tr>
               </thead>
               <tbody>
@@ -99,6 +113,11 @@ export default function RegisterSuratKeluarPage() {
                     <td className="px-3 py-2">{r.kodeSurat ?? "-"}</td>
                     <td className="px-3 py-2">{r.ket}</td>
                     <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
+                    <td className="px-3 py-2">
+                      <span className="font-medium">{EXPEDITION_LABEL[r.ekspedisi ?? "BELUM_DICATAT"] ?? r.ekspedisi ?? "—"}</span>
+                      {r.ekspedisiReg ? <span className="block text-xs text-muted">{r.ekspedisiReg}</span> : null}
+                      {r.ekspedisiDiterima ? <span className="block text-xs text-muted">{r.ekspedisiDiterima}</span> : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>

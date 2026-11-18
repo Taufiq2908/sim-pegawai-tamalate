@@ -560,3 +560,10 @@ Ringkasan pekerjaan frontend:
 4. **Notifikasi**
    - Notifikasi tetap in-app; jangan mengandalkannya sebagai satu-satunya daftar tugas.
    - Gunakan endpoint `pending-approval` untuk badge dan daftar tugas.
+
+5. **Arsip cuti**
+   - Aksi `archive` pada cuti kini membuat `ArchiveRecord` sumber `LEAVE`; tidak perlu endpoint baru di frontend.
+   - Tampilkan metrik **Arsip belum masuk daftar** dan **Daftar arsip menunggu tanda tangan** di dashboard Sekcam/Camat.
+   - `GET /archives?sourceType=LEAVE` dan detail record menyertakan `leaveRequest`.
+   - Setelah Daftar Arsip ditandatangani, tampilkan tombol **Beri kode** menuju `/arsip/[id]`; staf dengan `archive.update` hanya boleh mengubah `code` dan `bundleCode`.
+   - Detail cuti menampilkan `archiveRecord` (nomor arsip, kode, daftar) bila sudah ada.

@@ -51,11 +51,11 @@ export default function TeguranListPage() {
     <RequireAuth>
       <div className="flex flex-wrap items-center gap-2">
         <div>
-          <h1 className="text-xl font-bold">{isEmployee ? "Surat Teguran Saya" : "Surat Teguran"}</h1>
+          <h1 className="text-xl font-bold">{isEmployee ? "Laporan & Surat Teguran Saya" : "Laporan Presensi & Surat Teguran"}</h1>
           <p className="mt-0.5 text-sm text-muted">
             {isEmployee
-              ? "Surat teguran dan jadwal pembinaan yang tercatat atas nama Anda."
-              : "Diterbitkan otomatis dari pegawai bermasalah mingguan."}
+              ? "Laporan presensi, surat teguran, dan jadwal pembinaan yang tercatat atas nama Anda."
+              : "Laporan mingguan pegawai bermasalah; surat teguran hanya terbit bila Camat memutuskan tindak lanjut."}
           </p>
         </div>
         {!isEmployee ? (

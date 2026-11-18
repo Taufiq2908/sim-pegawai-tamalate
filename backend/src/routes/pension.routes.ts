@@ -9,6 +9,7 @@ import { deleteStoredFile, sendStoredFile, storeUploadedFile } from '../lib/stor
 import { authRequired, requirePermission } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
 import { can, usersForPermission } from '../lib/permissions';
+import { userIdsForPosition } from '../services/position.service';
 import { parseYMD, todayYMD } from '../services/attendance.service';
 import { formatLetterNumber, letterUnitCode } from '../services/numbering.service';
 import {
@@ -35,12 +36,21 @@ import {
   pensionPeriodLabel,
   ymd,
 } from '../services/pension.service';
+import {
+  OutgoingExpeditionError,
+  ensureOutgoingExpedition,
+  markOutgoingExpeditionReceived,
+  markOutgoingExpeditionSent,
+  outgoingExpeditionStatus,
+  publicOutgoingExpedition,
+} from '../services/outgoing-expedition.service';
 
 const router = Router();
 router.use(authRequired);
 
 const KECAMATAN_CODE = 'KEC-TAMALATE';
 const DEFAULT_PENSION_CLASSIFICATION = '800.1.6.6'; // Pensiun ASN
+const PENSION_RECIPIENT = 'BKPSDMD Kota Makassar';
 
 fs.mkdirSync(env.uploadDir, { recursive: true });
 const upload = multer({
@@ -68,7 +78,9 @@ const outgoingMini = {
     destinationNumber: true,
     personInCharge: true,
     letterCode: true,
+    signerName: true,
     classification: { select: { code: true, name: true } },
+    outgoingExpedition: true,
   },
 };
 
@@ -120,6 +132,45 @@ function publicDocument(d: any, batchId: string, itemId: string) {
 function dateOrNull(value: Date | string | null | undefined): string | null {
   if (!value) return null;
   return ymd(new Date(value));
+}
+
+function presentOutgoingLetter(letter: any) {
+  if (!letter) return null;
+  return {
+    ...letter,
+    letterDate: dateOrNull(letter.letterDate),
+    outgoingExpedition: publicOutgoingExpedition(letter.outgoingExpedition),
+  };
+}
+
+function legacyExpeditionStatus(batch: any) {
+  if (batch.receiptNumber || batch.receiptDate) return 'DITERIMA';
+  if (batch.expeditionNumber || batch.expeditionDate || batch.courierName) return 'DIKIRIM';
+  return 'BELUM_DICATAT';
+}
+
+/**
+ * Ringkasan batch yang dipakai list/detail. Sumber kebenaran ekspedisi adalah
+ * `ekspedisi_surat_keluar`; kolom lama pada usulan_pensiun tetap dipertahankan
+ * sebagai fallback data historis.
+ */
+function presentPensionBatch(batch: any) {
+  const expedition = batch.outgoingLetter?.outgoingExpedition ?? null;
+  const outgoingLetterNumber = batch.outgoingLetter?.letterNumber ?? batch.outgoingLetterNumber ?? null;
+  return {
+    ...batch,
+    outgoingLetter: presentOutgoingLetter(batch.outgoingLetter),
+    outgoingLetterNumber,
+    outgoingLetterDate: dateOrNull(batch.outgoingLetter?.letterDate) ?? dateOrNull(batch.outgoingLetterDate),
+    agendaNumber: batch.agendaNumber ?? outgoingLetterNumber,
+    expeditionStatus: expedition ? outgoingExpeditionStatus(expedition) : legacyExpeditionStatus(batch),
+    expeditionNumber: expedition?.regNumber ?? batch.expeditionNumber ?? null,
+    expeditionDate: dateOrNull(expedition?.sentAt) ?? dateOrNull(batch.expeditionDate),
+    courierName: expedition?.courierName ?? batch.courierName ?? null,
+    receiptNumber: expedition?.receiptNumber ?? batch.receiptNumber ?? null,
+    receiptDate: dateOrNull(expedition?.receivedDate) ?? dateOrNull(batch.receiptDate),
+    receivedBy: expedition?.receivedByName ?? batch.receivedBy ?? null,
+  };
 }
 
 function employeeScope(req: any): string | null {
@@ -188,7 +239,7 @@ async function toDetail(r: any, user: any, scopeEmployeeId?: string | null) {
   const available = filterActionsForUser(availableActions(r.status, user.permissions), user);
   const s = await signers();
   return {
-    ...r,
+    ...presentPensionBatch(r),
     items,
     statusLabel: PENSION_STATUS_LABELS[r.status] ?? r.status,
     availableActions: available,
@@ -249,13 +300,16 @@ function actionSchema(action: string) {
       return z.object({
         expeditionNumber: z.string().min(1).max(50).optional(),
         expeditionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        sentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         courierName: z.string().min(1, 'Nama pendistribusi wajib').max(150),
+        recipientName: z.string().max(200).optional(),
         note,
       });
     case 'send':
       return z.object({
         receiptNumber: z.string().min(1, 'Nomor tanda terima wajib').max(100),
         receiptDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Tanggal tanda terima wajib'),
+        receivedByName: z.string().max(150).optional(),
         receivedBy: z.string().max(150).optional(),
         note,
       });
@@ -265,9 +319,24 @@ function actionSchema(action: string) {
 }
 
 // ---------------- Notifikasi alur ----------------
+// Penerima mengikuti jabatan pelaksana tahap berikutnya, termasuk Plt aktif.
+// Fallback permission dipakai bila jabatan belum diisi pada akun.
+const NEXT_POSITION: Record<string, string | null> = {
+  verify: 'SEKCAM',
+  revise: 'STAF_KEPEGAWAIAN',
+  paraf: 'CAMAT',
+  approve: 'STAF_KEPEGAWAIAN',
+  register: 'STAF_KEPEGAWAIAN',
+  expedite: 'STAF_KEPEGAWAIAN',
+  send: null,
+  complete: null,
+  archive: null,
+  reject: null,
+};
+
 const NEXT_PERMISSION: Record<string, string | null> = {
   verify: 'pension.paraf',
-  revise: 'pension.verify',
+  revise: 'pension.create',
   paraf: 'pension.approve',
   approve: 'pension.register',
   register: 'pension.expedite',
@@ -278,23 +347,14 @@ const NEXT_PERMISSION: Record<string, string | null> = {
   reject: null,
 };
 
-async function pensionUsersForPermission(code: string): Promise<string[]> {
-  const ids = await usersForPermission(code);
-  if (code === 'pension.paraf') {
-    const users = await prisma.user.findMany({
-      where: { id: { in: ids }, position: 'SEKCAM', isActive: true },
-      select: { id: true },
-    });
-    return users.map((u) => u.id);
+async function pensionRecipientsForAction(action: string): Promise<string[]> {
+  const position = NEXT_POSITION[action];
+  if (position) {
+    const ids = await userIdsForPosition(position);
+    if (ids.length) return ids;
   }
-  if (code === 'pension.approve') {
-    const users = await prisma.user.findMany({
-      where: { id: { in: ids }, position: 'CAMAT', isActive: true },
-      select: { id: true },
-    });
-    return users.map((u) => u.id);
-  }
-  return ids;
+  const permission = NEXT_PERMISSION[action];
+  return permission ? usersForPermission(permission) : [];
 }
 
 async function notifyPensionTransition(opts: {
@@ -310,10 +370,7 @@ async function notifyPensionTransition(opts: {
 }) {
   try {
     const ids = new Set<string>();
-    const next = NEXT_PERMISSION[opts.action];
-    if (next) {
-      for (const id of await pensionUsersForPermission(next)) ids.add(id);
-    }
+    for (const id of await pensionRecipientsForAction(opts.action)) ids.add(id);
     const items = await prisma.pensionItem.findMany({
       where: { batchId: opts.batchId },
       select: { employeeId: true },
@@ -341,6 +398,65 @@ async function notifyPensionTransition(opts: {
     });
   } catch (e) {
     console.error('notify pensiun gagal:', (e as Error).message);
+  }
+}
+
+// Notifikasi permintaan verifikasi ke Kasubag ketika seluruh dokumen inti
+// sudah lengkap. Dipanggil setelah upload dokumen atau perubahan data pada
+// DRAFT/REVISION. Dedupe memakai waktu revisi terakhir agar draf yang sama tidak
+// mengirim notifikasi berulang, tetapi revisi berikutnya tetap memicu permintaan baru.
+async function notifyPensionReadyForVerification(opts: {
+  batchId: string;
+  actorId: string;
+}) {
+  try {
+    const batch = await prisma.pensionBatch.findUnique({
+      where: { id: opts.batchId },
+      include: {
+        items: { include: { documents: true } },
+      },
+    });
+    if (!batch || !['DRAFT', 'REVISION'].includes(batch.status)) return;
+    if (batch.items.length === 0) return;
+    if (batch.items.some((item) => missingPensionDocs(item.documents).length > 0)) return;
+
+    const lastRevision = await prisma.pensionApproval.findFirst({
+      where: { batchId: batch.id, action: 'REVISE' },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    const windowStart = lastRevision?.createdAt ?? batch.createdAt;
+    const existing = await prisma.notification.findFirst({
+      where: {
+        type: 'PENSIUN_READY',
+        referenceType: 'pension_batch',
+        referenceId: batch.id,
+        createdAt: { gte: windowStart },
+      },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    const recipients = (await userIdsForPosition('KASUBAG')).filter((id) => id !== opts.actorId);
+    if (!recipients.length) return;
+
+    const actor = await prisma.user.findUnique({
+      where: { id: opts.actorId },
+      include: { employee: { select: { name: true } } },
+    });
+    const actorName = actor?.employee?.name ?? actor?.username ?? 'Staf Kepegawaian';
+    await prisma.notification.createMany({
+      data: recipients.map((userId) => ({
+        userId,
+        type: 'PENSIUN_READY',
+        title: `Permintaan verifikasi berkas pensiun ${batch.batchNumber}`,
+        body: `Seluruh dokumen inti ${batch.items.length} PNS sudah diunggah oleh ${actorName}. Silakan verifikasi kelengkapan berkas sebelum diteruskan ke Sekcam.`,
+        referenceType: 'pension_batch',
+        referenceId: batch.id,
+      })),
+    });
+  } catch (e) {
+    console.error('notify kesiapan verifikasi pensiun gagal:', (e as Error).message);
   }
 }
 
@@ -486,30 +602,35 @@ router.get('/register', requirePermission('pension.view'), async (req, res) => {
     },
     orderBy: { createdAt: 'desc' },
   });
-  const rows = batches.map((b: any) => ({
-    id: b.id,
-    batchNumber: b.batchNumber,
-    periodYear: b.periodYear,
-    periodMonth: b.periodMonth,
-    periodLabel: pensionPeriodLabel(b.periodYear, b.periodMonth),
-    status: b.status,
-    statusLabel: PENSION_STATUS_LABELS[b.status] ?? b.status,
-    jumlahPegawai: b.items.length,
-    pegawai: b.items.map((i: any) => ({
-      name: i.employeeName,
-      nip: i.employeeNip,
-      retirementDate: dateOrNull(i.retirementDate),
-      status: i.status,
-    })),
-    nomorSurat: b.outgoingLetterNumber ?? b.outgoingLetter?.letterNumber ?? null,
-    tanggalSurat: dateOrNull(b.outgoingLetterDate ?? b.outgoingLetter?.letterDate),
-    nomorAgenda: b.agendaNumber,
-    nomorEkspedisi: b.expeditionNumber,
-    tanggalEkspedisi: dateOrNull(b.expeditionDate),
-    nomorTandaTerima: b.receiptNumber,
-    tanggalTandaTerima: dateOrNull(b.receiptDate),
-    createdAt: dateOrNull(b.createdAt),
-  }));
+  const rows = batches.map((b: any) => {
+    const view = presentPensionBatch(b);
+    return {
+      id: b.id,
+      batchNumber: b.batchNumber,
+      periodYear: b.periodYear,
+      periodMonth: b.periodMonth,
+      periodLabel: pensionPeriodLabel(b.periodYear, b.periodMonth),
+      status: b.status,
+      statusLabel: PENSION_STATUS_LABELS[b.status] ?? b.status,
+      jumlahPegawai: b.items.length,
+      pegawai: b.items.map((i: any) => ({
+        name: i.employeeName,
+        nip: i.employeeNip,
+        retirementDate: dateOrNull(i.retirementDate),
+        status: i.status,
+      })),
+      nomorSurat: view.outgoingLetterNumber ?? view.outgoingLetter?.letterNumber ?? null,
+      tanggalSurat: dateOrNull(view.outgoingLetterDate ?? view.outgoingLetter?.letterDate),
+      nomorAgenda: b.agendaNumber,
+      nomorEkspedisi: view.expeditionNumber,
+      tanggalEkspedisi: view.expeditionDate,
+      nomorTandaTerima: view.receiptNumber,
+      tanggalTandaTerima: view.receiptDate,
+      statusEkspedisi: view.expeditionStatus,
+      outgoingLetterId: view.outgoingLetterId,
+      createdAt: dateOrNull(b.createdAt),
+    };
+  });
   return ok(res, rows, 'ok', { total: rows.length });
 });
 
@@ -546,36 +667,41 @@ router.get('/nominative', requirePermission('pension.view'), async (req, res) =>
     },
     orderBy: [{ batch: { periodYear: 'desc' } }, { employeeName: 'asc' }],
   });
-  const rows = items.map((item: any, index: number) => ({
-    nomor: index + 1,
-    itemId: item.id,
-    batchId: item.batchId,
-    batchNumber: item.batch.batchNumber,
-    periodYear: item.batch.periodYear,
-    periodMonth: item.batch.periodMonth,
-    periodLabel: pensionPeriodLabel(item.batch.periodYear, item.batch.periodMonth),
-    employeeId: item.employeeId,
-    employeeName: item.employeeName,
-    employeeNip: item.employeeNip,
-    employeeNumber: item.employeeNumber,
-    rank: item.rank,
-    position: item.position,
-    orgUnitName: item.orgUnitName,
-    birthDate: dateOrNull(item.birthDate),
-    retirementDate: dateOrNull(item.retirementDate),
-    bupAge: item.bupAge,
-    yearsOfService: item.yearsOfService,
-    pensionType: item.pensionType,
-    itemStatus: item.status,
-    batchStatus: item.batch.status,
-    statusLabel: PENSION_STATUS_LABELS[item.batch.status] ?? item.batch.status,
-    documentsChecklist: pensionDocChecklist(item.documents ?? []),
-    missingDocuments: missingPensionDocs(item.documents ?? []),
-    nomorSurat: item.batch.outgoingLetterNumber ?? item.batch.outgoingLetter?.letterNumber ?? null,
-    nomorAgenda: item.batch.agendaNumber,
-    nomorTandaTerima: item.batch.receiptNumber,
-    tanggalTandaTerima: dateOrNull(item.batch.receiptDate),
-  }));
+  const rows = items.map((item: any, index: number) => {
+    const view = presentPensionBatch(item.batch);
+    return {
+      nomor: index + 1,
+      itemId: item.id,
+      batchId: item.batchId,
+      batchNumber: item.batch.batchNumber,
+      periodYear: item.batch.periodYear,
+      periodMonth: item.batch.periodMonth,
+      periodLabel: pensionPeriodLabel(item.batch.periodYear, item.batch.periodMonth),
+      employeeId: item.employeeId,
+      employeeName: item.employeeName,
+      employeeNip: item.employeeNip,
+      employeeNumber: item.employeeNumber,
+      rank: item.rank,
+      position: item.position,
+      orgUnitName: item.orgUnitName,
+      birthDate: dateOrNull(item.birthDate),
+      retirementDate: dateOrNull(item.retirementDate),
+      bupAge: item.bupAge,
+      yearsOfService: item.yearsOfService,
+      pensionType: item.pensionType,
+      itemStatus: item.status,
+      batchStatus: item.batch.status,
+      statusLabel: PENSION_STATUS_LABELS[item.batch.status] ?? item.batch.status,
+      documentsChecklist: pensionDocChecklist(item.documents ?? []),
+      missingDocuments: missingPensionDocs(item.documents ?? []),
+      nomorSurat: view.outgoingLetterNumber ?? view.outgoingLetter?.letterNumber ?? null,
+      nomorAgenda: item.batch.agendaNumber,
+      nomorEkspedisi: view.expeditionNumber,
+      statusEkspedisi: view.expeditionStatus,
+      nomorTandaTerima: view.receiptNumber,
+      tanggalTandaTerima: view.receiptDate,
+    };
+  });
   return ok(res, rows, 'ok', { total: rows.length });
 });
 
@@ -587,41 +713,64 @@ router.get('/expedition-book', requirePermission('pension.view'), async (req, re
   const fromDate = from ? parseYMD(String(from)) : null;
   const toDate = to ? parseYMD(String(to)) : null;
   if ((from && !fromDate) || (to && !toDate)) return fail(res, 422, 'Rentang tanggal tidak valid');
-  const where: any = { expeditionDate: { not: null } };
-  if (y !== null) where.periodYear = y;
+
+  const scope = employeeScope(req);
+  const letterWhere: any = { pensionBatch: { isNot: null } };
+  if (y !== null) letterWhere.year = y;
+  if (scope) {
+    letterWhere.pensionBatch = { isNot: null, items: { some: { employeeId: scope } } };
+  }
+  const where: any = { letter: letterWhere };
   if (fromDate || toDate) {
-    where.expeditionDate = {
-      not: null,
+    where.sentAt = {
       ...(fromDate ? { gte: fromDate } : {}),
       ...(toDate ? { lte: toDate } : {}),
     };
   }
-  const scope = employeeScope(req);
-  if (scope) where.items = { some: { employeeId: scope } };
-  const batches = await prisma.pensionBatch.findMany({
+
+  const expeditions = await prisma.outgoingExpedition.findMany({
     where,
     include: {
-      outgoingLetter: outgoingMini,
-      items: {
-        ...(scope ? { where: { employeeId: scope } } : {}),
-        select: { employeeName: true, employeeNip: true },
+      letter: {
+        include: {
+          pensionBatch: {
+            include: {
+              items: {
+                ...(scope ? { where: { employeeId: scope } } : {}),
+                select: { employeeName: true, employeeNip: true },
+              },
+            },
+          },
+        },
       },
     },
-    orderBy: { expeditionDate: 'desc' },
+    orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
   });
-  const rows = batches.map((b: any) => ({
-    id: b.id,
-    tanggalEkspedisi: dateOrNull(b.expeditionDate),
-    nomorEkspedisi: b.expeditionNumber,
-    nomorSurat: b.outgoingLetterNumber ?? b.outgoingLetter?.letterNumber ?? null,
-    tujuan: b.outgoingLetter?.recipient ?? 'BKPSDMD Kota Makassar',
-    penerima: b.courierName,
-    jumlahPegawai: b.items.length,
-    pegawai: b.items,
-    status: b.status,
-    statusLabel: PENSION_STATUS_LABELS[b.status] ?? b.status,
-    catatan: b.expeditionNote,
-  }));
+
+  const rows = expeditions.map((exp: any) => {
+    const batch = exp.letter.pensionBatch;
+    return {
+      id: exp.id,
+      batchId: batch.id,
+      letterId: exp.letterId,
+      tanggalEkspedisi: dateOrNull(exp.sentAt),
+      nomorEkspedisi: exp.regNumber,
+      nomorSurat: exp.letter.letterNumber,
+      tanggalSurat: dateOrNull(exp.letter.letterDate),
+      perihal: exp.letter.subject,
+      tujuan: exp.recipientName || exp.letter.recipient || PENSION_RECIPIENT,
+      penerima: exp.courierName,
+      jumlahPegawai: batch.items.length,
+      pegawai: batch.items,
+      status: batch.status,
+      statusLabel: PENSION_STATUS_LABELS[batch.status] ?? batch.status,
+      statusEkspedisi: outgoingExpeditionStatus(exp),
+      nomorTandaTerima: exp.receiptNumber,
+      tanggalDiterima: dateOrNull(exp.receivedDate),
+      diterimaOleh: exp.receivedByName,
+      catatan: exp.note,
+    };
+  });
   return ok(res, rows, 'ok', { total: rows.length });
 });
 
@@ -661,7 +810,7 @@ router.get('/', requirePermission('pension.view'), async (req, res) => {
       take: l,
     }),
   ]);
-  return ok(res, items, 'ok', { page: p, limit: l, total });
+  return ok(res, items.map(presentPensionBatch), 'ok', { page: p, limit: l, total });
 });
 
 // POST /pension-requests (langkah 1-2: buat draf daftar nominatif)
@@ -789,6 +938,7 @@ router.patch('/:id', requirePermission('pension.create'), async (req, res) => {
     data: parsed.data,
     include: includeDetail(),
   });
+  await notifyPensionReadyForVerification({ batchId: updated.id, actorId: req.user!.id });
   return ok(res, await toDetail(updated, req.user!));
 });
 
@@ -950,6 +1100,7 @@ router.post('/:id/items/:itemId/documents', requirePermission('pension.document.
           await deleteStoredFile(d.storedPath).catch(() => undefined);
         }
       }
+      await notifyPensionReadyForVerification({ batchId: batch.id, actorId: req.user!.id });
       return res.status(201).json({
         success: true,
         message: 'Dokumen pensiun diupload',
@@ -1140,6 +1291,13 @@ router.post('/:id/:action', async (req, res) => {
         const outgoingLetterDate = outgoing?.letterDate ?? letterDate;
         const agendaNumber = b.agendaNumber?.trim() || outgoingLetterNumber;
         if (!agendaNumber) throw new NumberingError(422, 'Nomor surat/agenda wajib diisi');
+        if (outgoing) {
+          await ensureOutgoingExpedition(tx, {
+            letterId: outgoing.id,
+            recipientName: outgoing.recipient?.trim() || b.recipient?.trim() || PENSION_RECIPIENT,
+            createdBy: req.user!.id,
+          });
+        }
         data.outgoingLetterId = outgoing?.id ?? b.outgoingLetterId ?? null;
         data.outgoingLetterNumber = outgoingLetterNumber;
         data.outgoingLetterDate = outgoingLetterDate;
@@ -1149,29 +1307,58 @@ router.post('/:id/:action', async (req, res) => {
         timelineNote = [
           `Nomor surat: ${outgoingLetterNumber ?? '-'}`,
           `Nomor agenda: ${agendaNumber}`,
+          outgoing ? 'Baris Buku Ekspedisi Surat Keluar disiapkan' : null,
           b.note,
         ].filter(Boolean).join('; ');
       }
       if (action === 'expedite') {
-        const dateStr = b.expeditionDate ?? todayYMD();
+        const letterId = batch.outgoingLetterId ?? data.outgoingLetterId;
+        if (!letterId) {
+          throw new OutgoingExpeditionError(409, 'Register surat ke Buku Agenda Surat Keluar terlebih dahulu');
+        }
+        const dateStr = b.expeditionDate ?? b.sentDate ?? todayYMD();
         const expeditionDate = parseYMD(dateStr);
-        if (!expeditionDate) throw new NumberingError(422, 'Tanggal ekspedisi tidak valid');
-        data.expeditionNumber = b.expeditionNumber?.trim() || `EKSP-${batch.batchNumber}`;
+        if (!expeditionDate) throw new OutgoingExpeditionError(422, 'Tanggal ekspedisi tidak valid');
+        const expedition = await markOutgoingExpeditionSent(tx, {
+          letterId,
+          recipientName: batch.outgoingLetter?.recipient?.trim() || b.recipientName?.trim() || PENSION_RECIPIENT,
+          sentDate: dateStr,
+          courierName: b.courierName,
+          note: b.note ?? null,
+          createdBy: req.user!.id,
+        });
+        data.expeditionNumber = expedition.regNumber;
         data.expeditionDate = expeditionDate;
         data.courierName = b.courierName;
         data.expeditionNote = b.note ?? null;
         data.expeditedAt = now;
-        timelineNote = `Ekspedisi ${data.expeditionNumber}; pendistribusi: ${b.courierName}${b.note ? `; ${b.note}` : ''}`;
+        timelineNote = `Buku Ekspedisi Surat Keluar ${expedition.regNumber}; pendistribusi: ${b.courierName}${b.note ? `; ${b.note}` : ''}`;
       }
       if (action === 'send') {
+        const letterId = batch.outgoingLetterId ?? data.outgoingLetterId;
+        if (!letterId) {
+          throw new OutgoingExpeditionError(409, 'Register surat ke Buku Agenda Surat Keluar terlebih dahulu');
+        }
         const receiptDate = parseYMD(b.receiptDate);
-        if (!receiptDate) throw new NumberingError(422, 'Tanggal tanda terima tidak valid');
+        if (!receiptDate) throw new OutgoingExpeditionError(422, 'Tanggal tanda terima tidak valid');
+        const expedition = await markOutgoingExpeditionReceived(tx, {
+          letterId,
+          recipientName: batch.outgoingLetter?.outgoingExpedition?.recipientName
+            || batch.outgoingLetter?.recipient
+            || PENSION_RECIPIENT,
+          receivedDate: b.receiptDate,
+          receivedByName: b.receivedByName?.trim() || b.receivedBy?.trim() || PENSION_RECIPIENT,
+          receiptNumber: b.receiptNumber,
+          note: b.note ?? null,
+          receivedBy: req.user!.id,
+          createdBy: req.user!.id,
+        });
         data.receiptNumber = b.receiptNumber;
         data.receiptDate = receiptDate;
-        data.receivedBy = b.receivedBy?.trim() || 'BKPSDMD Kota Makassar';
+        data.receivedBy = expedition.receivedByName ?? b.receivedBy?.trim() ?? PENSION_RECIPIENT;
         data.sendNote = b.note ?? null;
         data.sentAt = now;
-        timelineNote = `Tanda terima ${b.receiptNumber} (${b.receiptDate})${b.note ? `; ${b.note}` : ''}`;
+        timelineNote = `Bukti terima ${b.receiptNumber} (${b.receiptDate})${b.note ? `; ${b.note}` : ''}`;
       }
       if (action === 'complete') data.completedAt = now;
       if (action === 'archive') data.archivedAt = now;
@@ -1210,7 +1397,9 @@ router.post('/:id/:action', async (req, res) => {
     });
     return ok(res, await toDetail(full, req.user!), `${action} berhasil`);
   } catch (e: any) {
-    if (e instanceof NumberingError) return fail(res, e.status, e.message);
+    if (e instanceof NumberingError || e instanceof OutgoingExpeditionError) {
+      return fail(res, e.status, e.message);
+    }
     if (e?.code === 'P2002') return fail(res, 409, 'Nomor surat/agenda bentrok, ulangi');
     throw e;
   }

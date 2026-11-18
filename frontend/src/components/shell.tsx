@@ -29,6 +29,7 @@ const SECTIONS: Array<{
     items: [
       { href: "/", label: "Dashboard", icon: Icons.grid, perm: "" },
       { href: "/notifikasi", label: "Notifikasi", icon: Icons.bell, perm: "" },
+      { href: "/profil", label: "Profil Saya", icon: Icons.user, perm: "" },
     ],
   },
   {
@@ -101,8 +102,8 @@ const SECTIONS: Array<{
         perm: "letter.view",
         children: [
           { href: "/surat-masuk/baru", label: "Pencatatan Baru", perm: "letter.create" },
-          { href: "/surat-masuk/agenda", label: "Buku Agenda", perm: "letter.view", hideForEmployee: true },
-          { href: "/surat-masuk/ekspedisi", label: "Buku Ekspedisi", perm: "letter.view", hideForEmployee: true },
+          { href: "/surat-masuk/agenda", label: "Buku Agenda Surat Masuk", perm: "letter.view", hideForEmployee: true },
+          { href: "/surat-masuk/ekspedisi", label: "Buku Ekspedisi Surat Masuk", perm: "letter.view", hideForEmployee: true },
         ],
       },
       {
@@ -112,7 +113,8 @@ const SECTIONS: Array<{
         perm: "outgoing.view",
         children: [
           { href: "/surat-keluar/baru", label: "Buat / Booking Nomor", perm: "outgoing.view" },
-          { href: "/surat-keluar/agenda", label: "Buku Agenda", perm: "outgoing.view" },
+          { href: "/surat-keluar/agenda", label: "Buku Agenda Surat Keluar", perm: "outgoing.view" },
+          { href: "/surat-keluar/ekspedisi", label: "Buku Ekspedisi Surat Keluar", perm: "outgoing.view" },
         ],
       },
     ],
@@ -134,6 +136,12 @@ const SECTIONS: Array<{
   {
     title: "Administrasi",
     items: [
+      {
+        href: "/pengguna",
+        label: "Kelola Pengguna",
+        icon: Icons.users,
+        perm: "user.manage",
+      },
       {
         href: "/pengguna/plt",
         label: "Penugasan Plt",
@@ -178,12 +186,13 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/kenaikan-pangkat\/[^/]+$/, "Detail Usulan Kenaikan Pangkat"],
   [/^\/kenaikan-pangkat$/, "Daftar Usulan Kenaikan Pangkat"],
   [/^\/surat-masuk\/agenda$/, "Buku Agenda Surat Masuk"],
-  [/^\/surat-masuk\/ekspedisi$/, "Buku Ekspedisi"],
+  [/^\/surat-masuk\/ekspedisi$/, "Buku Ekspedisi Surat Masuk"],
   [/^\/surat-masuk\/baru$/, "Pencatatan Surat Masuk"],
   [/^\/surat-masuk\/[^/]+\/agenda$/, "Atur Agenda Kegiatan"],
   [/^\/surat-masuk\/[^/]+\/lembar-disposisi$/, "Lembar Disposisi"],
   [/^\/surat-masuk/, "Surat Masuk & Disposisi"],
   [/^\/surat-keluar\/agenda$/, "Buku Agenda Surat Keluar"],
+  [/^\/surat-keluar\/ekspedisi$/, "Buku Ekspedisi Surat Keluar"],
   [/^\/surat-keluar\/baru$/, "Surat Keluar Baru"],
   [/^\/surat-keluar/, "Surat Keluar & Penomoran"],
   [/^\/kgb\/baru$/, "Pengajuan KGB Baru"],
@@ -197,7 +206,9 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/arsip\/daftar$/, "Daftar Arsip"],
   [/^\/arsip$/, "Buku Arsip"],
   [/^\/notifikasi$/, "Notifikasi"],
+  [/^\/profil$/, "Profil Saya"],
   [/^\/pengguna\/plt$/, "Penugasan Plt"],
+  [/^\/pengguna$/, "Kelola Pengguna"],
   [/^\/$/, "Dashboard"],
 ];
 
@@ -213,7 +224,9 @@ const SUBTITLES: Array<[RegExp, string]> = [
   [/^\/kenaikan-pangkat$/, "Kelola pengajuan kenaikan pangkat ASN"],
   [/^\/arsip$/, "Penyimpanan dan penelusuran arsip"],
   [/^\/notifikasi$/, "Disposisi dan informasi untuk Anda"],
+  [/^\/profil$/, "Informasi akun, kontak, dan data kepegawaian Anda"],
   [/^\/pengguna\/plt$/, "Catat pejabat pelaksana tugas tanpa mengubah jabatan utama"],
+  [/^\/pengguna$/, "Buat akun, atur role, dan lengkapi data pegawai untuk simulasi pensiun/KGB"],
   [/^\/$/, "Ruang kerja administrasi kecamatan"],
 ];
 
@@ -611,7 +624,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="app-shell flex h-dvh overflow-hidden bg-canvas text-ink">
+    <div className="app-shell flex h-dvh overflow-clip bg-canvas text-ink">
       {/* ---------------- Sidebar desktop ---------------- */}
       <aside className="hidden w-[264px] shrink-0 flex-col border-r border-line bg-surface lg:flex">
         <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-chrome-line bg-chrome px-4">
@@ -649,7 +662,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="shrink-0 border-t border-line p-3">
-          <div className="flex items-center gap-2 rounded-lg px-1 py-1.5">
+          <Link
+            href="/profil"
+            aria-label="Buka Profil Saya"
+            className="flex items-center gap-2 rounded-lg px-1 py-1.5 transition-colors hover:bg-paper"
+          >
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-900 text-[11px] font-semibold text-white">
               {initials(displayName)}
             </div>
@@ -657,7 +674,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <p className="truncate text-[13px] font-semibold text-ink">{displayName}</p>
               <p className="truncate text-[11px] text-muted">{roleLine || "—"}</p>
             </div>
-          </div>
+            <Icons.chevronRight className="h-4 w-4 shrink-0 text-muted" />
+          </Link>
           <button
             onClick={() => void doLogout()}
             className="mt-1 flex h-9 w-full items-center gap-2 rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-bad-100/50 hover:text-bad-700"
@@ -763,7 +781,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="shrink-0 border-t border-line p-3">
-            <div className="flex items-center gap-2 rounded-lg px-1 py-1.5">
+            <Link
+              href="/profil"
+              onClick={() => setDrawerOpen(false)}
+              aria-label="Buka Profil Saya"
+              className="flex items-center gap-2 rounded-lg px-1 py-1.5 transition-colors hover:bg-paper"
+            >
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-900 text-[11px] font-semibold text-white">
                 {initials(displayName)}
               </div>
@@ -771,7 +794,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <p className="truncate text-[13px] font-semibold text-ink">{displayName}</p>
                 <p className="truncate text-[11px] text-muted">{roleLine || "—"}</p>
               </div>
-            </div>
+              <Icons.chevronRight className="h-4 w-4 shrink-0 text-muted" />
+            </Link>
             <button
               onClick={() => {
                 setDrawerOpen(false);
@@ -821,14 +845,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               ) : null}
             </Link>
 
-            <div className="flex shrink-0 items-center gap-2 rounded-lg border border-white/20 bg-white/10 py-1 pl-1 pr-2">
+            <Link
+              href="/profil"
+              aria-label="Buka Profil Saya"
+              title="Profil Saya"
+              className="flex shrink-0 items-center gap-2 rounded-lg border border-white/20 bg-white/10 py-1 pl-1 pr-2 transition-colors hover:bg-white/15"
+            >
               <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/15 text-[10px] font-semibold text-chrome-ink">
                 {initials(displayName)}
               </span>
               <span className="hidden max-w-[120px] truncate text-xs font-medium text-chrome-ink sm:inline">
                 {displayName.split(" ")[0]}
               </span>
-            </div>
+            </Link>
           </div>
         </header>
 

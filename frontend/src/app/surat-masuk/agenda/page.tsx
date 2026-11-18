@@ -39,12 +39,15 @@ interface AgendaRow {
 
 const STATUS_OPTIONS = [
   { value: "", label: "Semua status register" },
+  { value: "DRAFT_TU", label: "Draft TU" },
+  { value: "REVISI_TU", label: "Perlu Revisi TU" },
   { value: "REVIEW_SEKCAM", label: "Menunggu Sekcam" },
   { value: "DISPOSISI_CAMAT", label: "Menunggu Disposisi Camat" },
   { value: "DITERUSKAN", label: "Diteruskan" },
   { value: "PROSES", label: "Diproses" },
   { value: "MENUNGGU_ARSIP", label: "Menunggu Arsip" },
   { value: "DIARSIPKAN", label: "Diarsipkan" },
+  { value: "DIBATALKAN", label: "Dibatalkan" },
 ];
 
 function displayDate(value?: string | null) {
@@ -108,6 +111,7 @@ export default function AgendaSuratMasukPage() {
           <h1 className="text-xl font-bold">Buku Agenda Surat Masuk</h1>
           <p className="mt-0.5 text-sm text-muted">
             Register surat masuk. Instruksi Camat diambil dari disposisi aktif; status default menunggu Sekcam sampai diarsipkan.
+            Serah terima ke penerima dicatat di Buku Ekspedisi Surat Masuk.
           </p>
         </div>
         <div className="ml-auto flex gap-1">

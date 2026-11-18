@@ -364,9 +364,9 @@ export default function PresensiPage() {
         method: "POST",
         body: JSON.stringify({ weekStart }),
       });
-      toast.success((raw as { message?: string })?.message ?? "Surat teguran diproses");
+      toast.success((raw as { message?: string })?.message ?? "Laporan presensi diproses");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal membuat surat teguran");
+      toast.error(err instanceof Error ? err.message : "Gagal membuat laporan presensi");
     }
   }
 
@@ -407,7 +407,7 @@ export default function PresensiPage() {
           href="/presensi/teguran"
           className="mt-2 inline-block rounded-lg border border-line px-3 py-1.5 text-sm font-semibold hover:bg-paper"
         >
-          {isEmployee ? "Surat teguran saya" : "Daftar teguran"}
+          {isEmployee ? "Laporan & surat teguran saya" : "Laporan & teguran"}
         </Link>
       ) : null}
 
@@ -421,8 +421,8 @@ export default function PresensiPage() {
         ) : rec ? (
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
             <StatusBadge status={rec.status} />
-            <span>Masuk: {rec.checkInAt ? new Date(rec.checkInAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-"}</span>
-            <span>Pulang: {rec.checkOutAt ? new Date(rec.checkOutAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-"}</span>
+            <span>Masuk: {rec.checkInAt ? new Date(rec.checkInAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false }) : "-"}</span>
+            <span>Pulang: {rec.checkOutAt ? new Date(rec.checkOutAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false }) : "-"}</span>
             {canCheckin && !rec.checkOutAt ? (
               <button disabled={acting !== null} onClick={() => void check("out")} className="rounded-lg bg-brand-900 px-4 py-2 font-semibold text-white hover:bg-brand-800 disabled:opacity-50">
                 {acting === "out" ? "Memproses…" : "Check-out pulang"}
@@ -557,7 +557,7 @@ export default function PresensiPage() {
                     {v ? (
                       <>
                         <span className="text-muted">
-                          {v.checkInAt ? new Date(v.checkInAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "tanpa presensi"}
+                          {v.checkInAt ? new Date(v.checkInAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false }) : "tanpa presensi"}
                         </span>
                         <StatusBadge status={v.status} />
                         {v.recorder && v.method !== "SELF" ? <TrailBadge text={`Diisi ${actorDisplay(v.recorder)}`} /> : null}
@@ -565,7 +565,7 @@ export default function PresensiPage() {
                         <span className="ml-auto flex items-center gap-1.5">
                           <input
                             id={`t-${v.id}`}
-                            defaultValue={v.checkInAt ? new Date(v.checkInAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }).replace(".", ":") : ""}
+                            defaultValue={v.checkInAt ? new Date(v.checkInAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false }).replace(".", ":") : ""}
                             placeholder="HH:MM"
                             pattern="^\d{1,2}:\d{2}$"
                             disabled={patching !== null || repLocked}
@@ -794,16 +794,16 @@ export default function PresensiPage() {
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-semibold">Pegawai bermasalah (≥5 TK/minggu)</h3>
               <Link href="/presensi/teguran" className="rounded-lg border border-line px-3 py-1.5 text-sm font-semibold hover:bg-paper">
-                Daftar teguran
+                Daftar laporan
               </Link>
               {canManage ? (
                 <button onClick={() => void generateWarnings()} className="rounded-lg bg-brand-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-800">
-                  Terbitkan &amp; lapor ke Sekcam (pekan {weekStart})
+                  Buat laporan &amp; kirim ke Sekcam (pekan {weekStart})
                 </button>
               ) : null}
             </div>
             <p className="mt-1 text-xs text-muted">
-              Surat teguran yang diterbitkan otomatis dikirim ke notifikasi Sekcam dan Camat untuk ditindaklanjuti.
+              Laporan dikirim ke Sekcam terlebih dahulu. Setelah Sekcam meneruskan ke Camat, Camat memutuskan tindak lanjut: surat teguran atau pembinaan Kasi.
             </p>
             {problematic.length === 0 ? (
               <p className="mt-2 text-sm text-muted">Tidak ada pegawai bermasalah pekan ini.</p>

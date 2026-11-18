@@ -46,6 +46,14 @@ export default function ArsipDaftarPage() {
   }, [statusFilter, year, page]);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const s = params.get("status");
+    if (s === "DRAFT" || s === "SIGNED") setStatusFilter(s);
+    const y = params.get("year");
+    if (y) setYear(y);
+  }, []);
+
+  useEffect(() => {
     void load();
   }, [load]);
 

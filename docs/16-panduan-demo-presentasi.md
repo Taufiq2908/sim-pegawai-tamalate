@@ -53,7 +53,7 @@ Halaman login juga menyediakan tombol akun demo yang langsung mengisi username/p
 |---|---|---|---|---|---|
 | `pegawai1` | `Pegawai123!` | EMPLOYEE | STAF | Ahmad Pegawai | pemohon cuti/KGB, presensi |
 | `pegawai2` | `Pegawai123!` | EMPLOYEE | STAF | Budi Kelurahan | contoh pegawai kelurahan, KGB/cuti |
-| `verifier1` | `Verifier123!` | VERIFIER | STAF_KEPEGAWAIAN | Staf Kepegawaian | operator surat, registrasi cuti/KGB, kirim pensiun, legalisasi/register pangkat, buku/daftar arsip |
+| `verifier1` | `Verifier123!` | VERIFIER | STAF_KEPEGAWAIAN | Staf Kepegawaian | operator surat, registrasi cuti/KGB, draf/register/ekspedisi/kirim pensiun, legalisasi/register pangkat, buku/daftar arsip |
 | `kasi1` | `Kasi123!` | SUPERVISOR | KASI | Kasi Pemerintahan | pertimbangan atasan cuti, penerima disposisi |
 | `kasubag1` | `Kasubag123!` | SUPERVISOR | KASUBAG | Kasubag Umum | verifikasi cuti/KGB/pensiun/pangkat, presensi, teguran |
 | `sekcam1` | `Sekcam123!` | LEADER | SEKCAM | Sekcam Satu | paraf, teruskan surat, arsip |
@@ -69,6 +69,17 @@ Catatan:
   kantor kecamatan tetap bisa mengajukan, tetapi registrasi BKPSDM dilakukan staf kecamatan.
 - `pangkat1` sudah masuk batch `PANGKAT-2026-0001`, jadi untuk membuat usulan baru pilih
   ASN lain yang eligible, misalnya `Ahmad Pegawai`.
+- Login `superadmin` untuk membuka menu **Administrasi → Kelola Pengguna**. Di sana
+  akun baru dibuat sekaligus dengan data pegawai, role dapat diubah, dan akun tanpa
+  riwayat dapat dihapus permanen. Akun yang sudah punya transaksi akan dinonaktifkan.
+- Setiap akun dapat membuka **Profil Saya** dari menu Utama atau kartu pengguna di
+  sidebar/header. Halaman ini menampilkan data akun dan kepegawaian, serta form untuk
+  mengisi email dan nomor telepon sendiri. Email baru disiapkan untuk notifikasi;
+  pengiriman otomatis belum aktif.
+- Tombol **Isi contoh pensiun 58 th** menyiapkan akun VERIFIER dengan tanggal lahir 58
+  tahun lalu; tombol **Isi contoh pegawai KGB** menyiapkan pegawai dengan masa kerja
+  4 tahun dan golongan III/a. Setelah disimpan, akun dapat langsung dipakai untuk
+  mengajukan pensiun/KGB.
 
 ### 1.4 Data demo siap pakai
 
@@ -82,7 +93,7 @@ Cek kembali statusnya sebelum presentasi. Nomor record di bawah adalah snapshot 
 | Cuti | `CUTI-2026-0070` — Ahmad | `ARCHIVED` | contoh riwayat selesai |
 | KGB | `KGB-2026-0014` — Budi | `APPROVED` | register, kirim BKPSDM, selesai, arsip |
 | KGB | `KGB-2026-0013` — Ahmad | `ARCHIVED` | contoh isi buku register |
-| Pensiun | `PENSIUN-2026-0001` — Siti | `VERIFIED` | paraf Sekcam lalu keputusan Camat |
+| Pensiun | `PENSIUN-2026-0001` — Siti | `APPROVED` | lanjut register, ekspedisi, dan tanda terima; uji dari BUP memakai database salinan |
 | Pangkat | `PANGKAT-2026-0001` — Andi | `ARCHIVED` | contoh batch selesai; buat batch baru dari Daftar Calon |
 | Surat masuk | `AGENDA-2026-0042` | `REVIEW_SEKCAM` | sudah dinormalisasi; Sekcam teruskan → Camat disposisi |
 | Surat masuk | `AGENDA-2026-0040` | `PROSES` | contoh surat dalam proses; target KASI_PEM sudah menerima, SEKCAM masih pending |
@@ -115,9 +126,9 @@ Semua berkas maksimal 5 MB untuk cuti/KGB/pensiun dan 10 MB untuk surat.
 | Aktor | Role sistem | Yang boleh dilakukan | Yang tidak boleh |
 |---|---|---|---|
 | Pegawai | `EMPLOYEE` | presensi sendiri, ajukan cuti/KGB, lihat surat yang melibatkan dirinya | memverifikasi, menyetujui, mengelola pegawai lain |
-| Staf Kepegawaian/Arsip | `VERIFIER` | catat surat masuk, buat/booking surat keluar, register cuti/KGB, kirim pensiun, legalisasi/register pangkat, susun daftar arsip, kelola presensi | memutuskan cuti, memaraf, approve, register pensiun |
+| Staf Kepegawaian/Arsip | `VERIFIER` | catat surat masuk, buat/booking surat keluar, register cuti/KGB, susun draf pensiun, unggah dokumen, register/ekspedisi/kirim pensiun, legalisasi/register pangkat, susun daftar arsip, kelola presensi | memutuskan cuti, memaraf, approve, verifikasi pensiun |
 | Atasan langsung/Kasi | `SUPERVISOR` + `KASI` | pertimbangan cuti, menerima dan menindaklanjuti disposisi | verifikasi berkas, paraf, approve |
-| Kasubag Umum & Kepegawaian | `SUPERVISOR` + `KASUBAG` | verifikasi cuti/KGB/pensiun/pangkat, rekap presensi, input presensi, terbitkan teguran, register | paraf Sekcam, keputusan Camat |
+| Kasubag Umum & Kepegawaian | `SUPERVISOR` + `KASUBAG` | verifikasi cuti/KGB/pensiun/pangkat, rekap presensi, input presensi, terbitkan teguran | paraf Sekcam, keputusan Camat, register/ekspedisi pensiun |
 | Sekcam | `LEADER` + `SEKCAM` | paraf cuti/KGB/pensiun/pangkat, teruskan surat ke Camat, setujui arsip, teruskan teguran | approve cuti, disposisi Camat |
 | Camat | `LEADER` + `CAMAT` | keputusan akhir cuti/KGB/pensiun/pangkat, disposisi surat, setujui arsip, instruksi teguran | paraf Sekcam |
 | Super Admin | `SUPER_ADMIN` | semua akses teknis | bukan peserta apel |
@@ -247,8 +258,8 @@ pengingat KGB.
 **Fungsi**
 
 Mencatat apel pagi dan sore, memvalidasi daftar hadir harian, merekap per pekan,
-mendeteksi pegawai dengan ≥5 sesi tanpa keterangan, lalu menerbitkan surat teguran
-dan pembinaan.
+mendeteksi pegawai dengan ≥5 sesi tanpa keterangan, mengirim laporan ke Sekcam,
+lalu Camat memutuskan surat teguran atau pembinaan Kasi.
 
 **Aktor**
 
@@ -256,10 +267,11 @@ dan pembinaan.
 |---|---|
 | Check-in/check-out | pegawai |
 | Validasi harian, input manual, kunci harian | Kasubag |
-| Rekap pekan, deteksi bermasalah, terbitkan teguran | Kasubag |
-| Teruskan laporan teguran | Sekcam |
-| Instruksi tindak lanjut | Camat |
+| Rekap pekan, deteksi bermasalah, buat laporan | Kasubag |
+| Teruskan laporan ke Camat | Sekcam |
+| Keputusan tindak lanjut / pembinaan Kasi | Camat |
 | Jadwalkan panggilan & catat hasil pembinaan | Kasubag |
+| Pembinaan untuk keputusan tanpa surat teguran | Kasi |
 
 #### A. Pegawai melakukan presensi
 
@@ -308,48 +320,47 @@ dan pembinaan.
 > koreksi per baris dengan jejak audit, foto apel sebagai bukti, dan deteksi otomatis
 > pegawai yang tidak hadir lima sesi atau lebih dalam sepekan.”
 
-#### C. Alur surat teguran dan pembinaan
+#### C. Alur laporan, keputusan Camat, dan pembinaan
 
-Gunakan data `TEGURAN-2026-0024` (Staf Kepegawaian) atau `TEGURAN-2026-0023` (Siti Pensiun).
+Gunakan data `TEGURAN-2026-0024` (Staf Kepegawaian) atau `TEGURAN-2026-0023`
+(Siti Pensiun).
 
 1. Login `kasubag1`.
-2. Buka **Presensi → Daftar teguran** (atau dari bagian pegawai bermasalah).
+2. Buka **Presensi → Daftar laporan** (atau dari bagian pegawai bermasalah).
 3. Buka `TEGURAN-2026-0024`.
-4. Tunjukkan isi surat teguran, jumlah TK, pekan, dan tombol **Cetak**.
-5. Perhatikan bagian **Pembinaan**: masih ada peringatan bahwa pembinaan baru bisa
-   dijadwalkan setelah Sekcam meneruskan dan Camat memberi instruksi.
+4. Tunjukkan isi laporan, jumlah TK, pekan, dan tombol **Cetak**.
+5. Perhatikan bagian **Pembinaan**: masih menunggu Sekcam meneruskan dan Camat
+   memutuskan.
 6. Login `sekcam1`.
-7. Buka notifikasi atau **Presensi → Daftar teguran**, buka `TEGURAN-2026-0024`.
+7. Buka notifikasi atau **Presensi → Daftar laporan**, buka `TEGURAN-2026-0024`.
 8. Isi catatan penerusan (opsional), klik **Teruskan ke Camat**.
 9. Login `camat1`.
-10. Buka record yang sama, isi **Instruksi tindak lanjut** (minimal 5 karakter),
-    klik **Tindak lanjuti**.
-11. Login kembali `kasubag1`.
-12. Buka record yang sama. Sekarang bagian **Pembinaan** menampilkan form:
-    - pilih tanggal/jam panggilan,
-    - isi catatan panggilan,
-    - klik **Buat panggilan**.
-13. Setelah panggilan terjadwal, isi **Hasil pembinaan** (minimal 5 karakter),
-    pilih tindak lanjut **Selesai internal** atau **Teruskan ke BKPSDM**,
-    klik **Catat hasil**.
+10. Buka record yang sama, lalu pilih salah satu keputusan:
+    - **Tindak lanjut — terbitkan surat teguran**, atau
+    - **Tidak tindak lanjut — pembinaan Kasi**.
+11. Jika memilih tindak lanjut: login `kasubag1`, buka record, jadwalkan
+    panggilan, lalu catat hasil pembinaan.
+12. Jika memilih pembinaan Kasi: login `kasi1`, buka record, isi **Hasil
+    pembinaan**, lalu klik **Catat hasil pembinaan**.
 
 **Narasi**
 
-> “Urutan ini penting: Kasubag menerbitkan dan melaporkan, Sekcam meneruskan, Camat
-> memberi instruksi, baru Kasubag menjadwalkan pembinaan. Frontend sengaja memblokir
-> pembinaan sebelum dua tahap itu selesai agar tidak ada lompatan prosedur.”
+> “Urutan ini penting: laporan dulu masuk ke Sekcam, baru diteruskan ke Camat.
+> Camat memilih tindak lanjut atau tidak. Kalau tidak, tidak ada surat teguran;
+> laporan diselesaikan lewat pembinaan Kasi. Frontend memblokir panggilan dan
+> pembinaan sebelum keputusan Camat.”
 
 **Catatan demo**
 
-- Pegawai penerima sekarang dapat membuka suratnya sendiri. Login `pegawai2`,
-  buka **Presensi → Surat teguran saya**, lalu buka `TEGURAN-2026-0018` untuk
-  menunjukkan **Surat Panggilan** dan jadwal pembinaan.
-- Di halaman pegawai, tombol **Teruskan ke Camat**, **Tindak lanjuti**, dan form
-  **Pembinaan** tidak ditampilkan. Backend tetap menolak akses ke surat milik
-  pegawai lain dengan `403`.
-- Status alur tampil sebagai badge: **Dilaporkan ke Sekcam**, **Surat Panggilan**,
-  **Menunggu Tindak Lanjut Camat**, **Pembinaan**, **Selesai**, atau
-  **Diteruskan ke BKPSDM**.
+- Pegawai penerima sekarang dapat membuka laporannya sendiri. Login `pegawai2`,
+  buka **Presensi → Laporan & surat teguran saya**, lalu buka
+  `TEGURAN-2026-0018` untuk menunjukkan **Surat Panggilan** dan jadwal pembinaan.
+- Di halaman pegawai, tombol keputusan/pembinaan tidak ditampilkan. Backend tetap
+  menolak akses ke laporan milik pegawai lain dengan `403`.
+- Status alur tampil sebagai badge: **Dilaporkan ke Sekcam**, **Menunggu
+  Keputusan Camat**, **Surat Teguran Terbit**, **Surat Panggilan**, **Pembinaan**,
+  **Pembinaan Kasi**, **Selesai**, atau **Diteruskan ke BKPSDM**.
+- Semua waktu di UI memakai format 24 jam (`18/11/2026, 09.25`), bukan AM/PM.
 
 #### D. Tampilan pegawai penerima
 
@@ -655,6 +666,10 @@ tetapi produksi memerlukan penyimpanan tanda tangan/TTE yang sebenarnya.
 - **Tolak** mengakhiri pengajuan dengan alasan penolakan.
 - **Hapus draf** hanya tersedia saat status `DRAFT`.
 - Setelah `COMPLETED`, arsip dapat dilakukan oleh petugas register.
+- Tombol **Arsipkan** pada KGB menandai proses KGB selesai. Surat pengantar KGB
+  tetap masuk **Antrean Persetujuan Arsip** di dashboard Sekcam/Camat; setelah
+  disetujui, barulah record muncul di Buku Arsip. Buka **Buku Arsip → Antrean
+  Persetujuan Arsip → Surat Keluar** untuk melihatnya.
 
 **Yang ingin dibuktikan**
 
@@ -682,19 +697,18 @@ DRAFT → VERIFIED → PARAF → APPROVED
 
 | Tahap | Aktor | Tombol |
 |---|---|---|
-| Lihat BUP & buat draf | Kasubag | **Buat Draf Usulan** |
+| Lihat BUP, buat draf, unggah dokumen | Staf Kepegawaian | **Buat Draf Usulan**, **Unggah semua** |
 | Verifikasi berkas | Kasubag | **Verifikasi** |
 | Paraf | Sekcam | **Paraf** |
 | Setujui | Camat | **Setujui** |
-| Register | Kasubag | **Register** |
-| Ekspedisi | Kasubag | **Ekspedisi** |
-| Kirim | Verifier | **Kirim** |
-| Selesai | Verifier | **Selesai** |
-| Arsip | Kasubag | **Arsipkan** |
+| Register | Staf Kepegawaian | **Register & catat ke Buku Agenda Surat Keluar** |
+| Ekspedisi | Staf Kepegawaian | **Catat Ekspedisi & Serahkan ke Caraka** |
+| Kirim | Staf Kepegawaian | **Catat bukti terima BKPSDMD** |
+| Selesai & arsip | Staf Kepegawaian | **Selesaikan**, **Arsipkan** |
 
 #### A. Daftar BUP
 
-1. Login `kasubag1`.
+1. Login `verifier1`.
 2. Buka **Pensiun PNS → Daftar BUP**.
 3. Tunjukkan:
    - tahun 2026,
@@ -702,11 +716,10 @@ DRAFT → VERIFIED → PARAF → APPROVED
    - rentang tanggal,
    - daftar PNS, tanggal lahir, usia, tanggal pensiun, masa kerja,
    - status “Sudah diusulkan”.
-4. Pada snapshot ini, `Siti Pensiun` sudah masuk `PENSIUN-2026-0001`, sehingga
-   checkbox-nya nonaktif dan berlabel **Sudah diusulkan**. Ini menunjukkan pencegahan
-   duplikasi usulan.
-5. Untuk memperagakan pembuatan dari nol, gunakan database salinan atau tambahkan
-   PNS lain yang memasuki BUP. Pada data demo saat ini, lanjutkan batch yang sudah ada.
+4. `Siti Pensiun` sudah masuk `PENSIUN-2026-0001`, sehingga checkbox-nya nonaktif dan
+   berlabel **Sudah diusulkan**. Ini mencegah satu pegawai masuk dua berkas usulan.
+5. Untuk gladi penuh dari awal, gunakan database salinan dan pilih PNS yang belum
+   diusulkan, lalu klik **Buat Draf Usulan**.
 
 **Narasi**
 
@@ -717,23 +730,23 @@ DRAFT → VERIFIED → PARAF → APPROVED
 
 Jika membuat batch baru:
 
-1. Pilih PNS yang belum diusulkan.
-2. Klik **Buat Draf Usulan**.
-3. Di detail batch, unggah dokumen per item.
-4. Klik **Verifikasi** dan konfirmasi **dokumen lengkap**.
-5. Status menjadi `VERIFIED`.
-
-Pada snapshot, `PENSIUN-2026-0001` sudah `VERIFIED`; lanjut ke paraf.
+1. Login `verifier1`, pilih PNS yang belum diusulkan, lalu klik **Buat Draf Usulan**.
+2. Di detail batch, gunakan **Pilih beberapa berkas** untuk memilih DPCP, SK PNS,
+   SK Pangkat Terakhir, dan SK Jabatan Terakhir sekaligus, lalu klik **Unggah semua**.
+3. Setelah berkas terakhir, buka `/notifikasi` sebagai `kasubag1`. Akan muncul
+   **Permintaan verifikasi berkas pensiun** dengan tombol **Buka pengajuan pensiun**.
+4. Kasubag membuka usulan, klik **Verifikasi**, dan konfirmasi **dokumen lengkap**.
+5. Status menjadi `VERIFIED`, dan Sekcam menerima notifikasi dengan tombol
+   **Buka pengajuan pensiun**.
 
 #### C. Paraf Sekcam dan persetujuan Camat
 
-1. Login `sekcam1`.
-2. Buka **Pensiun PNS**, cari `PENSIUN-2026-0001`.
-3. Klik **Paraf**.
-4. Status menjadi `PARAF`.
-5. Login `camat1`.
-6. Buka batch yang sama, klik **Setujui**.
-7. Status menjadi `APPROVED`.
+1. Login `sekcam1`, buka `/notifikasi`, klik **Buka pengajuan pensiun**.
+2. Klik **Paraf** dan isi catatan bila perlu.
+3. Status menjadi `PARAF`; Camat menerima notifikasi dengan tombol yang sama.
+4. Login `camat1`, buka notifikasi, lalu klik **Setujui**.
+5. Status menjadi `APPROVED`; Staf Kepegawaian menerima notifikasi untuk mencatat
+   surat ke Buku Agenda Surat Keluar.
 
 **Narasi**
 
@@ -742,23 +755,28 @@ Pada snapshot, `PENSIUN-2026-0001` sudah `VERIFIED`; lanjut ke paraf.
 
 #### D. Register, ekspedisi, kirim, selesai, arsip
 
-1. Login `kasubag1`.
-2. Buka `PENSIUN-2026-0001` (`APPROVED`).
-3. Klik **Register**; masukkan tanggal surat keluar. Backend membuat surat keluar
-   otomatis dengan nomor dari service penomoran.
-4. Status menjadi `REGISTERED`.
-5. Klik **Ekspedisi**; masukkan nama pendistribusi.
-6. Status menjadi `EXPEDITED`.
-7. Login `verifier1`.
-8. Buka batch yang sama, klik **Kirim**; masukkan nomor dan tanggal tanda terima.
-9. Status menjadi `SENT`.
-10. Klik **Selesai** → `COMPLETED`.
-11. Login `kasubag1`, klik **Arsipkan** → `ARCHIVED`.
+1. Login `verifier1`, buka notifikasi **disetujui/ditandatangani** atau langsung
+   `PENSIUN-2026-0001` (`APPROVED`).
+2. Klik **Register & catat ke Buku Agenda Surat Keluar**; isi tanggal surat keluar.
+   Backend membuat surat keluar otomatis dengan nomor dari service penomoran dan
+   menyiapkan baris `ekspedisi_surat_keluar` berstatus **Belum diserahkan**.
+3. Status menjadi `REGISTERED`. Kartu **Surat pengantar & Buku Ekspedisi Surat
+   Keluar** menampilkan nomor surat, nomor registrasi ekspedisi, dan tautan ke
+   buku agenda/ekspedisi. Kartu ini adalah pelaksanaan langkah 6–8 SOP.
+4. Klik **Catat Ekspedisi & Serahkan ke Caraka**; isi tanggal serah terima dan
+   nama caraka. Status ekspedisi menjadi **Sudah diserahkan**.
+5. Status batch menjadi `EXPEDITED`.
+6. Klik **Catat bukti terima BKPSDMD**; isi nomor, tanggal, dan nama penerima
+   bukti terima. Status ekspedisi menjadi **Diterima tujuan**.
+7. Status batch menjadi `SENT`.
+8. Klik **Selesaikan** → `COMPLETED`, lalu **Arsipkan** → `ARCHIVED`.
 
 **Narasi**
 
-> “Di pensiun, register bisa sekaligus membuat surat keluar. Setelah itu dicatat
-> ekspedisi dan tanda terima, karena pengiriman fisik ke BKPSDM tetap perlu dilacak.”
+> “Di pensiun, register bisa sekaligus membuat surat keluar. Buku agenda mencatat
+> surat sebagai inventaris, sedangkan Buku Ekspedisi Surat Keluar mencatat serah
+> terima ke caraka dan bukti terima BKPSDMD. Keduanya terhubung ke surat keluar
+> yang sama, jadi status pensiun dan status ekspedisi selalu sinkron.”
 
 #### E. Cetak
 
@@ -768,8 +786,8 @@ Pada snapshot, `PENSIUN-2026-0001` sudah `VERIFIED`; lanjut ke paraf.
 
 **Cabang alur pensiun**
 
-- **Minta Revisi** mengembalikan batch ke `REVISION`; Kasubag memperbaiki data/berkas
-  lalu memverifikasi ulang.
+- **Minta Revisi** mengembalikan batch ke `REVISION`; Staf Kepegawaian memperbaiki
+  data/berkas, lalu Kasubag memverifikasi ulang.
 - **Tolak** mengakhiri batch dengan alasan penolakan.
 - Verifikasi wajib mencentang/mengonfirmasi **dokumen lengkap**.
 
@@ -825,7 +843,8 @@ DRAFT → LEGALIZED → VERIFIED → PARAF → APPROVED → REGISTERED → ARCHI
 
 1. Di detail batch, periksa daftar ASN.
 2. Tambah item jika perlu.
-3. Unggah dokumen per item sesuai checklist.
+3. Unggah empat dokumen inti per item (DPCP, SK PNS, SK Pangkat Terakhir, SK
+   Jabatan Terakhir) dengan pemilih beberapa berkas dan satu tombol **Unggah semua**.
 4. Tunjukkan status kelengkapan dokumen dan daftar dokumen yang kurang.
 
 #### C. Legalisasi dan verifikasi
@@ -889,6 +908,9 @@ ke target, mencatat tindak lanjut, dan mengarsipkan.
 ```text
 DRAFT_TU → REVIEW_SEKCAM → DISPOSISI_CAMAT → DITERUSKAN
          → PROSES → MENUNGGU_ARSIP → DIARSIPKAN
+
+Cabang: REVIEW_SEKCAM → REVISI_TU → REVIEW_SEKCAM
+        DRAFT_TU/REVISI_TU/REVIEW_SEKCAM → DIBATALKAN
 ```
 
 **Aktor**
@@ -896,11 +918,14 @@ DRAFT_TU → REVIEW_SEKCAM → DISPOSISI_CAMAT → DITERUSKAN
 | Tahap | Aktor | Tombol |
 |---|---|---|
 | Catat surat | Verifier | **Simpan Draft** / **Simpan & Kirim ke Sekcam** |
+| Kembalikan revisi | Sekcam | **Kembalikan ke TU** + catatan |
+| Edit & kirim ulang | Verifier | **Edit surat** / **Simpan & Kirim ke Sekcam** |
+| Batalkan surat | Verifier | **Batalkan surat** + alasan |
 | Teruskan ke Camat | Sekcam | **Teruskan ke Camat** |
 | Disposisi | Camat | **Kirim disposisi** |
 | Terima & baca | target disposisi | **Terima & Baca** |
 | Tindak lanjut | target disposisi | **Selesai & Ajukan Arsip** |
-| Arsip | Sekcam/Camat | **Setujui & Arsipkan** |
+| Arsip | Staf arsip / Sekcam / Camat | **Arsipkan surat** / **Setujui & Arsipkan** |
 
 #### A. Operator mencatat surat (opsional, jika mulai dari nol)
 
@@ -950,6 +975,26 @@ Gunakan `AGENDA-2026-0041` yang sudah `REVIEW_SEKCAM`; mulai dari langkah B.
 > “Sekcam memeriksa surat dan meneruskan. Di halaman ini terlihat posisi surat dalam
 > alur tujuh tahap, bukan hanya status teks.”
 
+#### B.1 Sekcam mengembalikan untuk revisi
+
+Langkah ini opsional dan memakai surat uji terpisah agar `AGENDA-2026-0042`
+tetap bisa dipakai pada langkah C. Surat tanpa file hanya dapat disimpan,
+tidak dapat dikirim ulang ke Sekcam.
+
+1. Login `sekcam1`.
+2. Buka surat uji yang masih `REVIEW_SEKCAM`.
+3. Pada panel **Kembalikan untuk revisi**, isi catatan minimal 5 karakter.
+4. Klik **Kembalikan ke TU**. Status menjadi `REVISI_TU`.
+5. Login `verifier1`, buka surat yang sama.
+6. Klik **Edit surat**, perbaiki isi, lalu **Simpan Perubahan**.
+
+**Catatan demo**
+
+- Surat ganda atau surat yang batal diproses dapat dibatalkan oleh TU sebelum
+  disposisi Camat. Isi alasan, klik **Batalkan surat**. Status menjadi
+  `DIBATALKAN` dan surat tidak masuk disposisi.
+- Catatan revisi dan alasan pembatalan tampil di halaman detail.
+
 #### C. Camat memberi disposisi
 
 1. Login `camat1`.
@@ -985,17 +1030,20 @@ Gunakan `AGENDA-2026-0041` yang sudah `REVIEW_SEKCAM`; mulai dari langkah B.
 
 #### E. Arsip surat masuk
 
-1. Login `sekcam1` atau `camat1`.
-2. Buka `AGENDA-2026-0041` yang sudah `MENUNGGU_ARSIP`.
-3. Klik **Setujui & Arsipkan**.
-4. Status menjadi `DIARSIPKAN`; nomor arsip dibuat.
-5. Buka **Surat Masuk → Buku Agenda** dan **Buku Ekspedisi** untuk menunjukkan catatan.
-6. Buka **Arsip → Buku Arsip** untuk melihat record arsipnya.
+1. Login `verifier1` (staf arsip) atau `sekcam1`/`camat1`.
+2. Buka surat yang sudah `MENUNGGU_ARSIP` setelah alur C–D selesai.
+3. Isi **Lokasi fisik** bila berkas hardcopy tersedia, misalnya
+   “Lemari A, rak 2”. Boleh dikosongkan untuk arsip digital saja.
+4. Klik **Arsipkan surat** (staf) atau **Setujui & Arsipkan** (Sekcam/Camat).
+5. Status menjadi `DIARSIPKAN`; nomor arsip dibuat.
+6. Buka **Surat Masuk → Buku Agenda** dan **Buku Ekspedisi** untuk menunjukkan catatan.
+7. Buka **Arsip → Buku Arsip** untuk melihat record arsip dan lokasi fisiknya.
 
 **Narasi**
 
-> “Arsip tidak dicatat manual. Arsip dibuat otomatis setelah surat selesai dan disetujui
-> oleh Sekcam atau Camat.”
+> “Staf arsip kini bisa menyelesaikan arsip surat masuk. Lokasi fisik opsional:
+> sebagian surat hanya tersedia digital. Sekcam/Camat tetap bisa menyetujui lewat
+> antrean arsip.”
 
 ---
 
@@ -1145,7 +1193,10 @@ Tunjukkan cepat bahwa data yang sudah diproses masuk ke buku administrasi:
 
 ## 5. Versi cepat 30–40 menit
 
-Gunakan data yang sudah disiapkan agar tidak perlu membuat record baru.
+Gunakan data yang sudah disiapkan agar tidak perlu membuat record baru. Khusus pensiun,
+`PENSIUN-2026-0001` sudah berstatus `APPROVED`; lanjutkan dari register/ekspedisi.
+Untuk memperagakan alur dari BUP, gunakan database salinan agar data transaksi asli
+tidak berubah.
 
 | Urutan | Akun | Halaman | Aksi | Hasil yang ditunjukkan |
 |---|---|---|---|---|
@@ -1154,10 +1205,10 @@ Gunakan data yang sudah disiapkan agar tidak perlu membuat record baru.
 | 3 | `sekcam1` | Dashboard | tunjukkan antrean paraf | dashboard pimpinan |
 | 4 | `pegawai1` | Presensi | check-in/check-out | presensi mandiri |
 | 5 | `kasubag1` | Presensi | rekap, validasi, pegawai bermasalah | kontrol presensi |
-| 6 | `kasubag1` | Presensi → Daftar teguran | buka `TEGURAN-2026-0024` | surat teguran |
-| 7 | `sekcam1` | Teguran | **Teruskan ke Camat** | eskalasi |
-| 8 | `camat1` | Teguran | isi instruksi | instruksi Camat |
-| 9 | `kasubag1` | Teguran | jadwalkan panggilan | pembinaan |
+| 6 | `kasubag1` | Presensi → Daftar laporan | buka `TEGURAN-2026-0024` | laporan presensi |
+| 7 | `sekcam1` | Laporan | **Teruskan ke Camat** | eskalasi |
+| 8 | `camat1` | Laporan | pilih **Tindak lanjut** / **Pembinaan Kasi** | keputusan Camat |
+| 9 | `kasubag1` / `kasi1` | Laporan | jadwalkan panggilan atau catat pembinaan Kasi | pembinaan |
 | 10 | `kasi1` | Cuti | `CUTI-2026-0071` → **Pertimbangan atasan** | review atasan |
 | 11 | `kasubag1` | Cuti | **Verifikasi & teruskan** | verifikasi |
 | 12 | `sekcam1` | Cuti | `CUTI-2026-0073` → **Paraf Sekcam** | paraf |
@@ -1165,9 +1216,9 @@ Gunakan data yang sudah disiapkan agar tidak perlu membuat record baru.
 | 14 | `verifier1` | Cuti | registrasi → BKPSDM | administrasi |
 | 15 | `verifier1` | KGB | `KGB-2026-0014` → **Register** | register KGB |
 | 16 | `kasubag1` | KGB | **Teruskan ke BKPSDM** | pengiriman |
-| 17 | `sekcam1` | Pensiun | `PENSIUN-2026-0001` → **Paraf** | paraf pensiun |
-| 18 | `camat1` | Pensiun | **Setujui** | keputusan pensiun |
-| 19 | `kasubag1` | Pensiun | **Register** | surat otomatis |
+| 17 | `verifier1` | Pensiun | `PENSIUN-2026-0001` → **Register** | surat otomatis + buku agenda |
+| 18 | `verifier1` | Pensiun | **Catat Ekspedisi** | serah terima caraka |
+| 19 | `verifier1` | Pensiun | **Catat bukti terima BKPSDMD** | status ekspedisi diterima |
 | 20 | `verifier1` | Pangkat | Daftar Calon → buat draf | usulan pangkat |
 | 21 | `verifier1` | Pangkat | **Legalisasi** | legalisasi |
 | 22 | `kasubag1` | Pangkat | **Verifikasi** | verifikasi |
@@ -1191,7 +1242,7 @@ tunjukkan modul lain hanya sampai halaman daftar/detail.
 |---|---|---|
 | Mengharapkan notifikasi untuk surat teguran lama | Notifikasi dibuat saat surat baru diterbitkan setelah pembaruan backend | buka langsung **Presensi → Surat teguran saya** |
 | Klik **Kirim pengingat** KGB berulang | Endpoint belum idempoten; notifikasi bisa ganda | klik sekali saja |
-| Membuat pensiun baru untuk Siti | Siti sudah masuk `PENSIUN-2026-0001` | gunakan batch yang ada, atau database salinan |
+| Menghapus batch pensiun saat demo | Batch adalah data transaksi; dokumen dan riwayat ikut hilang | siapkan database salinan untuk gladi |
 | Uji paraf/approve lewat API langsung | Sebagian permission API (KGB/pensiun/pangkat) dimiliki bersama LEADER; UI yang membatasi jabatan | gunakan UI |
 | Mengandalkan tanda tangan setelah ganti browser | Tanda tangan KGB/cuti disimpan di localStorage browser | gambar ulang di profil yang dipakai |
 | Mengharapkan data kembali seperti semula setelah demo | Seed tidak mengosongkan transaksi | gunakan database salinan untuk gladi |
@@ -1204,16 +1255,14 @@ Bagian ini tidak perlu dibacakan panjang-panjang saat presentasi. Siapkan jawaba
 ada pertanyaan teknis. Detail tindak lanjut backend ada di
 `docs/15-backend-followup-qa-nov2026.md`.
 
-1. **Belum ada endpoint eksplisit “lapor Kasubag ke Sekcam” untuk teguran.**
-   Penerbitan surat teguran saat ini mengirim notifikasi ke Sekcam dan Camat.
-   Artinya “lapor” masih implisit. Frontend menampilkan panduan, tetapi tidak ada
-   tombol lapor tersendiri.
-   Rekomendasi: tambahkan aksi `report`/`submit` dengan status yang jelas.
+1. **Laporan presensi dan surat teguran sekarang dipisah.** `generate` membuat
+   `LAPORAN-YYYY-NNNN` dan hanya memberi notifikasi ke Sekcam/pelaksana. Surat
+   `TEGURAN-YYYY-NNNN` baru terbit setelah Camat memilih `FOLLOW_UP`.
 
-2. **Urutan `forward → instruct → summon` belum ditegakkan backend.**
-   Frontend memblokir pembinaan sebelum Sekcam meneruskan dan Camat memberi instruksi,
-   tetapi API masih bisa dipanggil langsung. Untuk produksi, validasi urutan sebaiknya
-   juga dilakukan di service.
+2. **Urutan `forward → decide → summon/coaching` sudah ditegakkan backend.**
+   Camat tidak bisa memutuskan sebelum Sekcam meneruskan; panggilan hanya bisa
+   dibuat setelah keputusan `FOLLOW_UP`; pembinaan Kasi hanya untuk
+   `NO_FOLLOW_UP`. Pembinaan Kasi tidak dapat diteruskan ke BKPSDM.
 
 3. **Tanda tangan cuti/KGB masih demo.**
    Tanda tangan disimpan di `localStorage` browser, bukan di server. Pratinjau surat
@@ -1298,7 +1347,7 @@ halaman surat dan tabel lebih nyaman.
 - [ ] Uji `AGENDA-2026-0041` dari Sekcam sampai arsip.
 - [ ] Uji `CUTI-2026-0071` dari Kasi sampai Camat.
 - [ ] Uji `KGB-2026-0014` dari register sampai arsip.
-- [ ] Uji `PENSIUN-2026-0001` dari paraf sampai register.
+- [ ] Uji `PENSIUN-2026-0001` dari register sampai bukti terima BKPSDMD; gunakan database salinan untuk uji dari BUP.
 - [ ] Siapkan screenshot cadangan untuk setiap modul.
 
 ### Hari-H

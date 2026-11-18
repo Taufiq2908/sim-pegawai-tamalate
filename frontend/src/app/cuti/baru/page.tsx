@@ -176,8 +176,9 @@ export default function CutiBaruPage() {
       <h1>Pengajuan cuti</h1>
       <p className="mt-1 text-sm text-muted">Lengkapi data di bawah. Pengajuan hanya untuk pegawai yang sedang login.</p>
 
-      <form onSubmit={onSubmit} className="mt-6 max-w-2xl pb-28">
-        <section>
+      <form onSubmit={onSubmit} className="mt-6 w-full pb-6">
+        <div className="grid gap-8 xl:grid-cols-2">
+        <section className="min-w-0">
           <h2 className="text-xs font-semibold tracking-wider text-muted">DATA PEGAWAI</h2>
           <dl className="mt-3 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
             <div className="flex justify-between border-b border-line py-1.5 sm:block"><dt className="text-muted sm:text-xs">Nama</dt><dd className="font-medium">{pegawai?.name ?? user?.username}</dd></div>
@@ -191,7 +192,7 @@ export default function CutiBaruPage() {
           </dl>
         </section>
 
-        <section className="mt-8 space-y-4">
+        <section className="min-w-0 space-y-4">
           <h2 className="border-b border-line pb-2 text-xs font-semibold tracking-wider text-muted">JENIS & PERIODE</h2>
           <Field label="Jenis cuti">
             <select value={form.leaveTypeCode} onChange={set("leaveTypeCode")} className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700">
@@ -224,6 +225,7 @@ export default function CutiBaruPage() {
             </Field>
           </div>
         </section>
+        </div>
 
         <section className="mt-8 space-y-4">
           <h2 className="border-b border-line pb-2 text-xs font-semibold tracking-wider text-muted">DOKUMEN — DIPERLUKAN SAAT DIAJUKAN</h2>
@@ -259,31 +261,27 @@ export default function CutiBaruPage() {
 
         {error ? <ErrorBox message={error} /> : null}
 
-        <div className="sticky bottom-0 -mx-4 mt-6 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur lg:-mx-8 lg:px-8">
-          <div className="mx-auto flex max-w-2xl gap-2">
+        <div className="mt-8 flex flex-col-reverse gap-2 border-t border-line pt-4 sm:flex-row sm:justify-end">
+          <button
+            type="submit"
+            name="aksi"
+            value="draft"
+            disabled={loading}
+            className="w-full rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-paper disabled:opacity-50 sm:w-auto sm:min-w-40"
+          >
+            {loading ? "Memproses…" : "Simpan draft"}
+          </button>
+          {canSubmit ? (
             <button
               type="submit"
               name="aksi"
-              value="draft"
+              value="ajukan"
               disabled={loading}
-              className={`rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-paper disabled:opacity-50 ${
-                canSubmit ? "" : "flex-1"
-              }`}
+              className="w-full rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50 sm:w-auto sm:min-w-40"
             >
-              {loading ? "Memproses…" : "Simpan draft"}
+              {loading ? "Memproses…" : "Ajukan cuti"}
             </button>
-            {canSubmit ? (
-              <button
-                type="submit"
-                name="aksi"
-                value="ajukan"
-                disabled={loading}
-                className="flex-1 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
-              >
-                {loading ? "Memproses…" : "Ajukan cuti"}
-              </button>
-            ) : null}
-          </div>
+          ) : null}
         </div>
       </form>
     </RequirePerm>

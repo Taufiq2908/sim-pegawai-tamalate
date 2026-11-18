@@ -5,10 +5,11 @@ import { useEffect, useState } from "react";
 import { RequirePerm } from "@/components/shell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload } from "@/lib/api";
-import type { EmployeeRef } from "@/lib/types";
+import type { EmployeeRef, KgbPrefill } from "@/lib/types";
 import { Field, FileButton } from "@/components/form";
 import { EmployeePicker } from "@/components/employee-picker";
 import { ErrorBox } from "@/components/ui";
+import { formatRupiah } from "@/lib/format";
 
 const DOKUMEN_WAJIB = [
   { code: "SK_CPNS_TERAKHIR", label: "SK KGB/CPNS terakhir*" },
@@ -23,17 +24,18 @@ const DOKUMEN_OPSIONAL = [
   { code: "REKENING_GAJI", label: "Rekening gaji" },
 ];
 
+function monthYear(value: string | null): string {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+}
+
 export default function KgbBaruPage() {
   const router = useRouter();
   const { user, hasPermission } = useAuth();
-  const [form, setForm] = useState({
-    oldRank: "",
-    newRank: "",
-    oldSalary: "",
-    newSalary: "",
-    effectiveDate: "",
-    note: "",
-  });
+  const [form, setForm] = useState({ effectiveDate: "", note: "" });
+  const [prefill, setPrefill] = useState<KgbPrefill | null>(null);
+  const [prefillLoading, setPrefillLoading] = useState(false);
+  const [prefillError, setPrefillError] = useState("");
   const [files, setFiles] = useState<Record<string, File | null>>({});
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeRef | null>(null);
   const [loading, setLoading] = useState(false);
@@ -41,6 +43,7 @@ export default function KgbBaruPage() {
 
   const isEmployee = user?.role === "EMPLOYEE";
   const canSubmit = hasPermission("kgb.submit");
+  const targetEmployeeId = isEmployee ? user?.employee?.id : selectedEmployee?.id;
 
   // Deep link dari monitoring: /kgb/baru?employeeId=...
   useEffect(() => {
@@ -52,6 +55,36 @@ export default function KgbBaruPage() {
       .catch(() => {});
   }, [isEmployee]);
 
+  // Golongan, gaji pokok, MKG, dan TMT diambil otomatis dari backend.
+  useEffect(() => {
+    if (!targetEmployeeId) {
+      setPrefill(null);
+      return;
+    }
+    let alive = true;
+    setPrefill(null);
+    setPrefillLoading(true);
+    setPrefillError("");
+    apiFetch<KgbPrefill>(`/kgb-requests/prefill?employeeId=${encodeURIComponent(targetEmployeeId)}`)
+      .then(({ data }) => {
+        if (!alive) return;
+        setPrefill(data);
+        setForm((f) => ({
+          ...f,
+          effectiveDate: data.effectiveDate,
+        }));
+      })
+      .catch((err) => {
+        if (alive) setPrefillError(err instanceof Error ? err.message : "Gagal memuat data KGB");
+      })
+      .finally(() => {
+        if (alive) setPrefillLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [targetEmployeeId]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
@@ -59,14 +92,14 @@ export default function KgbBaruPage() {
     // Enter/default submit dan operator tanpa kgb.submit selalu menyimpan draft.
     const draftOnly = !(submitter?.value === "ajukan" && canSubmit);
     setError("");
-    if (!isEmployee && !selectedEmployee && !user?.employee) {
-      setError("Pilih pegawai yang akan diajukan KGB-nya.");
+    if (!prefill) {
+      setError("Data golongan/gaji belum tersedia. Pilih pegawai terlebih dahulu.");
       return;
     }
-    const oldS = Number(form.oldSalary);
-    const newS = Number(form.newSalary);
-    if (!(newS > oldS)) {
-      setError("Gaji baru harus lebih besar dari gaji lama.");
+    if (prefill.atMax) {
+      setError(
+        `MKG ${prefill.mkg} sudah mencapai batas golongan ${prefill.oldRank}. Gaji pokok tidak dapat naik lagi.`,
+      );
       return;
     }
     if (!draftOnly) {
@@ -79,16 +112,14 @@ export default function KgbBaruPage() {
 
     setLoading(true);
     try {
+      // Backend menghitung ulang golongan/gaji dari master + PP 5/2024,
+      // jadi form tidak perlu mengirim nominal manual.
       const { data } = await apiFetch<{ id: string }>("/kgb-requests", {
         method: "POST",
         body: JSON.stringify({
-          oldRank: form.oldRank,
-          newRank: form.newRank,
-          oldSalary: oldS,
-          newSalary: newS,
-          effectiveDate: form.effectiveDate,
+          effectiveDate: form.effectiveDate || prefill.effectiveDate,
           note: form.note || undefined,
-          employeeId: !isEmployee && selectedEmployee ? selectedEmployee.id : undefined,
+          employeeId: !isEmployee ? selectedEmployee?.id : undefined,
         }),
       });
       const id = (data as { id: string }).id;
@@ -123,43 +154,110 @@ export default function KgbBaruPage() {
       <h1 className="text-xl font-bold">Ajukan KGB</h1>
       <p className="mt-1 text-sm text-muted">
         {canSubmit
-          ? "Dapat disimpan sebagai draft atau langsung diajukan setelah berkas wajib lengkap."
+          ? "Golongan, gaji pokok, dan masa kerja terisi otomatis. Lengkapi berkas lalu simpan draft atau ajukan."
           : "Anda dapat menyimpan draft dan melengkapi berkas; pengajuan dilakukan oleh pemilik atau petugas berwenang."}
       </p>
-      <form onSubmit={onSubmit} className="mt-4 max-w-2xl space-y-4 rounded-lg border border-line bg-surface p-5">
+      <form onSubmit={onSubmit} className="mt-4 space-y-4 rounded-lg border border-line bg-surface p-5">
         {!isEmployee ? (
           <div>
             <p className="mb-1 text-sm font-medium text-ink">Pegawai yang diajukan</p>
             <EmployeePicker
-              value={selectedEmployee?.id ?? user?.employee?.id ?? ""}
+              value={selectedEmployee?.id ?? ""}
               onChange={(_, employee) => setSelectedEmployee(employee)}
             />
             <p className="mt-1 text-xs text-muted">
-              Pilih pegawai yang KGB-nya diusulkan. Data dapat diubah selama status masih Draft.
+              Pilih pegawai yang KGB-nya diusulkan. Data gaji diambil dari master kepegawaian.
             </p>
           </div>
         ) : null}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Golongan lama*">
-            <input required value={form.oldRank} onChange={set("oldRank")} placeholder="cth: III/a" className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
-          </Field>
-          <Field label="Golongan baru*">
-            <input required value={form.newRank} onChange={set("newRank")} placeholder="cth: III/b" className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
-          </Field>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Gaji lama (rupiah)*">
-            <input required inputMode="numeric" value={form.oldSalary} onChange={set("oldSalary")} placeholder="cth: 3000000" className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
-          </Field>
-          <Field label="Gaji baru (rupiah, harus lebih besar)*">
-            <input required inputMode="numeric" value={form.newSalary} onChange={set("newSalary")} placeholder="cth: 3200000" className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
-          </Field>
-        </div>
-        <Field label="TMT (effective date)*">
-          <input type="date" required value={form.effectiveDate} onChange={set("effectiveDate")} className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
+
+        {prefillLoading ? (
+          <p className="rounded-lg border border-line bg-paper px-3 py-2 text-sm text-muted">
+            Memuat data golongan dan gaji…
+          </p>
+        ) : null}
+        {prefillError ? <ErrorBox message={prefillError} /> : null}
+
+        {prefill ? (
+          <div className="rounded-lg border border-line bg-paper p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">{prefill.employeeName}</p>
+                <p className="text-xs text-muted">
+                  NIP {prefill.nip ?? "-"} • TMT pangkat {prefill.rankTmt ?? "-"}
+                </p>
+              </div>
+              <span className="rounded-full border border-line bg-surface px-2 py-1 text-xs text-muted">
+                {prefill.regulation}
+              </span>
+            </div>
+
+            <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <p className="text-xs text-muted">Golongan</p>
+                <p className="font-semibold">{prefill.oldRank}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">Masa kerja total</p>
+                <p className="font-semibold">{prefill.totalYears} tahun</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">Masa kerja golongan (MKG)</p>
+                <p className="font-semibold">
+                  {prefill.mkg} tahun → {prefill.newMkg} tahun
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">Gaji pokok saat ini</p>
+                <p className="font-semibold tabular-nums">{formatRupiah(prefill.oldSalary)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">Gaji pokok setelah KGB</p>
+                <p className="font-semibold tabular-nums text-brand-900">{formatRupiah(prefill.newSalary)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">Jadwal KGB</p>
+                <p className="font-semibold">{monthYear(prefill.scheduledDate)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">MKG maksimum golongan</p>
+                <p className="font-semibold">{prefill.maxMkg} tahun</p>
+              </div>
+            </div>
+
+            {prefill.atMax ? (
+              <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                MKG sudah di batas maksimum golongan ini. KGB tidak dapat menaikkan gaji pokok lagi.
+              </p>
+            ) : prefill.overdueMonths > 0 ? (
+              <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Jadwal KGB {monthYear(prefill.scheduledDate)} sudah lewat {prefill.overdueMonths} bulan. TMT di
+                bawah otomatis diisi hari ini; ubah bila perlu.
+              </p>
+            ) : null}
+            <p className="mt-3 text-xs text-muted">
+              Data di atas dihitung dari golongan + masa kerja pada master kepegawaian. Jika tidak sesuai,
+              hubungi staf kepegawaian.
+            </p>
+          </div>
+        ) : null}
+
+        <Field label="TMT KGB (effective date)*">
+          <input
+            type="date"
+            required
+            value={form.effectiveDate}
+            onChange={set("effectiveDate")}
+            className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700"
+          />
         </Field>
         <Field label="Catatan (opsional)">
-          <textarea value={form.note} onChange={set("note")} rows={2} className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700" />
+          <textarea
+            value={form.note}
+            onChange={set("note")}
+            rows={2}
+            className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand-700"
+          />
         </Field>
 
         <div className="border-t border-line pt-3">
@@ -196,7 +294,7 @@ export default function KgbBaruPage() {
             type="submit"
             name="aksi"
             value="draft"
-            disabled={loading}
+            disabled={loading || prefillLoading || !prefill || prefill.atMax}
             className={`rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-paper disabled:opacity-50 ${
               canSubmit ? "" : "flex-1"
             }`}
@@ -208,7 +306,7 @@ export default function KgbBaruPage() {
               type="submit"
               name="aksi"
               value="ajukan"
-              disabled={loading}
+              disabled={loading || prefillLoading || !prefill || prefill.atMax}
               className="flex-1 rounded-lg bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
             >
               {loading ? "Memproses…" : "Ajukan KGB"}
