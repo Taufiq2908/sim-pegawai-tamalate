@@ -756,12 +756,12 @@ Backend tersedia di `/api/v1/promotion-requests`. Kontrak lengkap, tipe TypeScri
 dan rancangan halaman ada di `docs/10-kenaikan-pangkat-requirement.md` dan
 `docs/11-frontend-kenaikan-pangkat-handoff.md`.
 
-Status: `DRAFT → LEGALIZED → VERIFIED → PARAF → APPROVED → REGISTERED → ARCHIVED`,
-dengan cabang `REVISION` dan `REJECTED`.
+Status: `DRAFT → LEGALIZED → VERIFIED → PARAF → APPROVED → REGISTERED →
+SUBMITTED_BKPSDMD → COMPLETED → ARCHIVED`, dengan cabang `REVISION` dan `REJECTED`.
 
 ```text
 GET  /promotion-requests/candidates?periodYear=&asOf=&minYears=4&includeAll=
-GET  /promotion-requests/required-docs                 → 10 dokumen SOP + LAINNYA
+GET  /promotion-requests/required-docs                 → 5 dokumen inti + dokumen lama/LAINNYA
 GET  /promotion-requests?status=&year=&q=&page=&limit=
 POST /promotion-requests {periodYear, periodMonth?, note?, items[]} → DRAFT
 PATCH /promotion-requests/:id                          (DRAFT/REVISION)
@@ -778,8 +778,10 @@ POST /promotion-requests/:id/verify                    LEGALIZED → VERIFIED
 POST /promotion-requests/:id/paraf                     VERIFIED → PARAF
 POST /promotion-requests/:id/approve                   PARAF → APPROVED
 POST /promotion-requests/:id/revise|reject             → REVISION/REJECTED
-POST /promotion-requests/:id/register                  APPROVED → REGISTERED
-POST /promotion-requests/:id/archive                   REGISTERED → ARCHIVED
+POST /promotion-requests/:id/register                  APPROVED → REGISTERED (buat surat keluar + baris ekspedisi)
+POST /promotion-requests/:id/tobkpsdm                 REGISTERED → SUBMITTED_BKPSDMD (catat serah terima caraka)
+POST /promotion-requests/:id/complete                 SUBMITTED_BKPSDMD → COMPLETED (catat bukti terima BKPSDMD)
+POST /promotion-requests/:id/archive                  COMPLETED → ARCHIVED (wajib bukti terima tercatat)
 GET  /promotion-requests/register?year=&status=&q=
 GET  /promotion-requests/nominative?year=&month=&status=&q=
 GET  /promotion-requests/archive-book?year=&q=
@@ -792,8 +794,10 @@ master `employee.rankTmt` kosong. `verify` wajib `documentsComplete: true` setel
 Kasubag memeriksa berkas. `legalize`/`register`/`archive` hanya `orgUnit.code =
 KEC-TAMALATE`; `paraf` hanya jabatan `SEKCAM`; `approve` hanya jabatan `CAMAT`;
 `revise`/`reject` mengikuti tahap aktif. `register` otomatis membuat surat keluar
-(kode klasifikasi default `800.1.3.2`) memakai service penomoran yang ada, dan
-`archive` otomatis membuat `ArchiveRecord` bila surat keluar sudah ada. Frontend
+(kode klasifikasi default `800.1.3.2`) memakai service penomoran yang ada beserta
+baris Buku Ekspedisi yang belum dikirim; `tobkpsdm` mengisi tanggal kirim/caraka;
+`complete` mengisi bukti terima BKPSDMD; `archive` hanya boleh setelah bukti terima
+tercatat dan otomatis membuat `ArchiveRecord` bila surat keluar sudah ada. Frontend
 tidak boleh membuat nomor sendiri atau tombol reservasi nomor. `EMPLOYEE` hanya
 melihat usulan yang memuat dirinya; halaman calon/register/nominatif/arsip khusus
 petugas. Gunakan `availableActions` dari detail sebagai sumber tombol aksi.

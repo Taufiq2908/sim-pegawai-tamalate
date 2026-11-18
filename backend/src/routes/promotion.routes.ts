@@ -22,6 +22,14 @@ import {
   nextArchiveNumber,
 } from '../services/archive.service';
 import {
+  OutgoingExpeditionError,
+  ensureOutgoingExpedition,
+  markOutgoingExpeditionReceived,
+  markOutgoingExpeditionSent,
+  outgoingExpeditionStatus,
+  publicOutgoingExpedition,
+} from '../services/outgoing-expedition.service';
+import {
   PROMOTION_ACTION_LABELS,
   PROMOTION_DOC_TYPES,
   PROMOTION_ITEM_STATUS_LABELS,
@@ -76,6 +84,21 @@ const outgoingMini = {
     personInCharge: true,
     letterCode: true,
     classification: { select: { code: true, name: true } },
+    outgoingExpedition: {
+      select: {
+        id: true,
+        regNumber: true,
+        letterId: true,
+        sentAt: true,
+        courierName: true,
+        recipientName: true,
+        receiptNumber: true,
+        receivedDate: true,
+        receivedByName: true,
+        note: true,
+        createdAt: true,
+      },
+    },
     archiveRecord: {
       select: { id: true, archiveNumber: true, archiveDate: true, category: true, location: true },
     },
@@ -205,10 +228,18 @@ async function toDetail(r: any, user: any, scopeEmployeeId?: string | null) {
   });
   const available = filterActionsForUser(availableActions(r.status, user.permissions), user, r.status);
   const s = await signers();
+  const outgoingLetter = r.outgoingLetter
+    ? {
+        ...r.outgoingLetter,
+        outgoingExpedition: publicOutgoingExpedition(r.outgoingLetter.outgoingExpedition),
+      }
+    : null;
   return {
     ...r,
+    outgoingLetter,
     items,
     statusLabel: PROMOTION_STATUS_LABELS[r.status] ?? r.status,
+    expeditionStatus: outgoingExpeditionStatus(r.outgoingLetter?.outgoingExpedition),
     availableActions: available,
     canEdit: ['DRAFT', 'REVISION'].includes(r.status),
     signers: s,
@@ -336,6 +367,19 @@ function actionSchema(action: string) {
         sentAt: ymdSchema.optional(),
         note,
       });
+    case 'tobkpsdm':
+      return z.object({
+        courierName: z.string().min(1).max(150).optional(),
+        sentDate: ymdSchema.optional(),
+        note,
+      });
+    case 'complete':
+      return z.object({
+        receivedByName: z.string().min(1).max(150).optional(),
+        receiptNumber: z.string().max(100).optional(),
+        receivedDate: ymdSchema.optional(),
+        note,
+      });
     case 'archive':
       return z.object({
         archiveDate: ymdSchema.optional(),
@@ -358,7 +402,9 @@ const NEXT_PERMISSION: Record<string, string | null> = {
   revise: 'promotion.legalize',
   paraf: 'promotion.approve',
   approve: 'promotion.register',
-  register: 'promotion.archive',
+  register: 'promotion.register',
+  tobkpsdm: 'promotion.register',
+  complete: 'promotion.archive',
   archive: null,
   reject: null,
 };
@@ -611,6 +657,13 @@ router.get('/register', requirePermission('promotion.view'), async (req, res) =>
     nomorSurat: b.outgoingLetterNumber ?? b.outgoingLetter?.letterNumber ?? null,
     tanggalSurat: dateOrNull(b.outgoingLetterDate ?? b.outgoingLetter?.letterDate),
     nomorAgenda: b.agendaNumber,
+    nomorEkspedisi: b.outgoingLetter?.outgoingExpedition?.regNumber ?? null,
+    tanggalEkspedisi: dateOrNull(b.outgoingLetter?.outgoingExpedition?.sentAt),
+    caraka: b.outgoingLetter?.outgoingExpedition?.courierName ?? null,
+    nomorBuktiTerima: b.outgoingLetter?.outgoingExpedition?.receiptNumber ?? null,
+    tanggalTerima: dateOrNull(b.outgoingLetter?.outgoingExpedition?.receivedDate),
+    namaPenerima: b.outgoingLetter?.outgoingExpedition?.receivedByName ?? null,
+    expeditionStatus: outgoingExpeditionStatus(b.outgoingLetter?.outgoingExpedition),
     nomorArsip: b.outgoingLetter?.archiveRecord?.archiveNumber ?? null,
     tanggalArsip: dateOrNull(b.outgoingLetter?.archiveRecord?.archiveDate),
     registeredAt: b.registeredAt,
@@ -1161,7 +1214,7 @@ router.post('/:id/:action', async (req, res) => {
   if (action === 'approve' && req.user!.role !== 'SUPER_ADMIN' && req.user!.position !== 'CAMAT') {
     return fail(res, 403, 'Persetujuan/tanda tangan usulan kenaikan pangkat hanya oleh Camat');
   }
-  if (['legalize', 'register', 'archive'].includes(action) && req.user!.role !== 'SUPER_ADMIN') {
+  if (['legalize', 'register', 'tobkpsdm', 'complete', 'archive'].includes(action) && req.user!.role !== 'SUPER_ADMIN') {
     const org = req.user!.orgUnitId
       ? await prisma.organizationalUnit.findUnique({ where: { id: req.user!.orgUnitId } })
       : null;
@@ -1316,14 +1369,19 @@ router.post('/:id/:action', async (req, res) => {
         const outgoingLetterDate = outgoing?.letterDate ?? letterDate;
         const agendaNumber = b.agendaNumber?.trim() || outgoingLetterNumber;
         if (!agendaNumber) throw new NumberingError(422, 'Nomor surat/agenda wajib diisi');
-        const sentAt = b.sentAt ? parseYMD(b.sentAt) : now;
-        if (!sentAt) throw new NumberingError(422, 'Tanggal kirim tidak valid');
+        if (outgoing?.id) {
+          await ensureOutgoingExpedition(tx, {
+            letterId: outgoing.id,
+            recipientName: outgoing.recipient || b.recipient?.trim() || 'BKPSDMD Kota Makassar',
+            createdBy: req.user!.id,
+          });
+        }
         data.outgoingLetterId = outgoing?.id ?? b.outgoingLetterId ?? null;
         data.outgoingLetterNumber = outgoingLetterNumber;
         data.outgoingLetterDate = outgoingLetterDate;
         data.agendaNumber = agendaNumber;
         data.registeredAt = now;
-        data.sentAt = sentAt;
+        data.sentAt = null;
         await tx.promotionItem.updateMany({ where: { batchId: batch.id }, data: { status: 'REGISTERED' } });
         timelineNote = [
           `Nomor surat: ${outgoingLetterNumber ?? '-'}`,
@@ -1332,7 +1390,59 @@ router.post('/:id/:action', async (req, res) => {
         ].filter(Boolean).join('; ');
       }
 
+      if (action === 'tobkpsdm') {
+        if (!batch.outgoingLetterId) {
+          throw new OutgoingExpeditionError(409, 'Catat surat di Buku Agenda Surat Keluar terlebih dahulu');
+        }
+        const sentDateYmd = b.sentDate ?? todayYMD();
+        if (sentDateYmd > todayYMD()) throw new NumberingError(422, 'Tanggal ekspedisi tidak boleh masa depan');
+        const expedition = await markOutgoingExpeditionSent(tx, {
+          letterId: batch.outgoingLetterId,
+          recipientName: batch.outgoingLetter?.recipient || batch.outgoingLetter?.outgoingExpedition?.recipientName || 'BKPSDMD Kota Makassar',
+          sentDate: sentDateYmd,
+          courierName: b.courierName ?? actorName,
+          note: b.note,
+          createdBy: req.user!.id,
+        });
+        data.sentAt = expedition.sentAt;
+        await tx.promotionItem.updateMany({ where: { batchId: batch.id }, data: { status: 'SUBMITTED_BKPSDMD' } });
+        timelineNote = [
+          `Buku ekspedisi: ${expedition.regNumber}`,
+          `Tanggal kirim: ${sentDateYmd}`,
+          expedition.courierName ? `Caraka: ${expedition.courierName}` : null,
+          b.note,
+        ].filter(Boolean).join('; ');
+      }
+
+      if (action === 'complete') {
+        if (!batch.outgoingLetterId) {
+          throw new OutgoingExpeditionError(409, 'Catat surat di Buku Agenda Surat Keluar terlebih dahulu');
+        }
+        const receivedDateYmd = b.receivedDate ?? todayYMD();
+        if (receivedDateYmd > todayYMD()) throw new NumberingError(422, 'Tanggal bukti terima tidak boleh masa depan');
+        const expedition = await markOutgoingExpeditionReceived(tx, {
+          letterId: batch.outgoingLetterId,
+          recipientName: batch.outgoingLetter?.recipient || batch.outgoingLetter?.outgoingExpedition?.recipientName || 'BKPSDMD Kota Makassar',
+          receivedDate: receivedDateYmd,
+          receivedByName: b.receivedByName?.trim() || 'BKPSDMD Kota Makassar',
+          receiptNumber: b.receiptNumber,
+          note: b.note,
+          receivedBy: req.user!.id,
+          createdBy: req.user!.id,
+        });
+        await tx.promotionItem.updateMany({ where: { batchId: batch.id }, data: { status: 'COMPLETED' } });
+        timelineNote = [
+          `Bukti terima: ${b.receiptNumber?.trim() || expedition.regNumber}`,
+          `Tanggal terima: ${receivedDateYmd}`,
+          b.receivedByName ? `Penerima: ${b.receivedByName.trim()}` : null,
+          b.note,
+        ].filter(Boolean).join('; ');
+      }
+
       if (action === 'archive') {
+        if (!batch.outgoingLetter?.outgoingExpedition?.receivedDate) {
+          throw new NumberingError(409, 'Bukti terima BKPSDMD harus dicatat sebelum arsip');
+        }
         const dateStr = b.archiveDate ?? todayYMD();
         const archiveDate = parseYMD(dateStr);
         if (!archiveDate) throw new NumberingError(422, 'Tanggal arsip tidak valid');
@@ -1419,7 +1529,7 @@ router.post('/:id/:action', async (req, res) => {
     });
     return ok(res, await toDetail(full, req.user!), `${action} berhasil`);
   } catch (e: any) {
-    if (e instanceof NumberingError) return fail(res, e.status, e.message);
+    if (e instanceof NumberingError || e instanceof OutgoingExpeditionError) return fail(res, e.status, e.message);
     if (e?.code === 'P2002') return fail(res, 409, 'Nomor surat/agenda/arsip bentrok, ulangi');
     throw e;
   }

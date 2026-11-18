@@ -798,12 +798,14 @@ Jika membuat batch baru:
 **Fungsi**
 
 Mengusulkan kenaikan pangkat ASN berdasarkan masa jabatan, mengelola daftar calon,
-legalisasi, verifikasi, paraf, keputusan, register, dan arsip.
+legalisasi, verifikasi, paraf, keputusan, surat pengantar, Buku Agenda Surat Keluar,
+Buku Ekspedisi, bukti terima, dan arsip.
 
 **Alur status**
 
 ```text
-DRAFT → LEGALIZED → VERIFIED → PARAF → APPROVED → REGISTERED → ARCHIVED
+DRAFT → LEGALIZED → VERIFIED → PARAF → APPROVED → REGISTERED
+      → SUBMITTED_BKPSDMD → COMPLETED → ARCHIVED
 ```
 
 **Aktor**
@@ -815,7 +817,9 @@ DRAFT → LEGALIZED → VERIFIED → PARAF → APPROVED → REGISTERED → ARCHI
 | Verifikasi | Kasubag | **Verifikasi** |
 | Paraf | Sekcam | **Paraf** |
 | Setujui | Camat | **Setujui** |
-| Register | Verifier | **Register** |
+| Register | Verifier | **Catat Buku Agenda** |
+| Ekspedisi | Verifier | **Catat penyerahan ke caraka** |
+| Bukti terima | Verifier | **Catat bukti terima BKPSDMD** |
 | Arsip | Verifier | **Arsip** |
 
 #### A. Daftar calon
@@ -843,9 +847,12 @@ DRAFT → LEGALIZED → VERIFIED → PARAF → APPROVED → REGISTERED → ARCHI
 
 1. Di detail batch, periksa daftar ASN.
 2. Tambah item jika perlu.
-3. Unggah empat dokumen inti per item (DPCP, SK PNS, SK Pangkat Terakhir, SK
-   Jabatan Terakhir) dengan pemilih beberapa berkas dan satu tombol **Unggah semua**.
+3. Unggah lima dokumen inti per item (Daftar Usul, SK CPNS, SK PNS/ASN, SK
+   Kenaikan Pangkat Terakhir, SKP 3 Tahun) dengan pemilih beberapa berkas dan
+   satu tombol **Unggah semua**.
 4. Tunjukkan status kelengkapan dokumen dan daftar dokumen yang kurang.
+5. Setelah **Legalisasi**, buka `/notifikasi` sebagai `kasubag1`. Notifikasi
+   kenaikan pangkat menyediakan tombol **Buka pengusulan kenaikan pangkat**.
 
 #### C. Legalisasi dan verifikasi
 
@@ -871,20 +878,30 @@ DRAFT → LEGALIZED → VERIFIED → PARAF → APPROVED → REGISTERED → ARCHI
 > “Sama seperti cuti dan KGB, paraf Sekcam dan keputusan Camat adalah dua tahap
 > berbeda.”
 
-#### E. Register dan arsip
+#### E. Surat pengantar, ekspedisi, bukti terima, dan arsip
 
 1. Login `verifier1`.
-2. Buka batch `APPROVED`, klik **Register**.
-3. Status menjadi `REGISTERED`; nomor surat dan nomor agenda tercatat.
-4. Klik **Arsip**.
-5. Status menjadi `ARCHIVED`.
-6. Buka **Buku Register**, **Daftar Nominatif**, dan **Buku Arsip** untuk menunjukkan
-   hasilnya.
+2. Buka batch `APPROVED`, klik **Cetak surat pengantar** untuk menunjukkan
+   pratinjau berwatermark. Surat menjadi final setelah nomor surat terbit.
+3. Kembali ke detail, isi tanggal surat, lalu klik **Catat di Buku Agenda
+   Surat Keluar**. Status menjadi `REGISTERED`; nomor surat, tanggal, dan nomor
+   agenda tercatat, serta baris Buku Ekspedisi berstatus **Belum diserahkan**.
+4. Isi tanggal ekspedisi dan nama caraka, lalu klik **Catat penyerahan ke caraka**.
+   Status menjadi `SUBMITTED_BKPSDMD` dan Buku Ekspedisi berstatus **Dikirim**.
+5. Isi nomor bukti terima, tanggal, dan nama penerima BKPSDMD, lalu klik
+   **Catat bukti terima BKPSDMD**. Status menjadi `COMPLETED`.
+6. Klik **Arsip**. Status menjadi `ARCHIVED`. Tombol arsip tidak tersedia
+   sebelum bukti terima tercatat.
+7. Buka **Buku Register**, **Daftar Nominatif**, dan **Buku Arsip** untuk menunjukkan
+   hasilnya. Buku Register menampilkan nomor ekspedisi, tanggal kirim, dan bukti terima.
 
 **Narasi**
 
 > “Buku register dan nominatif membaca data yang sama dengan detail usulan, sehingga
-> tidak ada pencatatan ganda.”
+> tidak ada pencatatan ganda. Register melihat satu baris per berkas usulan;
+> nominatif merinci satu baris per ASN di dalam berkas itu. Surat pengantar tercatat
+> di Buku Agenda Surat Keluar, penyerahannya di Buku Ekspedisi, dan arsip hanya
+> dibuka setelah bukti terima BKPSDMD diterima.”
 
 **Cabang alur kenaikan pangkat**
 

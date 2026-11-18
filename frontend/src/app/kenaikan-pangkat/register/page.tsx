@@ -14,7 +14,9 @@ const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "VERIFIED", label: "Terverifikasi" },
   { value: "PARAF", label: "Paraf" },
   { value: "APPROVED", label: "Disetujui" },
-  { value: "REGISTERED", label: "Diregistrasi" },
+  { value: "REGISTERED", label: "Buku Agenda" },
+  { value: "SUBMITTED_BKPSDMD", label: "Buku Ekspedisi" },
+  { value: "COMPLETED", label: "Bukti terima" },
   { value: "ARCHIVED", label: "Diarsipkan" },
   { value: "REVISION", label: "Revisi" },
   { value: "REJECTED", label: "Ditolak" },
@@ -109,6 +111,9 @@ export default function PromotionRegisterPage() {
                 <th className="px-3 py-2 font-medium">Nomor Surat</th>
                 <th className="px-3 py-2 font-medium">Tanggal Surat</th>
                 <th className="px-3 py-2 font-medium">Nomor Agenda</th>
+                <th className="px-3 py-2 font-medium">Nomor Ekspedisi</th>
+                <th className="px-3 py-2 font-medium">Tanggal Kirim</th>
+                <th className="px-3 py-2 font-medium">Bukti Terima</th>
                 <th className="px-3 py-2 font-medium">Nomor Arsip</th>
                 <th className="px-3 py-2 font-medium">Tanggal Arsip</th>
                 <th className="px-3 py-2 font-medium">Aksi</th>
@@ -129,6 +134,13 @@ export default function PromotionRegisterPage() {
                   <td className="px-3 py-2.5">{r.nomorSurat ?? "-"}</td>
                   <td className="px-3 py-2.5">{r.tanggalSurat?.slice(0, 10) ?? "-"}</td>
                   <td className="px-3 py-2.5">{r.nomorAgenda ?? "-"}</td>
+                  <td className="px-3 py-2.5">{r.nomorEkspedisi ?? "-"}</td>
+                  <td className="px-3 py-2.5">{r.tanggalEkspedisi?.slice(0, 10) ?? "-"}</td>
+                  <td className="px-3 py-2.5">
+                    {r.nomorBuktiTerima || r.tanggalTerima
+                      ? [r.nomorBuktiTerima, r.tanggalTerima?.slice(0, 10)].filter(Boolean).join(" · ")
+                      : "-"}
+                  </td>
                   <td className="px-3 py-2.5">{r.nomorArsip ?? "-"}</td>
                   <td className="px-3 py-2.5">{r.tanggalArsip?.slice(0, 10) ?? "-"}</td>
                   <td className="px-3 py-2.5">

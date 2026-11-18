@@ -35,12 +35,12 @@ Tambahkan ke `frontend/src/lib/types.ts` (nama boleh disesuaikan, field harus sa
 ```ts
 export type PromotionStatus =
   | "DRAFT" | "LEGALIZED" | "VERIFIED" | "PARAF"
-  | "APPROVED" | "REGISTERED" | "ARCHIVED"
+  | "APPROVED" | "REGISTERED" | "SUBMITTED_BKPSDMD" | "COMPLETED" | "ARCHIVED"
   | "REVISION" | "REJECTED";
 
 export type PromotionItemStatus =
   | "PENDING" | "LEGALIZED" | "VERIFIED" | "PARAF" | "APPROVED"
-  | "REGISTERED" | "ARCHIVED" | "REVISION" | "REJECTED";
+  | "REGISTERED" | "SUBMITTED_BKPSDMD" | "COMPLETED" | "ARCHIVED" | "REVISION" | "REJECTED";
 
 export interface PromotionChecklistItem {
   code: string;
@@ -335,11 +335,25 @@ POST /promotion-requests/:id/reject
 POST /promotion-requests/:id/register
 {
   "outgoingLetterDate": "2026-11-01",
-  "sentAt": "2026-11-01",
-  "note": "Registrasi dan kirim ke BKPSDM"
+  "agendaNumber": "800.1.3.2 / 54 / KT / XI / 2026",
+  "note": "Catat di Buku Agenda Surat Keluar"
 }
 // APPROVED -> REGISTERED; hanya Staf Kepegawaian/KEC-TAMALATE
-// Bila tidak memilih surat, backend membuat surat keluar otomatis.
+// Bila tidak memilih surat, backend membuat surat keluar otomatis dan baris
+// Buku Ekspedisi (belum dikirim). sentAt belum diisi pada langkah ini.
+
+POST /promotion-requests/:id/tobkpsdm
+{ "sentDate": "2026-11-01", "courierName": "Nama Caraka", "note": "..." }
+// REGISTERED -> SUBMITTED_BKPSDMD; mencatat serah terima di Buku Ekspedisi.
+
+POST /promotion-requests/:id/complete
+{
+  "receivedDate": "2026-11-02",
+  "receivedByName": "BKPSDMD Kota Makassar",
+  "receiptNumber": "TANDA-TERIMA-001",
+  "note": "..."
+}
+// SUBMITTED_BKPSDMD -> COMPLETED; mencatat bukti terima BKPSDMD.
 
 POST /promotion-requests/:id/archive
 {
@@ -350,7 +364,8 @@ POST /promotion-requests/:id/archive
   "retentionUntil": "2031-11-01",
   "notes": "Berkas diarsipkan per golongan"
 }
-// REGISTERED -> ARCHIVED; hanya Staf Kepegawaian/KEC-TAMALATE
+// COMPLETED -> ARCHIVED; hanya Staf Kepegawaian/KEC-TAMALATE
+// Ditolak 409 bila bukti terima BKPSDMD belum tercatat.
 // Bila surat keluar ada dan belum punya arsip, backend membuat ArchiveRecord otomatis.
 ```
 
@@ -375,7 +390,7 @@ Ketiganya ditolak 403 untuk `EMPLOYEE`.
 ### 4.1 `/kenaikan-pangkat`
 
 - Filter status: Semua, Draf, Legalisasi, Terverifikasi, Paraf, Disetujui,
-  Diregistrasi, Diarsipkan, Perlu revisi, Ditolak.
+  Buku Agenda, Buku Ekspedisi, Bukti terima, Diarsipkan, Perlu revisi, Ditolak.
 - Pencarian nomor usulan/nama/NIP/nomor surat.
 - Tombol `+ Buat Usulan` hanya untuk `promotion.create`.
 - Tombol `Daftar Calon`, `Buku Register`, `Nominatif`, `Buku Arsip` hanya untuk petugas
@@ -403,20 +418,29 @@ Ketiganya ditolak 403 untuk `EMPLOYEE`.
 Workspace utama. Susun:
 
 1. Header: nomor usulan, periode, status, pemegang saat ini, tombol kembali.
-2. Stepper 8 langkah:
+2. Stepper 10 langkah:
    - 1 Data calon, 2 Draf usulan, 3 Legalisasi, 4 Verifikasi Kasubag,
-     5 Paraf Sekcam, 6 TTD Camat, 7 Registrasi & Kirim, 8 Arsip.
+     5 Paraf Sekcam, 6 TTD Camat, 7 Buku Agenda Surat Keluar,
+     8 Buku Ekspedisi Surat Keluar, 9 Bukti Terima BKPSDMD, 10 Arsip.
    - Mapping: `DRAFT` langkah 1–2, `LEGALIZED` 3, `VERIFIED` 4, `PARAF` 5,
-     `APPROVED` 6, `REGISTERED` 7, `ARCHIVED` 8.
+     `APPROVED` 6, `REGISTERED` 7, `SUBMITTED_BKPSDMD` 8, `COMPLETED` 9,
+     `ARCHIVED` 10.
    - `REVISION` tandai langkah yang perlu diperbaiki + tampilkan catatan revisi;
      `REJECTED` hentikan stepper dan tampilkan alasan.
 3. Panel aksi: render dari `availableActions`; jangan hardcode role.
 4. Tabel item: nama/NIP, golongan saat ini → diusulkan, TMT, masa jabatan,
    status item, jumlah dokumen, tombol edit/hapus bila `canEdit`.
-5. Checklist dokumen per item: 10 dokumen wajib + `LAINNYA`; tombol unggah,
-   unduh, hapus. Tampilkan `missingDocuments` sebagai peringatan, bukan blokir.
-6. Panel surat keluar: nomor, tanggal, agenda, perihal, tujuan, penandatangan,
-   nomor arsip.
+5. Checklist dokumen per item: 5 dokumen inti + dokumen tambahan/lama; pemilih
+   beberapa berkas sekaligus, tombol unggah/unduh/hapus. Tampilkan
+   `missingDocuments` sebagai peringatan, bukan blokir.
+6. Panel surat pengantar, Buku Agenda, Buku Ekspedisi, dan arsip:
+   - tombol **Cetak surat pengantar** ke `/kenaikan-pangkat/[id]/cetak/surat`;
+   - nomor/tanggal surat, agenda, perihal, tujuan, penandatangan;
+   - form tanggal surat saat `register`;
+   - form tanggal ekspedisi + caraka saat `tobkpsdm`;
+   - form nomor/tanggal bukti terima + penerima saat `complete`;
+   - nomor ekspedisi, tanggal kirim, caraka, dan status ekspedisi;
+   - nomor/kategori/lokasi arsip setelah `archive`.
 7. Timeline: aktor, jabatan, aksi, catatan, waktu.
 8. Signers: Camat/Sekcam dari backend.
 
@@ -429,10 +453,14 @@ Modal aksi:
 - **Revisi/Penolakan**: textarea catatan minimal 5 karakter.
 - **Paraf**: catatan opsional.
 - **Tanda tangan**: catatan opsional.
-- **Registrasi**: tanggal surat (default hari ini, tidak boleh masa depan), tanggal
-  kirim, catatan; opsi “buat surat keluar otomatis” aktif secara default.
+- **Registrasi**: tanggal surat (default hari ini, tidak boleh masa depan),
+  nomor agenda opsional; surat keluar otomatis dibuat secara default.
+- **Buku Ekspedisi**: tanggal kirim, nama caraka; kirim `tobkpsdm`.
+- **Bukti terima**: nomor bukti terima, tanggal terima, nama penerima;
+  kirim `complete`.
 - **Arsip**: tanggal arsip, kategori, kode, kode berkas, retensi, catatan.
-  Tampilkan nomor arsip setelah sukses.
+  Tampilkan nomor arsip setelah sukses. Tombol arsip hanya muncul pada
+  `COMPLETED` dan backend menolak bila bukti terima belum tercatat.
 
 Setelah setiap aksi: refresh detail; jika 409 tampilkan pesan dan muat ulang;
 jika 403 tampilkan toast “Tidak punya akses”.
@@ -442,7 +470,8 @@ jika 403 tampilkan toast “Tidak punya akses”.
 `GET /promotion-requests/register?year=...`
 
 Kolom: nomor usulan, periode, jumlah ASN, daftar ASN (nama, NIP, golongan),
-nomor surat, tanggal surat, nomor agenda, nomor arsip, tanggal arsip, status.
+nomor surat, tanggal surat, nomor agenda, nomor ekspedisi, tanggal kirim,
+nomor/tanggal bukti terima, nomor arsip, tanggal arsip, status.
 Sediakan filter tahun dan pencarian.
 
 ### 4.5 Daftar nominatif

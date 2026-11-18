@@ -40,6 +40,12 @@ function notificationLink(
   if (n.referenceType === "pension_batch" && n.referenceId) {
     return { href: `/pensiun/${n.referenceId}`, label: "Buka pengajuan pensiun" };
   }
+  if (n.referenceType === "promotion_batch" && n.referenceId) {
+    return { href: `/kenaikan-pangkat/${n.referenceId}`, label: "Buka pengusulan kenaikan pangkat" };
+  }
+  if (n.type === "PANGKAT") {
+    return { href: "/kenaikan-pangkat", label: "Buka pengusulan kenaikan pangkat" };
+  }
   if (n.referenceType === "archive_list" && n.referenceId) {
     return { href: `/arsip/daftar/${n.referenceId}`, label: "Buka daftar arsip" };
   }
@@ -91,6 +97,9 @@ function notificationBadge(n: NotificationItem): { label: string; className: str
   }
   if (n.type === "PENSIUN" || n.referenceType === "pension_batch") {
     return { label: "Pensiun", className: "bg-info-100 text-info-700" };
+  }
+  if (n.type === "PANGKAT" || n.referenceType === "promotion_batch") {
+    return { label: "Kenaikan Pangkat", className: "bg-info-100 text-info-700" };
   }
   return null;
 }

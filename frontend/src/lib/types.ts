@@ -1035,12 +1035,12 @@ export interface PensionExpeditionRow {
 
 export type PromotionStatus =
   | "DRAFT" | "LEGALIZED" | "VERIFIED" | "PARAF"
-  | "APPROVED" | "REGISTERED" | "ARCHIVED"
+  | "APPROVED" | "REGISTERED" | "SUBMITTED_BKPSDMD" | "COMPLETED" | "ARCHIVED"
   | "REVISION" | "REJECTED";
 
 export type PromotionItemStatus =
   | "PENDING" | "LEGALIZED" | "VERIFIED" | "PARAF" | "APPROVED"
-  | "REGISTERED" | "ARCHIVED" | "REVISION" | "REJECTED";
+  | "REGISTERED" | "SUBMITTED_BKPSDMD" | "COMPLETED" | "ARCHIVED" | "REVISION" | "REJECTED";
 
 export interface PromotionChecklistItem {
   code: string;
@@ -1086,6 +1086,21 @@ export interface PromotionItem {
   missingDocuments: string[];
 }
 
+export interface PromotionExpedition {
+  id: string;
+  regNumber: string;
+  letterId: string;
+  sentDate: string | null;
+  courierName: string | null;
+  recipientName: string;
+  receiptNumber: string | null;
+  receivedDate: string | null;
+  receivedByName: string | null;
+  note: string | null;
+  status: "BELUM_DICATAT" | "BELUM_DIKIRIM" | "DIKIRIM" | "DITERIMA";
+  createdAt: string | null;
+}
+
 export interface PromotionBatch {
   id: string;
   batchNumber: string;
@@ -1093,6 +1108,7 @@ export interface PromotionBatch {
   periodMonth: number | null;
   status: PromotionStatus;
   statusLabel: string;
+  expeditionStatus: "BELUM_DICATAT" | "BELUM_DIKIRIM" | "DIKIRIM" | "DITERIMA";
   currentHolderRole: string | null;
   note: string | null;
   legalizationNote: string | null;
@@ -1138,6 +1154,7 @@ export interface PromotionBatch {
     recipient: string | null;
     signerName?: string | null;
     classification: { code: string; name: string } | null;
+    outgoingExpedition?: PromotionExpedition | null;
     archiveRecord: {
       id: string;
       archiveNumber: string;
@@ -1202,6 +1219,13 @@ export interface PromotionRegisterRow {
   nomorSurat: string | null;
   tanggalSurat: string | null;
   nomorAgenda: string | null;
+  nomorEkspedisi: string | null;
+  tanggalEkspedisi: string | null;
+  caraka: string | null;
+  nomorBuktiTerima: string | null;
+  tanggalTerima: string | null;
+  namaPenerima: string | null;
+  expeditionStatus: "BELUM_DICATAT" | "BELUM_DIKIRIM" | "DIKIRIM" | "DITERIMA";
   nomorArsip: string | null;
   tanggalArsip: string | null;
   registeredAt: string | null;

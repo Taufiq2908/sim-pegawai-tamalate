@@ -7,8 +7,10 @@
 //   -> VERIFIED (langkah 4: Kasubag verifikasi kelengkapan + legalisasi)
 //   -> PARAF (langkah 5: Sekcam verifikasi + paraf)
 //   -> APPROVED (langkah 6: Camat verifikasi + tanda tangan)
-//   -> REGISTERED (langkah 7: registrasi surat + kirim ke BKPSDM)
-//   -> ARCHIVED (langkah 8: arsipkan)
+//   -> REGISTERED (langkah 7: catat surat di Buku Agenda Surat Keluar)
+//   -> SUBMITTED_BKPSDMD (langkah 8: catat Buku Ekspedisi + serahkan ke caraka)
+//   -> COMPLETED (langkah 9: bukti terima BKPSDMD diterima)
+//   -> ARCHIVED (langkah 10: arsipkan)
 // Ditambah jalur REVISION/REJECTED untuk berkas yang dikembalikan.
 import { env } from '../config/env';
 
@@ -27,7 +29,9 @@ export const TRANSITIONS: Record<string, PromotionTransition> = {
   approve:  { from: ['PARAF'], to: 'APPROVED', permission: 'promotion.approve', holderAfter: 'VERIFIER' },
   reject:   { from: ['LEGALIZED', 'VERIFIED', 'PARAF'], to: 'REJECTED', permission: 'promotion.reject', holderAfter: 'DONE' },
   register: { from: ['APPROVED'], to: 'REGISTERED', permission: 'promotion.register', holderAfter: 'VERIFIER' },
-  archive:  { from: ['REGISTERED'], to: 'ARCHIVED', permission: 'promotion.archive', holderAfter: 'DONE' },
+  tobkpsdm: { from: ['REGISTERED'], to: 'SUBMITTED_BKPSDMD', permission: 'promotion.register', holderAfter: 'VERIFIER' },
+  complete: { from: ['SUBMITTED_BKPSDMD'], to: 'COMPLETED', permission: 'promotion.register', holderAfter: 'VERIFIER' },
+  archive:  { from: ['COMPLETED'], to: 'ARCHIVED', permission: 'promotion.archive', holderAfter: 'DONE' },
 };
 
 const ACTION_PERM: Record<string, string> = {
@@ -38,6 +42,8 @@ const ACTION_PERM: Record<string, string> = {
   approve: 'promotion.approve',
   reject: 'promotion.reject',
   register: 'promotion.register',
+  tobkpsdm: 'promotion.register',
+  complete: 'promotion.register',
   archive: 'promotion.archive',
 };
 
@@ -49,7 +55,9 @@ const ACTION_FROM: Record<string, string[]> = {
   approve: ['PARAF'],
   reject: ['LEGALIZED', 'VERIFIED', 'PARAF'],
   register: ['APPROVED'],
-  archive: ['REGISTERED'],
+  tobkpsdm: ['REGISTERED'],
+  complete: ['SUBMITTED_BKPSDMD'],
+  archive: ['COMPLETED'],
 };
 
 export function availableActions(status: string, perms: string[]): string[] {
@@ -67,7 +75,9 @@ export const PROMOTION_STATUS_LABELS: Record<string, string> = {
   VERIFIED: 'Berkas terverifikasi Kasubag',
   PARAF: 'Sudah diparaf Sekcam',
   APPROVED: 'Disetujui/ditandatangani Camat',
-  REGISTERED: 'Teregistrasi dan dikirim ke BKPSDM',
+  REGISTERED: 'Tercatat di Buku Agenda Surat Keluar',
+  SUBMITTED_BKPSDMD: 'Tercatat di Buku Ekspedisi Surat Keluar',
+  COMPLETED: 'Bukti terima BKPSDMD sudah diterima',
   ARCHIVED: 'Diarsipkan',
   REVISION: 'Perlu revisi berkas',
   REJECTED: 'Ditolak',
@@ -79,7 +89,9 @@ export const PROMOTION_ITEM_STATUS_LABELS: Record<string, string> = {
   VERIFIED: 'Terverifikasi',
   PARAF: 'Sudah diparaf',
   APPROVED: 'Disetujui',
-  REGISTERED: 'Teregistrasi',
+  REGISTERED: 'Tercatat di Buku Agenda',
+  SUBMITTED_BKPSDMD: 'Tercatat di Buku Ekspedisi',
+  COMPLETED: 'Bukti terima diterima',
   ARCHIVED: 'Diarsipkan',
   REVISION: 'Perlu revisi',
   REJECTED: 'Ditolak',
@@ -92,32 +104,39 @@ export const PROMOTION_ACTION_LABELS: Record<string, string> = {
   paraf: 'diparaf',
   approve: 'disetujui/ditandatangani',
   reject: 'ditolak',
-  register: 'diregistrasi dan dikirim ke BKPSDM',
+  register: 'dicatat di Buku Agenda Surat Keluar',
+  tobkpsdm: 'dicatat di Buku Ekspedisi Surat Keluar',
+  complete: 'bukti terima BKPSDMD diterima',
   archive: 'diarsipkan',
 };
 
-// Checklist dokumen sesuai mutu baku SOP. Verifikasi tetap keputusan petugas
-// (human-in-the-loop) melalui checkbox "dokumen lengkap"; sistem tidak memaksa
-// semua jenis dokumen harus sudah diunggah.
+// Lima dokumen inti untuk demo/testing. Jenis lain tetap diterima backend
+// sebagai dokumen legacy/tambahan, tetapi tidak lagi diwajibkan atau ditampilkan
+// sebagai checklist utama.
 export const PROMOTION_REQUIRED_DOCS = [
   { code: 'DAFTAR_USUL', label: 'Daftar Usul Mulai Kenaikan Pangkat ASN' },
   { code: 'SK_CPNS', label: 'SK CPNS' },
   { code: 'SK_PNS', label: 'SK PNS/ASN' },
-  { code: 'SK_TERAKHIR', label: 'SK Terakhir' },
-  { code: 'SKP_3_TAHUN', label: 'SKP 3 Tahun Terakhir' },
-  { code: 'KARPEG_NIP_BARU', label: 'Karpeg + NIP Baru' },
-  { code: 'IJAZAH_TRANSKRIP', label: 'Ijazah Terakhir + Transkrip Nilai yang Telah Disahkan' },
-  { code: 'SK_MUTASI', label: 'SK Mutasi' },
   { code: 'SK_KENAIKAN_PANGKAT_TERAKHIR', label: 'SK Kenaikan Pangkat Terakhir' },
-  { code: 'SK_JABATAN_ATASAN', label: 'SK Jabatan Atasan' },
+  { code: 'SKP_3_TAHUN', label: 'SKP 3 Tahun Terakhir' },
 ] as const;
 
 export const PROMOTION_REQUIRED_DOC_CODES = PROMOTION_REQUIRED_DOCS.map((d) => d.code);
+
+/** Dokumen lama/tambahan yang masih boleh diunggah dan ditampilkan. */
+export const PROMOTION_LEGACY_DOCS = [
+  { code: 'SK_TERAKHIR', label: 'SK Terakhir' },
+  { code: 'KARPEG_NIP_BARU', label: 'Karpeg + NIP Baru' },
+  { code: 'IJAZAH_TRANSKRIP', label: 'Ijazah Terakhir + Transkrip Nilai yang Telah Disahkan' },
+  { code: 'SK_MUTASI', label: 'SK Mutasi' },
+  { code: 'SK_JABATAN_ATASAN', label: 'SK Jabatan Atasan' },
+] as const;
 
 export const PROMOTION_OTHER_DOC = 'LAINNYA';
 
 export const PROMOTION_DOC_TYPES = [
   ...PROMOTION_REQUIRED_DOC_CODES,
+  ...PROMOTION_LEGACY_DOCS.map((d) => d.code),
   PROMOTION_OTHER_DOC,
 ] as const;
 

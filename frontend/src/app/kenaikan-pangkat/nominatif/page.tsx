@@ -14,7 +14,9 @@ function itemStatusLabel(s: string): string {
     case "VERIFIED": return "Terverifikasi";
     case "PARAF": return "Paraf";
     case "APPROVED": return "Disetujui";
-    case "REGISTERED": return "Diregistrasi";
+    case "REGISTERED": return "Buku Agenda";
+    case "SUBMITTED_BKPSDMD": return "Buku Ekspedisi";
+    case "COMPLETED": return "Bukti terima";
     case "ARCHIVED": return "Diarsipkan";
     case "REVISION": return "Revisi";
     case "REJECTED": return "Ditolak";
@@ -28,7 +30,9 @@ const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "VERIFIED", label: "Terverifikasi" },
   { value: "PARAF", label: "Paraf" },
   { value: "APPROVED", label: "Disetujui" },
-  { value: "REGISTERED", label: "Diregistrasi" },
+  { value: "REGISTERED", label: "Buku Agenda" },
+  { value: "SUBMITTED_BKPSDMD", label: "Buku Ekspedisi" },
+  { value: "COMPLETED", label: "Bukti terima" },
   { value: "ARCHIVED", label: "Diarsipkan" },
   { value: "REVISION", label: "Revisi" },
   { value: "REJECTED", label: "Ditolak" },

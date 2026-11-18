@@ -1,7 +1,7 @@
 # 10 — Requirement Pengajuan Kenaikan Pangkat ASN
 
 > Sumber: SOP Pengusulan Kenaikan Pangkat ASN Kecamatan Tamalate (8 langkah).
-> Status: backend selesai dan sudah diuji end-to-end; frontend belum diubah.
+> Status: backend dan frontend selesai; alur surat pengantar, Buku Agenda, Buku Ekspedisi, dan bukti terima sudah diuji.
 > Dokumen instruksi frontend: `11-frontend-kenaikan-pangkat-handoff.md`.
 > Tanggal acuan: 1 November 2026.
 
@@ -11,7 +11,7 @@
 |---|---|
 | Satu **berkas usulan** (`PromotionBatch`) berisi banyak ASN (`PromotionItem`) | SOP berbicara tentang daftar usulan/berkas, bukan satu surat per pegawai. Paraf, tanda tangan, nomor surat, register, dan arsip cukup sekali per berkas. |
 | Nomor usulan `PANGKAT-YYYY-NNNN` | Mudah dicari dan terpisah dari nomor surat keluar. |
-| Status mengikuti 8 langkah SOP | `DRAFT → LEGALIZED → VERIFIED → PARAF → APPROVED → REGISTERED → ARCHIVED`, plus `REVISION`/`REJECTED`. |
+| Status mengikuti SOP dengan pencatatan surat | `DRAFT → LEGALIZED → VERIFIED → PARAF → APPROVED → REGISTERED → SUBMITTED_BKPSDMD → COMPLETED → ARCHIVED`, plus `REVISION`/`REJECTED`. |
 | `rankTmt` (TMT pangkat terakhir) ditambahkan ke `Employee` | Diperlukan untuk menghitung masa jabatan dan daftar calon. Bila data master kosong, petugas dapat mengirim `currentRankTmt` saat membuat/mengubah item; backend menyimpannya ke master. |
 | Masa jabatan minimal default **4 tahun** | Aturan umum kenaikan pangkat reguler. Dapat diubah dengan `PROMOTION_MIN_YEARS` atau query `minYears` pada daftar calon. |
 | TMT kenaikan default tanggal 1 bulan periode | Bila `effectiveDate` tidak dikirim, backend memakai tanggal 1 pada `periodMonth`; jika bulan kosong dipakai 1 April. Frontend sebaiknya tetap mengirim `effectiveDate` eksplisit. |
@@ -30,8 +30,10 @@
 | 4. Verifikasi dan validasi draf + kelengkapan berkas legalisasi | Kasubag Umum & Kepegawaian | `POST /promotion-requests/:id/verify` dengan `documentsComplete: true` | `VERIFIED` |
 | 5. Verifikasi, validasi, dan paraf draf usulan | Sekretaris Camat | `POST /promotion-requests/:id/paraf` | `PARAF` |
 | 6. Verifikasi dan tanda tangan berkas usulan | Camat | `POST /promotion-requests/:id/approve` | `APPROVED` |
-| 7. Registrasi surat dan kirim ke BKPSDM | Staf Kepegawaian | `POST /promotion-requests/:id/register` | `REGISTERED` |
-| 8. Arsipkan surat usulan | Staf Kepegawaian | `POST /promotion-requests/:id/archive` | `ARCHIVED` |
+| 7. Registrasi surat di Buku Agenda Surat Keluar | Staf Kepegawaian | `POST /promotion-requests/:id/register` | `REGISTERED` |
+| 8. Serah terima ke caraka di Buku Ekspedisi | Staf Kepegawaian | `POST /promotion-requests/:id/tobkpsdm` | `SUBMITTED_BKPSDMD` |
+| 9. Terima bukti terima dari BKPSDMD | Staf Kepegawaian | `POST /promotion-requests/:id/complete` | `COMPLETED` |
+| 10. Arsipkan surat usulan | Staf Kepegawaian | `POST /promotion-requests/:id/archive` | `ARCHIVED` |
 
 Jalur kembali:
 
@@ -92,21 +94,20 @@ Catatan:
 
 ## 5. Checklist dokumen
 
-Checklist mutu baku SOP:
+Checklist inti untuk demo/testing (lima berkas):
 
 1. `DAFTAR_USUL` — Daftar Usul Mulai Kenaikan Pangkat ASN
 2. `SK_CPNS` — SK CPNS
 3. `SK_PNS` — SK PNS/ASN
-4. `SK_TERAKHIR` — SK Terakhir
+4. `SK_KENAIKAN_PANGKAT_TERAKHIR` — SK Kenaikan Pangkat Terakhir
 5. `SKP_3_TAHUN` — SKP 3 Tahun Terakhir
-6. `KARPEG_NIP_BARU` — Karpeg + NIP Baru
-7. `IJAZAH_TRANSKRIP` — Ijazah Terakhir + Transkrip Nilai yang Telah Disahkan
-8. `SK_MUTASI` — SK Mutasi
-9. `SK_KENAIKAN_PANGKAT_TERAKHIR` — SK Kenaikan Pangkat Terakhir
-10. `SK_JABATAN_ATASAN` — SK Jabatan Atasan
-11. `LAINNYA` — dokumen tambahan
 
-Upload: `POST /promotion-requests/:id/items/:itemId/documents` (`multipart/form-data`, field `file`, field `docType`). Jika `docType` sama diunggah lagi, dokumen lama diganti. Upload/hapus hanya saat `DRAFT/REVISION`.
+Jenis lama/tambahan (`SK_TERAKHIR`, `KARPEG_NIP_BARU`, `IJAZAH_TRANSKRIP`,
+`SK_MUTASI`, `SK_JABATAN_ATASAN`, `LAINNYA`) tetap diterima backend dan dapat
+diunduh bila sudah pernah diunggah, tetapi tidak lagi masuk checklist wajib dan
+tidak ditampilkan sebagai kartu unggahan utama.
+
+Upload: `POST /promotion-requests/:id/items/:itemId/documents` (`multipart/form-data`, field `file`, field `docType`). Jika `docType` sama diunggah lagi, dokumen lama diganti. Upload/hapus hanya saat `DRAFT/REVISION`. UI menyediakan pemilih beberapa berkas sekaligus; setiap file dipetakan ke jenis dokumen berdasarkan nama file atau slot inti yang masih kosong.
 
 ## 6. Buku dan kolom
 
