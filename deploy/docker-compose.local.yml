@@ -1,0 +1,124 @@
+name: simpeg-local
+
+# Uji lokal saja (bukan produksi). Semua nilai rahasia di sini adalah dummy
+# khusus uji dan TIDAK boleh dipakai di server.
+# Jalankan dari root repo:
+#   docker compose -f deploy/docker-compose.local.yml up -d --build
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: simpeg
+      POSTGRES_PASSWORD: simpeg_local_test
+      POSTGRES_DB: simpeg
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U simpeg -d simpeg"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backend:
+    build:
+      context: ../backend
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: postgresql://simpeg:simpeg_local_test@postgres:5432/simpeg
+      DIRECT_URL: postgresql://simpeg:simpeg_local_test@postgres:5432/simpeg
+      DATABASE_SSL: disable
+      DB_POOL_MAX: "10"
+      # Dummy uji: >=32 karakter, berbeda satu sama lain, bukan placeholder repo.
+      JWT_ACCESS_SECRET: local-test-access-secret-32chars-min-0001
+      JWT_REFRESH_SECRET: local-test-refresh-secret-32chars-min-002
+      CORS_ORIGINS: ""
+      TRUST_PROXY: "1"
+      STORAGE_DRIVER: local
+      ALLOW_LOCAL_STORAGE: "true"
+      UPLOAD_DIR: /tmp/simpeg-uploads
+      MAX_FILE_BYTES: "10485760"
+    init: true
+    stop_grace_period: 20s
+    mem_limit: 512m
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://backend:3000/api/v1
+    init: true
+    mem_limit: 700m
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+    environment:
+      APP_DOMAIN: http://localhost
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data_local:/data
+      - caddy_config_local:/config
+    mem_limit: 128m
+    depends_on:
+      frontend:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pgdata:
+  caddy_data_local:
+  caddy_config_local:

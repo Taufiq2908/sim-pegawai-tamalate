@@ -1,0 +1,255 @@
+# Deploy SIMPEG ke EC2 lewat GitHub Actions.
+#
+# Alur: push ke main (atau workflow_dispatch) -> uji -> build image arm64 ->
+# push ECR -> unggah bundle deploy ke S3 -> SSM Run Command di EC2
+# (install.sh -> deploy.sh <tag> -> check.sh) -> polling hasil.
+#
+# Tanpa OIDC: akun free plan menolak iam:*Provider*. Kredensial berasal dari
+# environment "production" (environment secrets), bukan repository secrets.
+# Semua action pihak ketiga dipin ke commit SHA penuh (repo publik).
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit SHA (7-40 hex huruf kecil) untuk deploy ulang/rollback. Kosong = commit yang dipilih saat dispatch.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Uji backend + frontend
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      # Placeholder: `prisma generate` (postinstall) membaca DIRECT_URL,
+      # tidak ada koneksi DB yang dibuka selama uji.
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci?schema=public
+      DIRECT_URL: postgresql://ci:ci@127.0.0.1:5432/ci?schema=public
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Siapkan Node 22 (cache npm)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: 'Backend: typecheck, build, smoke'
+        working-directory: backend
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+          npm run storage:smoke
+          npm run security:smoke
+
+      - name: 'Frontend: build'
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3000/api/v1
+        run: |
+          npm ci
+          npm run build
+
+  deploy:
+    name: Deploy ke EC2
+    needs: test
+    # Arm64 native (repo publik). Build lintas-arsitektur tidak dipakai.
+    runs-on: ubuntu-24.04-arm
+    environment:
+      name: production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+      S3_BUCKET: ${{ vars.S3_BUCKET }}
+      INSTANCE_ID: ${{ vars.INSTANCE_ID }}
+    steps:
+      - name: Checkout (riwayat penuh untuk deploy ulang SHA lama)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      # Nilai dari event/input TIDAK pernah dipakai langsung di run:.
+      # Semua lewat env lalu divalidasi sebagai SHA heksadesimal.
+      - name: Validasi ref deploy
+        id: ref
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ref="${INPUT_REF:-$EVENT_SHA}"
+          if ! printf '%s' "$ref" | grep -Eq '^[0-9a-f]{7,40}$'; then
+            echo "ref tidak valid (harus 7-40 hex huruf kecil): $ref" >&2
+            exit 2
+          fi
+          sha="$(git rev-parse --verify "${ref}^{commit}")"
+          tag="$(git rev-parse --short=7 "$sha")"
+          if ! printf '%s' "$tag" | grep -Eq '^[0-9a-f]{7}$'; then
+            echo "tag hasil rev-parse tidak valid: $tag" >&2
+            exit 2
+          fi
+          echo "sha=$sha" >>"$GITHUB_OUTPUT"
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          echo "Deploy commit $sha (tag $tag)"
+
+      - name: Checkout commit yang divalidasi
+        env:
+          DEPLOY_SHA: ${{ steps.ref.outputs.sha }}
+        run: git checkout --detach "$DEPLOY_SHA"
+
+      - name: Konfigurasi kredensial AWS (environment production)
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login ECR
+        uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2
+
+      - name: Siapkan buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build & push backend (arm64)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: backend
+          platforms: linux/arm64
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/simpeg-backend:${{ steps.ref.outputs.tag }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build & push frontend (arm64)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: frontend
+          platforms: linux/arm64
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=http://backend:3000/api/v1
+          tags: ${{ env.ECR_REGISTRY }}/simpeg-frontend:${{ steps.ref.outputs.tag }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Unggah bundle deploy ke S3
+        env:
+          TAG: ${{ steps.ref.outputs.tag }}
+        run: |
+          set -euo pipefail
+          files=(
+            docker-compose.yml
+            Caddyfile
+            fetch-env.sh
+            deploy.sh
+            boot.sh
+            check.sh
+            install.sh
+            backup-db.sh
+            db-migrate.sh
+            migrate-files.sh
+            simpeg.service
+          )
+          for file in "${files[@]}"; do
+            aws s3 cp "deploy/$file" "s3://$S3_BUCKET/_deploy/$TAG/$file" \
+              --region "$AWS_REGION" --only-show-errors
+          done
+          echo "bundle terunggah: s3://$S3_BUCKET/_deploy/$TAG/"
+
+      - name: Kirim perintah deploy lewat SSM
+        id: deploy
+        env:
+          TAG: ${{ steps.ref.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ssm"
+          jq -n \
+            --arg tag "$TAG" \
+            --arg bucket "$S3_BUCKET" \
+            --arg region "$AWS_REGION" \
+            '{
+              commands: [
+                "set -eu",
+                ("install -d -m 750 /opt/simpeg/release/" + $tag),
+                ("aws s3 cp --recursive --region " + $region + " s3://" + $bucket + "/_deploy/" + $tag + "/ /opt/simpeg/release/" + $tag + "/"),
+                ("install -m 755 /opt/simpeg/release/" + $tag + "/*.sh /opt/simpeg/"),
+                ("install -m 644 /opt/simpeg/release/" + $tag + "/docker-compose.yml /opt/simpeg/docker-compose.yml"),
+                ("install -m 644 /opt/simpeg/release/" + $tag + "/Caddyfile /opt/simpeg/Caddyfile"),
+                ("install -m 644 /opt/simpeg/release/" + $tag + "/simpeg.service /opt/simpeg/simpeg.service"),
+                "cd /opt/simpeg && ./install.sh",
+                ("cd /opt/simpeg && ./deploy.sh " + $tag),
+                "cd /opt/simpeg && ./check.sh",
+                ("rm -rf /opt/simpeg/release/" + $tag)
+              ]
+            }' >"$RUNNER_TEMP/ssm/params.json"
+
+          command_id="$(aws ssm send-command \
+            --region "$AWS_REGION" \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --timeout-seconds 900 \
+            --comment "simpeg deploy $TAG" \
+            --parameters "file://$RUNNER_TEMP/ssm/params.json" \
+            --query 'Command.CommandId' --output text)"
+
+          if [ -z "$command_id" ] || [ "$command_id" = "None" ]; then
+            echo "SSM tidak mengembalikan CommandId." >&2
+            exit 1
+          fi
+          echo "command_id=$command_id" >>"$GITHUB_OUTPUT"
+          echo "SSM CommandId: $command_id"
+
+      - name: Tunggu hasil deploy (maks 15 menit)
+        env:
+          COMMAND_ID: ${{ steps.deploy.outputs.command_id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 90); do
+            json="$(aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --output json 2>/dev/null || true)"
+            if [ -n "$json" ]; then
+              status="$(printf '%s' "$json" | jq -r '.Status // "Pending"')"
+              case "$status" in
+                Pending|InProgress|Delayed)
+                  ;;
+                *)
+                  echo "--- stdout ---"
+                  printf '%s' "$json" | jq -r '.StandardOutputContent // ""'
+                  echo "--- stderr ---"
+                  printf '%s' "$json" | jq -r '.StandardErrorContent // ""'
+                  if [ "$status" != "Success" ]; then
+                    echo "deploy gagal: status SSM $status (percobaan $attempt)" >&2
+                    exit 1
+                  fi
+                  echo "deploy sukses (status $status)"
+                  exit 0
+                  ;;
+              esac
+            fi
+            sleep 10
+          done
+          echo "deploy: timeout menunggu hasil SSM (15 menit)." >&2
+          exit 1

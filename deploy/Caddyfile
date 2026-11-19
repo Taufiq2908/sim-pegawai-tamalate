@@ -1,0 +1,23 @@
+# Caddy di depan aplikasi SIMPEG. APP_DOMAIN diisi lewat environment Compose
+# (mis. simpeg-tamalate.duckdns.org). HTTPS otomatis lewat Let's Encrypt.
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	request_body {
+		max_size 12MB
+	}
+
+	reverse_proxy frontend:3000 {
+		# Timpa (bukan tambah) X-Forwarded-For dari klien; backend memakai
+		# trust proxy = 1 sehingga header ini menentukan IP untuk rate limit.
+		header_up X-Forwarded-For {remote_host}
+	}
+}

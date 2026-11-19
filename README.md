@@ -5,6 +5,7 @@ Sistem Informasi Manajemen Kepegawaian & Layanan Administrasi Terintegrasi — K
 Monorepo: `backend/` (Express + Prisma + Supabase) dan `frontend/` (Next.js, wilayah Taufiqurrahman).
 Kontrak integrasi: `docs/02-api-contract.md`. Desain database: `docs/01-database-design.md`.
 Penyimpanan file: `docs/15-storage-supabase.md` (bucket private `simpeg_files`).
+Deploy otomatis (GitHub Actions → EC2): `docs/ci-cd.md`.
 
 ## Struktur
 

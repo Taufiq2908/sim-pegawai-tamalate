@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { signAccess, signRefresh, verifyRefresh } from '../lib/jwt';
@@ -8,6 +9,52 @@ import { authRequired } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
 
 const router = Router();
+
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MESSAGE = 'Terlalu banyak percobaan login. Coba lagi beberapa menit lagi.';
+
+/** IP klien ternormalisasi (IPv6 memakai subnet /56), '' bila tidak tersedia. */
+function clientIp(req: { ip?: string }): string {
+  return ipKeyGenerator(req.ip ?? '');
+}
+
+/** Username dari body, aman bila body/username kosong atau bukan string. */
+function loginUsername(req: { body?: unknown }): string {
+  const body = req.body as { username?: unknown } | undefined;
+  const raw = body?.username;
+  return typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+}
+
+/**
+ * Hanya 4xx yang dihitung sebagai percobaan gagal. 5xx (mis. DB mati) bukan
+ * kesalahan pengguna sehingga tidak boleh mengunci akun; 2xx/3xx juga tidak.
+ */
+const countOnlyClientFailures = (_req: unknown, res: { statusCode: number }) =>
+  res.statusCode < 400 || res.statusCode >= 500;
+
+/** Batas per IP: mencegah satu sumber mencoba banyak username sekaligus. */
+const loginIpLimiter = rateLimit({
+  windowMs: LOGIN_WINDOW_MS,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: countOnlyClientFailures,
+  keyGenerator: (req) => clientIp(req),
+  handler: (_req, res) => fail(res, 429, LOGIN_MESSAGE),
+});
+
+/** Batas per IP + username: satu pengguna tidak bisa mengunci semua orang. */
+const loginAccountLimiter = rateLimit({
+  windowMs: LOGIN_WINDOW_MS,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: countOnlyClientFailures,
+  keyGenerator: (req) => `${clientIp(req)}|${loginUsername(req)}`,
+  handler: (_req, res) => fail(res, 429, LOGIN_MESSAGE),
+});
 
 async function userPayload(userId: string) {
   const user = await prisma.user.findUnique({
@@ -44,7 +91,7 @@ async function userPayload(userId: string) {
   };
 }
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginIpLimiter, loginAccountLimiter, async (req, res) => {
   const schema = z.object({ username: z.string().min(1), password: z.string().min(1) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return fail(res, 422, 'Validasi gagal', parsed.error.flatten());

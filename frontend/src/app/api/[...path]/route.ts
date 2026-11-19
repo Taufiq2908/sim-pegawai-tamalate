@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { stripAuthTokens } from "@/lib/auth-payload";
 
 const BACKEND = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
 const ACCESS_COOKIE = "simpeg_access";
@@ -34,14 +35,32 @@ function cookieOptions(maxAge: number) {
   };
 }
 
-async function refreshSession(refreshToken: string): Promise<{
+/** Pangkas token dari body JSON; buffer asli dikembalikan bila tidak bisa diparse. */
+function stripTokensFromBuffer(buffer: Buffer<ArrayBuffer>): Buffer<ArrayBuffer> {
+  try {
+    const json: unknown = JSON.parse(buffer.toString("utf8"));
+    const stripped = stripAuthTokens(json);
+    if (stripped === json) return buffer;
+    return Buffer.from(JSON.stringify(stripped), "utf8");
+  } catch {
+    return buffer;
+  }
+}
+
+async function refreshSession(
+  refreshToken: string,
+  forwardedFor?: string,
+): Promise<{
   accessToken?: string;
   refreshToken?: string;
 } | null> {
   try {
     const res = await fetch(`${BACKEND}/auth/refresh`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
+      },
       body: JSON.stringify({ refreshToken }),
       cache: "no-store",
     });
@@ -66,6 +85,10 @@ async function forward(req: NextRequest, path: string[]) {
   // Teruskan content-type asli (JSON atau multipart boundary).
   if (contentType) headers["content-type"] = contentType;
   if (access) headers.authorization = `Bearer ${access}`;
+  // Teruskan apa adanya (tidak membuat/menambah nilai): backend butuh IP klien
+  // asli untuk trust proxy + rate limit.
+  const forwardedFor = req.headers.get("x-forwarded-for") ?? undefined;
+  if (forwardedFor) headers["x-forwarded-for"] = forwardedFor;
 
   const hasBody = !["GET", "HEAD"].includes(req.method);
   const body = hasBody ? await req.arrayBuffer() : undefined;
@@ -95,7 +118,7 @@ async function forward(req: NextRequest, path: string[]) {
   // `/auth/me` juga harus bisa memulihkan sesi. Hanya login/refresh/logout
   // yang tidak boleh memicu refresh agar tidak terjadi loop.
   if (res.status === 401 && refresh && !skipRefresh) {
-    const session = await refreshSession(refresh);
+    const session = await refreshSession(refresh, forwardedFor);
     if (session?.accessToken) {
       refreshed = true;
       newAccess = session.accessToken;
@@ -119,22 +142,8 @@ async function forward(req: NextRequest, path: string[]) {
 
   // Baca sebagai byte agar PDF/foto tidak rusak oleh res.text().
   const buffer = Buffer.from(await res.arrayBuffer());
-  const responseHeaders: Record<string, string> = {};
-  for (const name of PASS_THROUGH_HEADERS) {
-    const value = res.headers.get(name);
-    if (value) responseHeaders[name] = value;
-  }
-  if (buffer.length) responseHeaders["content-length"] = String(buffer.byteLength);
-  if (!responseHeaders["content-type"]) {
-    responseHeaders["content-type"] = "application/json";
-  }
 
-  const response = new NextResponse(buffer.length ? buffer : null, {
-    status: res.status,
-    headers: responseHeaders,
-  });
-
-  // Tangkap token dari /auth/login & /auth/refresh ke httpOnly cookie.
+  // Tangkap token login dari body ASLI sebelum dipangkas; cookie di-set dari nilai ini.
   if (pathKey === "auth/login" && res.ok) {
     try {
       const json = JSON.parse(buffer.toString("utf8")) as {
@@ -146,6 +155,28 @@ async function forward(req: NextRequest, path: string[]) {
       /* abaikan */
     }
   }
+
+  // Login/refresh sukses: token tidak boleh ikut ke browser. Bila parse gagal
+  // atau status bukan 2xx, respons diteruskan apa adanya.
+  const responseBody =
+    res.ok && (pathKey === "auth/login" || pathKey === "auth/refresh")
+      ? stripTokensFromBuffer(buffer)
+      : buffer;
+
+  const responseHeaders: Record<string, string> = {};
+  for (const name of PASS_THROUGH_HEADERS) {
+    const value = res.headers.get(name);
+    if (value) responseHeaders[name] = value;
+  }
+  if (responseBody.length) responseHeaders["content-length"] = String(responseBody.byteLength);
+  if (!responseHeaders["content-type"]) {
+    responseHeaders["content-type"] = "application/json";
+  }
+
+  const response = new NextResponse(responseBody.length ? responseBody : null, {
+    status: res.status,
+    headers: responseHeaders,
+  });
 
   if (newAccess) {
     response.cookies.set(ACCESS_COOKIE, newAccess, cookieOptions(15 * 60));

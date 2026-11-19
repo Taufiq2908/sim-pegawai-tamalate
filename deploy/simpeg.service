@@ -1,0 +1,17 @@
+[Unit]
+Description=SIMPEG Tamalate (Docker Compose)
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/simpeg
+# Ambil ulang /simpeg/prod/* dari SSM, lalu jalankan stack dengan CURRENT_TAG.
+ExecStartPre=/opt/simpeg/fetch-env.sh
+ExecStart=/opt/simpeg/boot.sh
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
