@@ -1,0 +1,15 @@
+node_modules
+dist
+src/generated
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+uploads
+*.log
+scripts/*.py
+scripts/e2e-*.ps1
+docs
+README.md
+Dockerfile

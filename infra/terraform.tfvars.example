@@ -1,0 +1,40 @@
+# Contoh konfigurasi. Salin berkas ini menjadi terraform.tfvars, lalu isi nilai
+# sebenarnya. terraform.tfvars TIDAK boleh di-commit (sudah ada di .gitignore).
+#
+#   Copy-Item terraform.tfvars.example terraform.tfvars
+#
+# Nilai di bawah hanya contoh fiktif.
+
+# ---------- Region dan AZ ----------
+# Region dikunci kebijakan akun project; jangan diganti.
+region    = "ap-southeast-2"
+az_suffix = "a"
+
+# ---------- EC2 ----------
+instance_type  = "t4g.small"
+root_volume_gb = 30
+
+# ---------- Database ----------
+use_rds                = true
+db_instance_class      = "db.t4g.micro"
+db_allocated_storage   = 20
+db_deletion_protection = true
+
+# Free plan menolak 7/3 hari dan menerima 1; 0 = backup otomatis mati.
+db_backup_retention_days = 1
+
+# ---------- Pipeline deploy (opsional) ----------
+# true = buat IAM user CI. Kunci akses tetap dibuat manual oleh Bos.
+enable_ci_user = true
+
+# ---------- Notifikasi ----------
+alert_email = "contoh@example.com"
+
+# ---------- Domain ----------
+# Domain DuckDNS tanpa http:// atau https://.
+app_domain = "contoh-simpeg.duckdns.org"
+
+# ---------- Opsional ----------
+# Contoh ini mengaktifkan keduanya (default variabel tetap false).
+enable_cloudtrail = true
+enable_budgets    = true

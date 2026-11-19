@@ -1,0 +1,12 @@
+node_modules
+.next
+next-env.d.ts
+tsconfig.tsbuildinfo
+.env
+.env.*
+!.env.local.example
+.git
+.gitignore
+*.log
+README.md
+Dockerfile

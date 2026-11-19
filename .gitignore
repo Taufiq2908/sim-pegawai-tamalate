@@ -25,3 +25,22 @@ backend/src/generated/
 Thumbs.db
 .vscode/
 .idea/
+
+# terraform (state berisi secret; jangan pernah di-commit)
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+!*.tfvars.example
+*.pem
+crash.log
+
+# artefak terraform plan
+tfplan
+*.tfplan
+plan.txt
+
+# env tambahan (contoh tetap boleh)
+.env.*
+!.env.example
+!*.env.example
